@@ -34,12 +34,6 @@ def _reset_cost_counters() -> None:
 	form.thread_cost.process_output_tokens = 0
 
 
-def on_select_model(model_name: str):
-	form.set_model(model_name)
-	log_success(f"Selected model: {model_name}")
-	return model_name
-
-
 def on_clear():
 	"""Clear UI fields and reset counters."""
 	_reset_cost_counters()
@@ -111,6 +105,7 @@ Return the results as a JSON object with appropriate keys"""
 	except KeyboardInterrupt:
 		log_error("Operation cancelled by user")
 		raise
+
 	except Exception as e:
 		log_error(f"Error during LLM invocation: {type(e).__name__}: {str(e)}")
 		error_msg = "Error during extraction, check logs for details."
@@ -169,11 +164,6 @@ def build_demo() -> gr.Blocks:
 				value=getattr(form.SELECTED_MODEL, "name", model_names[0]),
 				label="Model",
 			)
-			selected_model = gr.Textbox(
-				value=getattr(form.SELECTED_MODEL, "name", ""),
-				label="Selected model",
-				interactive=False,
-			)
 
 		extraction_instruction = gr.Textbox(
 			label="Extraction Instruction",
@@ -220,12 +210,6 @@ def build_demo() -> gr.Blocks:
 			fn=on_set_api_keys,
 			inputs=[openai_key_input, openrouter_key_input],
 			outputs=[api_status],
-		)
-		
-		model_dropdown.change(
-			fn=on_select_model,
-			inputs=[model_dropdown],
-			outputs=[selected_model],
 		)
 
 		extract_btn.click(
