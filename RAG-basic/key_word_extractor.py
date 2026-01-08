@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import json
 import os
+import json
 import sys
 from pathlib import Path
 from typing import Any
 
-
-os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
-
 import gradio as gr
+
+# Handshake warning ignore
+os.environ.setdefault("GRADIO_ANALYTICS_ENABLED", "False")
 
 PROJECT_DIR = Path(__file__).resolve().parent
 if str(PROJECT_DIR) not in sys.path:
@@ -17,50 +17,8 @@ if str(PROJECT_DIR) not in sys.path:
 
 
 from app.log import log_success, log_error, log_warning
+from app.utils import _ensure_models_registered, _reset_cost_counters, on_clear, on_set_api_keys, get_available_models
 from app.model import form
-from app.model.router import register_all_models
-
-
-def _ensure_models_registered() -> None:
-	if form.get_all_model_names():
-		return
-	register_all_models()
-
-
-def _reset_cost_counters() -> None:
-	form._init_thread_cost()
-	form.thread_cost.process_cost = 0.0
-	form.thread_cost.process_input_tokens = 0
-	form.thread_cost.process_output_tokens = 0
-
-
-def on_clear():
-	"""Clear UI fields and reset counters."""
-	_reset_cost_counters()
-	log_success("Cleared fields and reset counters")
-	return "", "", "", ""
-
-
-def on_set_api_keys(openai_key: str, openrouter_key: str) -> str:
-	"""Set API keys from user input."""
-	message_parts = []
-	
-	if openai_key and openai_key.strip():
-		os.environ["OPENAI_API_KEY"] = openai_key.strip()
-		log_success("OpenAI API key set")
-		message_parts.append("OpenAI API key set")
-	
-	if openrouter_key and openrouter_key.strip():
-		os.environ["OPENROUTER_API_KEY"] = openrouter_key.strip()
-		log_success("OpenRouter API key set")
-		message_parts.append("OpenRouter API key set")
-	
-	if not message_parts:
-		log_error("No API keys provided")
-		return "No API keys provided"
-	
-	return " | ".join(message_parts)
-
 
 def on_extract_keywords(input_text: str, extraction_instruction: str):
 	"""
@@ -90,7 +48,6 @@ Return the results as a JSON object with appropriate keys"""
 		log_success("Starting LLM invocation...")
 		log_success(f"Model: {form.SELECTED_MODEL.name}")
 		
-		# Call the model without session memory (stateless extraction)
 		response_text = form.SELECTED_MODEL.call(
 			[],
 			system_prompt=system_prompt,
@@ -126,7 +83,11 @@ def build_demo() -> gr.Blocks:
 	# Initialize cost counters to avoid AttributeError
 	_reset_cost_counters()
 
-	model_names = form.get_all_model_names()
+	all_model_names = form.get_all_model_names()
+	available_model_names = get_available_models()
+	
+	# If no models available, use all models (for initial state)
+	initial_models = available_model_names if available_model_names else all_model_names
 
 	with gr.Blocks(title="Keyword Extractor") as demo:
 		gr.Markdown(
@@ -160,8 +121,8 @@ def build_demo() -> gr.Blocks:
 
 		with gr.Row():
 			model_dropdown = gr.Dropdown(
-				choices=model_names,
-				value=getattr(form.SELECTED_MODEL, "name", model_names[0]),
+				choices=initial_models,
+				value=getattr(form.SELECTED_MODEL, "name", initial_models[0]) if initial_models else all_model_names[0],
 				label="Model",
 			)
 
@@ -205,13 +166,36 @@ def build_demo() -> gr.Blocks:
 
 		stats = gr.Textbox(label="Run stats", lines=8, interactive=False)
 
-		# Event handlers
+		def update_model_choices_after_keys(openai_key, openrouter_key):
+			"""Update available models after API keys are set"""
+			available = get_available_models()
+			if not available:
+				# If still no keys, show all models
+				available = form.get_all_model_names()
+			
+			# Set to first available model
+			if available:
+				form.set_model(available[0])
+			
+			return gr.Dropdown(choices=available, value=available[0] if available else form.get_all_model_names()[0])
+		
+  		# Event handlers
 		set_keys_btn.click(
 			fn=on_set_api_keys,
 			inputs=[openai_key_input, openrouter_key_input],
 			outputs=[api_status],
+		).then(
+			fn=update_model_choices_after_keys,
+			inputs=[openai_key_input, openrouter_key_input],
+			outputs=[model_dropdown],
 		)
-
+  
+		model_dropdown.change(
+			fn=lambda model_name: form.set_model(model_name),
+			inputs=[model_dropdown],
+			outputs=[],
+		)
+  
 		extract_btn.click(
 			fn=on_extract_keywords,
 			inputs=[input_text, extraction_instruction],
@@ -239,18 +223,17 @@ def build_demo() -> gr.Blocks:
 
 
 def _launch_gradio(demo: gr.Blocks) -> None:
-	"""Launch Gradio with retries for common WSL/remote issues."""
 	host = os.getenv("GRADIO_SERVER_NAME", "127.0.0.1")
 	port = int(os.getenv("GRADIO_SERVER_PORT", "7860"))
 	share_env = os.getenv("GRADIO_SHARE", "").strip().lower()
 	share = share_env in {"1", "true", "yes", "y", "on"}
 
-	# Try a small port range in case 7860 is busy.
+	# Launch port busy check
 	ports_to_try = list(range(port, port + 21))
  
 	log_success("Application Initialize! All the app setup and run time will report here")
 
-	last_exc = None  # type: Exception | None
+	last_exc = None
 	for p in ports_to_try:
 		try:
 			demo.launch(server_name=host, server_port=p, share=share)
