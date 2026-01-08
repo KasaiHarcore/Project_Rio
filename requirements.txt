@@ -1,2 +1,14 @@
+# Logging and utilities
 loguru
 rich
+pydantic
+
+# Langchain packages
+langchain-core
+langchain-community
+langchain
+langchain-openai
+
+# Gradio UI
+gradio
+huggingface-hub<1.0.0 # due to compatibility issues with Gradio

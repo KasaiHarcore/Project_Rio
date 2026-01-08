@@ -1,9 +1,0 @@
-pydantic
-loguru
-langchain-core
-langchain-community
-langchain
-langchain-openai
-rich
-gradio
-huggingface-hub<1.0.0
