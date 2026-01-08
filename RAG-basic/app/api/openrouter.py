@@ -1,0 +1,160 @@
+from __future__ import annotations
+
+import os
+from collections.abc import Callable, Mapping
+from getpass import getpass
+from typing import Any
+
+from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
+from langchain_openai import ChatOpenAI
+
+from app.log import log_success, log_error, log_info
+from app.model.form import MODEL_TEMP, Model, thread_cost, _init_thread_cost
+
+class OpenRouterModel(Model):
+    def __init__(
+        self,
+        name: str,
+        model_name: str,
+        cost_per_input: float,
+        cost_per_output: float,
+        parallel_tool_call: bool = True,
+    ):
+        super().__init__(
+            name=name,
+            cost_per_input=cost_per_input,
+            cost_per_output=cost_per_output,
+            parallel_tool_call=parallel_tool_call,
+        )
+        self.model_name = model_name
+        self.llm: ChatOpenAI | None = None
+
+    def check_api_key(self) -> str:
+        """
+        Ensure OPENAI_API_KEY is available.
+        """
+        env_key = os.getenv("OPENROUTER_API_KEY")
+        if env_key:
+            log_success("OpenRouter API key detected")
+            return env_key
+
+        log_error("OPENROUTER_API_KEY is not set")
+
+        while True:
+            try:
+                api_key = getpass("Enter OpenRouter API Key: ").strip()
+            except KeyboardInterrupt:
+                log_error("API key input cancelled by user")
+                raise RuntimeError("Missing OpenRouter API key")
+
+            if not api_key:
+                log_error("API key cannot be empty")
+                continue
+
+            # Set for current process
+            os.environ["OPENROUTER_API_KEY"] = api_key
+
+            log_success("OpenRouter API key provided manually")
+            return api_key
+    
+    def setup(self) -> None:
+        log_info(f"Setting up OpenRouter model: {self.model_name}")
+        self.check_api_key()
+
+        self.llm = ChatOpenAI(
+            model=self.model_name, 
+            temperature=MODEL_TEMP, 
+            base_url="https://openrouter.ai/api/v1", 
+            api_key=os.getenv("OPENROUTER_API_KEY"),
+            request_timeout=60.0,
+            max_retries=2
+        )
+
+        log_success(f"OpenRouter model ready: {self.model_name}")
+        
+    def call(self, messages: list[dict] | list[BaseMessage], **kwargs):
+        if not self.llm:
+            log_info("LLM not initialized, setting up...")
+            self.setup()
+
+        # Params
+        system_prompt: str | None = kwargs.pop("system_prompt", None)
+        ai_prompt: str | None = kwargs.pop("ai_prompt", None)
+        user_prompt: str | None = kwargs.pop("user_prompt", None)
+        history: list[BaseMessage] | None = kwargs.pop("history", None)
+        session_id: str | None = kwargs.pop("session_id", None)
+        history_k: int = int(kwargs.pop("history_k", 4))
+
+        # Response post-processing
+        response_prefix: str = kwargs.pop("response_prefix", "")
+        response_suffix: str = kwargs.pop("response_suffix", "")
+        response_transform: Callable[[str], str] | None = kwargs.pop(
+            "response_transform", None
+        )
+        return_text: bool = bool(kwargs.pop("return_text", False))
+
+        lc_messages: list[BaseMessage] | list[dict]
+        if user_prompt is not None:
+            # Pull session history if a session is provided
+            if session_id:
+                chat_history = self.get_chat_history(session_id, k=history_k)
+                history = chat_history.messages
+
+            lc_messages = self.format_messages(
+                system_prompt=system_prompt,
+                ai_prompt=ai_prompt,
+                user_prompt=user_prompt,
+                history=history,
+            )
+        else:
+            lc_messages = messages
+
+        response = self.llm.invoke(lc_messages, **kwargs)
+        log_success(f"Received response from {self.model_name}")
+
+        usage = response.response_metadata.get("token_usage", {})
+        input_tokens = usage.get("prompt_tokens", 0)
+        output_tokens = usage.get("completion_tokens", 0)
+
+        cost = self.calc_cost(input_tokens, output_tokens)
+
+        _init_thread_cost()
+        thread_cost.process_input_tokens += input_tokens
+        thread_cost.process_output_tokens += output_tokens
+        thread_cost.process_cost += cost
+
+        text = getattr(response, "content", "")
+        if response_prefix or response_suffix:
+            text = f"{response_prefix}{text}{response_suffix}"
+        if response_transform:
+            text = response_transform(text)
+
+        # Append to session history (store only user + ai messages)
+        if session_id and user_prompt is not None:
+            chat_history = self.get_chat_history(session_id, k=history_k)
+            chat_history.add_messages([
+                HumanMessage(content=user_prompt),
+                AIMessage(content=text),
+            ])
+
+        if return_text:
+            return text
+
+        # Attach a convenience copy for UIs like Gradio
+        try:
+            response.ui_text = text  # type: ignore[attr-defined]
+        except Exception:
+            pass
+
+        return response
+
+class OpenAI_OSS_120B(OpenRouterModel):
+    def __init__(self):
+        super().__init__(
+            name="gpt-oss-120b",
+            model_name="openai/gpt-oss-120b:free",
+            cost_per_input=0.0,
+            cost_per_output=0.0,
+            parallel_tool_call=True,
+        )
+        self.note = "OpenAI's open-source model with 120B parameters"
