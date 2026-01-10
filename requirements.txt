@@ -8,7 +8,24 @@ langchain-core
 langchain-community
 langchain
 langchain-openai
+langsmith
+langgraph
+langchain-chroma
+langchain-huggingface
+
+# RAG and Vector Store
+chromadb
 
 # Gradio UI
 gradio
-huggingface-hub<1.0.0 # due to compatibility issues with Gradio
+
+# PostgreSQL database
+psycopg2-binary
+pypdf
+sqlalchemy
+
+# Transformers and Huggingface
+sentence_transformers
+
+# Ultilities
+tavily-python
