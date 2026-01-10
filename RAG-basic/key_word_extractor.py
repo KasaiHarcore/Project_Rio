@@ -49,7 +49,6 @@ Return the results as a JSON object with appropriate keys"""
 		log_success(f"Model: {form.SELECTED_MODEL.name}")
 		
 		response_text = form.SELECTED_MODEL.call(
-			[],
 			system_prompt=system_prompt,
 			user_prompt=user_prompt,
 			return_text=True,
@@ -112,7 +111,7 @@ def build_demo() -> gr.Blocks:
 				)
 			
 			with gr.Row():
-				set_keys_btn = gr.Button("Set API Keys", variant="primary")
+				set_keys_btn = gr.Button("Set API Keys", variant="primary", size="lg")
 				api_status = gr.Textbox(
 					label="Status",
 					value="No API keys set yet" if not os.getenv("OPENAI_API_KEY") and not os.getenv("OPENROUTER_API_KEY") else "API keys loaded from environment",

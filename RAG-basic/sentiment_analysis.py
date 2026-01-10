@@ -43,7 +43,6 @@ Be thorough and accurate in your analysis. Consider context, sarcasm, and nuance
 		log_success(f"Model: {form.SELECTED_MODEL.name}")
 		
 		response_text = form.SELECTED_MODEL.call(
-			[],
 			system_prompt=system_prompt,
 			user_prompt=user_prompt,
 			return_text=True,

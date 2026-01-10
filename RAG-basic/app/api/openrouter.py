@@ -72,20 +72,19 @@ class OpenRouterModel(Model):
 
         log_success(f"OpenRouter model ready: {self.model_name}")
         
-    def call(self, messages: list[dict] | list[BaseMessage], **kwargs):
+    def call(
+        self,
+        *,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        ai_prompt: str | None = None,
+        messages: list[BaseMessage] | None = None,
+        **kwargs,
+    ):
         if not self.llm:
             log_info("LLM not initialized, setting up...")
             self.setup()
 
-        # Params
-        system_prompt: str | None = kwargs.pop("system_prompt", None)
-        ai_prompt: str | None = kwargs.pop("ai_prompt", None)
-        user_prompt: str | None = kwargs.pop("user_prompt", None)
-        history: list[BaseMessage] | None = kwargs.pop("history", None)
-        session_id: str | None = kwargs.pop("session_id", None)
-        history_k: int = int(kwargs.pop("history_k", 4))
-
-        # Response post-processing
         response_prefix: str = kwargs.pop("response_prefix", "")
         response_suffix: str = kwargs.pop("response_suffix", "")
         response_transform: Callable[[str], str] | None = kwargs.pop(
@@ -93,25 +92,23 @@ class OpenRouterModel(Model):
         )
         return_text: bool = bool(kwargs.pop("return_text", False))
 
-        lc_messages: list[BaseMessage] | list[dict]
-        if user_prompt is not None:
-            # Pull session history if a session is provided
-            if session_id:
-                chat_history = self.get_chat_history(session_id, k=history_k)
-                history = chat_history.messages
+        if messages is not None:
+            lc_messages = messages
+        else:
+            if user_prompt is None:
+                raise ValueError("Either `messages` or `user_prompt` must be provided")
 
             lc_messages = self.format_messages(
                 system_prompt=system_prompt,
                 ai_prompt=ai_prompt,
-                user_prompt=user_prompt,
-                history=history,
+                user_prompt=user_prompt
             )
-        else:
-            lc_messages = messages
 
+        # Invoke LLM
         response = self.llm.invoke(lc_messages, **kwargs)
         log_success(f"Received response from {self.model_name}")
 
+        # Token usage & cost
         usage = response.response_metadata.get("token_usage", {})
         input_tokens = usage.get("prompt_tokens", 0)
         output_tokens = usage.get("completion_tokens", 0)
@@ -123,24 +120,15 @@ class OpenRouterModel(Model):
         thread_cost.process_output_tokens += output_tokens
         thread_cost.process_cost += cost
 
+        # Extract & post-process text
         text = getattr(response, "content", "")
         if response_prefix or response_suffix:
             text = f"{response_prefix}{text}{response_suffix}"
         if response_transform:
             text = response_transform(text)
-
-        # Append to session history (store only user + ai messages)
-        if session_id and user_prompt is not None:
-            chat_history = self.get_chat_history(session_id, k=history_k)
-            chat_history.add_messages([
-                HumanMessage(content=user_prompt),
-                AIMessage(content=text),
-            ])
-
         if return_text:
             return text
-
-        # Attach a convenience copy for UIs like Gradio
+        
         try:
             response.ui_text = text  # type: ignore[attr-defined]
         except Exception:

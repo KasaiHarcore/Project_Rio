@@ -5,11 +5,8 @@ import threading
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from typing import Any
-import uuid
-from pydantic import BaseModel, Field
 
 from app.log import log_info, log_success
-from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 thread_cost = threading.local()
@@ -21,23 +18,6 @@ def _init_thread_cost():
         thread_cost.process_cost = 0.0
         thread_cost.process_input_tokens = 0
         thread_cost.process_output_tokens = 0
-        
-class history(BaseChatMessageHistory, BaseModel):
-    messages: list[BaseMessage] = Field(default_factory=list)
-    k: int = Field(default_factory = int)
-
-    def __init__(self, k: int):
-        super().__init__(k = k)
-        log_info(f"Initialized chat history with k={k}")
-
-    def add_messages(self, messages: list[BaseMessage]) -> None:
-        """Add messages to the history, removing any messages beyond the last `k`."""
-        self.messages.extend(messages)
-        self.messages = self.messages[-self.k:]
-
-    def clear(self) -> None:
-        """Clear the history."""
-        self.messages = []
 
 class Model(ABC):
     def __init__(
@@ -56,21 +36,6 @@ class Model(ABC):
         self.parallel_tool_call: bool = parallel_tool_call
         self.vector_store = None
 
-    def new_session_id(self) -> str:
-        """Create a new UUID4 session identifier.
-
-        Use this at app startup (e.g., Gradio) and pass it to `call()`.
-        """
-        return str(uuid.uuid4())
-
-    def end_session(self, session_id: str) -> None:
-        """Explicitly remove a session's memory.
-
-        Not strictly required because in-memory sessions are wiped on process exit,
-        but useful if you want to clear a session mid-run.
-        """
-        self.chat_map.pop(session_id, None)
-
     @abstractmethod
     def check_api_key(self) -> str:
         raise NotImplementedError("abstract base class")
@@ -83,33 +48,21 @@ class Model(ABC):
     def call(self, messages: list[dict], **kwargs):
         raise NotImplementedError("abstract base class")
     
-    def get_chat_history(self, session_id: str, k: int = 4) -> history:
-        """Return a per-session chat history storing the last `k` messages."""
-        if session_id not in self.chat_map:
-            self.chat_map[session_id] = history(k=k)
-        return self.chat_map[session_id]
-    
     def format_messages(
         self,
         *,
         system_prompt: str,
         ai_prompt: str = None,
         user_prompt: str,
-        history: list[BaseMessage] | None = None,
     ) -> list[BaseMessage]:
         """
-        Build LangChain chat messages from system/user + optional history.
+        Build chat messages from system/user
         """
-
         messages: list[BaseMessage] = []
 
         if system_prompt:
             messages.append(SystemMessage(content=system_prompt))
             log_info("System Prompt detected")
-
-        # Inject prior chat history if provided
-        if history:
-            messages.extend(history)
 
         if ai_prompt:
             messages.append(AIMessage(content=ai_prompt))
