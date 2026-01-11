@@ -12,6 +12,7 @@ langsmith
 langgraph
 langchain-chroma
 langchain-huggingface
+langchain-tavily
 
 # RAG and Vector Store
 chromadb
@@ -26,6 +27,3 @@ sqlalchemy
 
 # Transformers and Huggingface
 sentence_transformers
-
-# Ultilities
-tavily-python
