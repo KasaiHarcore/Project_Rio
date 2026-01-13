@@ -1,0 +1,26 @@
+[project]
+name = "ai-study-roadmap"
+version = "0.1.0"
+description = "Required tools and libraries to fully build this."
+readme = "README.md"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+  "loguru",
+  "rich",
+  "pydantic",
+  "langchain-core",
+  "langchain-community",
+  "langchain",
+  "langgraph",
+  "langchain-openai",
+  "langsmith",
+  "langchain-tavily",
+  "fastapi[standard]",
+  "streamlit",
+  "langchain-qdrant",
+  "qdrant-client",
+  "pypdf",
+  "sqlalchemy",
+  "langchain-huggingface",
+  "sentence_transformers",
+]
