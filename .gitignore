@@ -153,11 +153,6 @@ Thumbs.db
 *.bak
 Desktop.ini
 
-# Gradio
-flagged/
-gradio_cached_examples/
-gradio_queue.db
-
 # LangChain / LangSmith
 .langchain/
 .langsmith/
@@ -169,14 +164,12 @@ chromadb/
 *.chroma
 *.faiss
 *.index
+*.bin
 
 # Database files
 *.db
 *.sqlite
 *.sqlite3
-database/
-RAG-basic/database/*
-RAG-advanced/database/*
 
 # Model checkpoints and weights
 *.pt
