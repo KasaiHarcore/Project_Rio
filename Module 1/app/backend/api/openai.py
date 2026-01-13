@@ -8,8 +8,8 @@ from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 
-from backend.utils.log import log_success, log_error, log_info
-from backend.api.form import MODEL_TEMP, Model, thread_cost, _init_thread_cost
+from app.backend.utils.log import log_success, log_error, log_info
+from app.backend.api.form import MODEL_TEMP, Model, thread_cost, _init_thread_cost
 
 class OpenAIModel(Model):
     def __init__(

@@ -8,10 +8,10 @@ from typing import Any
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage
 from langchain_openai import ChatOpenAI
 
-from app.log import log_success, log_error, log_info
-from app.model.form import MODEL_TEMP, Model, thread_cost, _init_thread_cost
+from app.backend.utils.log import log_success, log_error, log_info
+from app.backend.api.form import MODEL_TEMP, Model, thread_cost, _init_thread_cost
 
-class OpenAIModel(Model):
+class OpenRouterModel(Model):
     def __init__(
         self,
         name: str,
@@ -33,44 +33,44 @@ class OpenAIModel(Model):
         """
         Ensure OPENAI_API_KEY is available.
         """
-        env_key = os.getenv("OPENAI_API_KEY")
+        env_key = os.getenv("OPENROUTER_API_KEY")
         if env_key:
-            log_success("OpenAI API key detected")
+            log_success("OpenRouter API key detected")
             return env_key
 
-        log_error("OPENAI_API_KEY is not set")
+        log_error("OPENROUTER_API_KEY is not set")
 
         while True:
             try:
-                api_key = getpass("Enter OpenAI API Key: ").strip()
+                api_key = getpass("Enter OpenRouter API Key: ").strip()
             except KeyboardInterrupt:
                 log_error("API key input cancelled by user")
-                raise RuntimeError("Missing OpenAI API key")
+                raise RuntimeError("Missing OpenRouter API key")
 
             if not api_key:
                 log_error("API key cannot be empty")
                 continue
 
             # Set for current process
-            os.environ["OPENAI_API_KEY"] = api_key
+            os.environ["OPENROUTER_API_KEY"] = api_key
 
-            log_success("OpenAI API key provided manually")
+            log_success("OpenRouter API key provided manually")
             return api_key
     
     def setup(self) -> None:
-        log_info(f"Setting up OpenAI model: {self.model_name}")
-
+        log_info(f"Setting up OpenRouter model: {self.model_name}")
         self.check_api_key()
 
-        # Add timeout to prevent hanging (60 seconds default)
         self.llm = ChatOpenAI(
             model=self.model_name, 
-            temperature=MODEL_TEMP,
+            temperature=MODEL_TEMP, 
+            base_url="https://openrouter.ai/api/v1", 
+            api_key=os.getenv("OPENROUTER_API_KEY"),
             request_timeout=60.0,
             max_retries=2
         )
 
-        log_success(f"OpenAI model ready: {self.model_name}")
+        log_success(f"OpenRouter model ready: {self.model_name}")
         
     def call(
         self,
@@ -126,9 +126,9 @@ class OpenAIModel(Model):
             text = f"{response_prefix}{text}{response_suffix}"
         if response_transform:
             text = response_transform(text)
-
         if return_text:
             return text
+        
         try:
             response.ui_text = text  # type: ignore[attr-defined]
         except Exception:
@@ -136,68 +136,13 @@ class OpenAIModel(Model):
 
         return response
 
-class OpenAI_GPT52(OpenAIModel):
+class OpenAI_OSS_120B(OpenRouterModel):
     def __init__(self):
         super().__init__(
-            name="gpt-5.2",
-            model_name="gpt-5.2-2025-12-11",
+            name="gpt-oss-120b",
+            model_name="openai/gpt-oss-120b:free",
             cost_per_input=0.0,
             cost_per_output=0.0,
             parallel_tool_call=True,
         )
-        self.note = "OpenAI's GPT-5.2 model released on 11th December 2025"
-        
-class OpenAI_GPT5_mini(OpenAIModel):
-    def __init__(self):
-        super().__init__(
-            name="gpt-5-mini",
-            model_name="gpt-5-mini-2025-08-07",
-            cost_per_input=0.0,
-            cost_per_output=0.0,
-            parallel_tool_call=True,
-        )
-        self.note = "OpenAI's lightweight GPT-5 Mini model released on 7th August 2025"
-        
-class OpenAI_GPT5_nano(OpenAIModel):
-    def __init__(self):
-        super().__init__(
-            name="gpt-5-nano",
-            model_name="gpt-5-nano-2025-08-07",
-            cost_per_input=0.0,
-            cost_per_output=0.0,
-            parallel_tool_call=True,
-        )
-        self.note = "OpenAI's ultra-lightweight GPT-5 Nano model released on 7th August 2025"
-        
-class OpenAI_GPT5_pro(OpenAIModel):
-    def __init__(self):
-        super().__init__(
-            name="gpt-5-pro",
-            model_name="gpt-5.2-pro-2025-12-11",
-            cost_per_input=0.0,
-            cost_per_output=0.0,
-            parallel_tool_call=True,
-        )
-        self.note = "OpenAI's GPT-5 Pro model released on 11th December 2025"
-        
-class OpenAI_GPT5(OpenAIModel):
-    def __init__(self):
-        super().__init__(
-            name="gpt-5",
-            model_name="gpt-5-2025-08-07",
-            cost_per_input=0.0,
-            cost_per_output=0.0,
-            parallel_tool_call=True,
-        )
-        self.note = "OpenAI's GPT-5 model released on 7th August 2025"
-        
-class OpenAI_GPT41(OpenAIModel):
-    def __init__(self):
-        super().__init__(
-            name="gpt-4.1",
-            model_name="gpt-4.1-2025-04-14",
-            cost_per_input=0.0,
-            cost_per_output=0.0,
-            parallel_tool_call=True,
-        )
-        self.note = "OpenAI's GPT-4.1 model released on 14th April 2025"
+        self.note = "OpenAI's open-source model with 120B parameters"

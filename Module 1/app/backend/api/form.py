@@ -6,7 +6,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
 from typing import Any
 
-from backend.utils.log import log_info, log_success
+from app.backend.utils.log import log_info, log_success
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 thread_cost = threading.local()
@@ -113,7 +113,8 @@ def register_model(model: Model):
 def get_all_model_names():
     return list(MODEL_HUB.keys())
 
-SELECTED_MODEL: Model
+
+SELECTED_MODEL: Model = None  # Initialize to None, set by register_all_models()
 
 
 def set_model(model_name: str):
