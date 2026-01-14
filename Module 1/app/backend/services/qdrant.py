@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
 
 from pypdf import PdfReader
+from langchain_core.vectorstores import VectorStore
 from langchain_qdrant import QdrantVectorStore
 from qdrant_client import QdrantClient
 from qdrant_client.models import VectorParams, Distance, PointStruct
@@ -165,7 +166,7 @@ class VectorDBTool:
                 raise
 
     @property
-    def vectorstore(self):
+    def vectorstore(self) -> VectorStore:
         """
         Lazy-load the vector store connection.
         """
@@ -221,13 +222,6 @@ class VectorDBTool:
     def search_documents(self, query: str, k: int = 3) -> str:
         """
         Search for relevant information within the document knowledge base.
-        
-        Args:
-            query: Search query string
-            k: Number of top results to return (default: 3)
-            
-        Returns:
-            Formatted string with search results
         """
         if not query or not query.strip():
             log_warning("Empty query provided to search_documents")
@@ -538,13 +532,6 @@ class VectorDBTool:
     def get_collection_info(self) -> Dict[str, Any]:
         """
         Get comprehensive information about the current collection
-    
-        Dictionary with collection details including:
-        - collection_name: Name of the collection
-        - vectors_count: Number of vectors stored
-        - status: Collection status
-        - config: Vector configuration (dimension, distance metric)
-        - disk_usage: Estimated storage size (if available)
         """
         try:
             if self._client:
