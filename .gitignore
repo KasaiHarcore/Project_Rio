@@ -219,3 +219,6 @@ node_modules/
 # Python virtual environment variations
 .Python
 pythonenv*
+
+# Develop folder
+Dev/
