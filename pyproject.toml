@@ -21,6 +21,9 @@ dependencies = [
   "qdrant-client",
   "pypdf",
   "sqlalchemy",
+  "chonkie[semantic]",
+  "rank_bm25",
+  "cohere",
   "langchain-huggingface",
   "sentence_transformers",
 ]
