@@ -7,29 +7,39 @@ from typing import Optional, List, Dict, Any, Tuple
 
 from pypdf import PdfReader
 from langchain_core.vectorstores import VectorStore
-from langchain_qdrant import QdrantVectorStore
-from qdrant_client import QdrantClient
-from qdrant_client.models import VectorParams, Distance, PointStruct
+from qdrant_client.models import SparseVectorParams, VectorParams, Distance, PointStruct
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter, CharacterTextSplitter
 from langchain_core.tools import StructuredTool
 from langchain_core.documents import Document
 
+from langchain_classic.retrievers.contextual_compression import ContextualCompressionRetriever
+from langchain_cohere import CohereRerank
+from langchain_text_splitters import RecursiveCharacterTextSplitter, CharacterTextSplitter
+from chonkie import SemanticChunker
+from langchain_qdrant import QdrantVectorStore, FastEmbedSparse, RetrievalMode
+from qdrant_client import QdrantClient, models
+
+
 from app.backend.utils.log import log_info, log_success, log_error, log_warning
+
+os.environ["COHERE_API_KEY"] = "9rmTetMpJ4QWYHmxxfv9Gq8RBvqkvX97ijtGGtc5"
 
 class VectorDBTool:
     SUPPORTED_EXTENSIONS = {'.txt', '.md', '.pdf', '.json', '.csv', '.html', '.htm', '.docx'}
     DEFAULT_CHUNK_SIZE = 1000
     DEFAULT_CHUNK_OVERLAP = 200
     DEFAULT_BATCH_SIZE = 100
+    THRESHOLD = 0.7
     
     def __init__(
         self,
         persist_dir: Optional[str] = None,
         collection_name: Optional[str] = None,
         embedding_model: Optional[str] = None,
+        sparse_embedding_model: Optional[str] = None,
         chunk_size: Optional[int] = None,
-        chunk_overlap: Optional[int] = None
+        chunk_overlap: Optional[int] = None,
+        threshold: Optional[float] = None
     ):
         """
         Initialize VectorDBTool with configuration
@@ -37,12 +47,17 @@ class VectorDBTool:
         # Configuration from environment variables or parameters
         self.persist_dir = persist_dir or os.getenv("QDRANT_PATH", "./app/storage/qdrant")
         self.model_name = embedding_model or os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
+        self.sparse_model_name = sparse_embedding_model or os.getenv("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25")
         self.collection_name = collection_name or os.getenv("QDRANT_COLLECTION", "rag-fpt")
         self.chunk_size = chunk_size or int(os.getenv("CHUNK_SIZE", self.DEFAULT_CHUNK_SIZE))
         self.chunk_overlap = chunk_overlap or int(os.getenv("CHUNK_OVERLAP", self.DEFAULT_CHUNK_OVERLAP))
+        self.threshold = threshold or float(os.getenv("THRESHOLD", self.THRESHOLD))
         
         self._vectorstore = None
         self._embeddings = None
+        self._sparse_embeddings = None
+        self._compressor = None
+        self._retrieve_rerank = None
         self._client: Optional[QdrantClient] = None
         self._embedding_dim: Optional[int] = None
         
@@ -54,9 +69,11 @@ class VectorDBTool:
             log_error(f"Failed to create Qdrant directory: {e}")
             raise
         
-        # Initialize client and ensure collection exists
+        # Initialize everything at once
         self._init_client()
+        self._init_embeddings()
         self._ensure_collection()
+        self._init_vectorstore()
     
     def _init_client(self):
         """Initialize Qdrant client"""
@@ -76,9 +93,13 @@ class VectorDBTool:
             if self._embeddings is None:
                 self._init_embeddings()
             # Get dimension by embedding a test string
-            test_embedding = self._embeddings.embed_query("test")
-            self._embedding_dim = len(test_embedding)
-            log_info(f"Embedding dimension: {self._embedding_dim}")
+            try:
+                test_embedding = self._embeddings.embed_query("test")
+                self._embedding_dim = len(test_embedding)
+                log_info(f"Embedding dimension: {self._embedding_dim}")
+            except Exception as e:
+                log_error(f"Failed to get embedding dimension: {e}")
+                raise
         return self._embedding_dim
     
     def _ensure_collection(self):
@@ -102,10 +123,10 @@ class VectorDBTool:
                 
                 self._client.create_collection(
                     collection_name=self.collection_name,
-                    vectors_config=VectorParams(
-                        size=embedding_dim,
-                        distance=Distance.COSINE
-                    )
+                    vectors_config={"dense": VectorParams(size=embedding_dim, distance=Distance.COSINE)},
+                    sparse_vectors_config={
+                        "sparse": SparseVectorParams(index=models.SparseIndexParams(on_disk=False))
+                    }, 
                 )
                 log_success(f"Collection '{self.collection_name}' created successfully")
         except Exception as e:
@@ -127,7 +148,10 @@ class VectorDBTool:
             if self.collection_exists():
                 self._client.delete_collection(self.collection_name)
                 log_success(f"Collection '{self.collection_name}' deleted")
-                self._vectorstore = None  # Reset vectorstore
+                # Reset everything
+                self._vectorstore = None
+                self._retrieve_rerank = None
+                self._compressor = None
                 return True
             else:
                 log_warning(f"Collection '{self.collection_name}' does not exist")
@@ -160,33 +184,50 @@ class VectorDBTool:
                     model_name=self.model_name,
                     model_kwargs={"device": device},
                 )
+                self._sparse_embeddings = FastEmbedSparse(
+                    model_name=self.sparse_model_name
+                )
                 log_success(f"Embedding model loaded on {device}")
             except Exception as e:
                 log_error(f"Failed to load embedding model: {e}")
                 raise
 
-    @property
-    def vectorstore(self) -> VectorStore:
-        """
-        Lazy-load the vector store connection.
-        """
-        if self._vectorstore is None:
-            self._init_embeddings()
-            
-            # Initialize Qdrant vector store
+    def _init_vectorstore(self):
+        """Initialize vector store and reranker"""
+        if self._retrieve_rerank is None:
             log_info(f"Connecting to Qdrant collection: {self.collection_name}")
             try:
                 self._vectorstore = QdrantVectorStore(
                     client=self._client,
                     collection_name=self.collection_name,
-                    embedding=self._embeddings
-                )
+                    embedding=self._embeddings,
+                    sparse_embedding=self._sparse_embeddings,
+                    retrieval_mode=RetrievalMode.HYBRID,
+                    vector_name="dense",
+                    sparse_vector_name="sparse"
+                )     
+                # Check for Cohere API key before initializing reranker
+                if os.getenv("COHERE_API_KEY"):
+                    log_info("Initializing Cohere Reranker...")
+                    self._compressor = CohereRerank(
+                        model="rerank-english-v3.0"
+                    )
+                    self._retrieve_rerank = ContextualCompressionRetriever(
+                        base_retriever=self._vectorstore.as_retriever(search_type="similarity", k=10),
+                        base_compressor=self._compressor,
+                    )
+                else:
+                    log_warning("COHERE_API_KEY not found. Fallback to standard hybrid search without reranking.")
+                    self._retrieve_rerank = self._vectorstore.as_retriever(search_type="similarity", k=10)
                 log_success(f"Qdrant vector store ready: {self.collection_name}")
             except Exception as e:
                 log_error(f"Failed to initialize vector store: {e}")
                 raise
-                
-        return self._vectorstore
+
+    @property
+    def vectorstore(self) -> VectorStore:
+        """Get the initialized vector store retriever"""
+        return self._retrieve_rerank
     
     def get_chunking_strategy(self, strategy: str = "recursive") -> RecursiveCharacterTextSplitter:
         """
@@ -212,14 +253,23 @@ class VectorDBTool:
                 separators=["\n\n", "\n", ". ", " ", ""],
                 length_function=len,
             )
+        elif strategy == "semantic":
+            return SemanticChunker(
+                embedding_model=self.model_name,
+                threshold=self.threshold,                               
+                chunk_size=self.chunk_size,  
+                similarity_window=3,
+                skip_window=0
+            )
         else:
             log_warning(f"Unknown strategy '{strategy}', using recursive")
             return RecursiveCharacterTextSplitter(
                 chunk_size=self.chunk_size,
                 chunk_overlap=self.chunk_overlap
             )
+        
 
-    def search_documents(self, query: str, k: int = 3) -> str:
+    def search_documents(self, query: str, k: int = 10) -> str:
         """
         Search for relevant information within the document knowledge base.
         """
@@ -229,7 +279,7 @@ class VectorDBTool:
         
         log_info(f"Searching for: '{query}' (top {k} results)")
         try:
-            docs = self.vectorstore.similarity_search(query, k=k)
+            docs = self._retrieve_rerank.invoke(query)
             log_success(f"Found {len(docs)} relevant document(s)")
             
             if not docs:
@@ -278,7 +328,12 @@ class VectorDBTool:
         
         try:
             splitter = self.get_chunking_strategy(chunking_strategy)
-            chunks = splitter.split_text(content)
+            
+            chunks = None
+            if chunking_strategy == "semantic":
+                chunks = splitter.chunk(content)
+            else:
+                chunks = splitter.split_text(content)
             
             if not chunks:
                 log_warning("No chunks generated from content")
@@ -301,10 +356,10 @@ class VectorDBTool:
                 for i in range(0, total_chunks, batch_size):
                     batch_texts = chunks[i:i + batch_size]
                     batch_metas = metadatas[i:i + batch_size] if metadatas else None
-                    self.vectorstore.add_texts(batch_texts, metadatas=batch_metas)
+                    self._vectorstore.add_texts(batch_texts, metadatas=batch_metas)
                     log_info(f"Processed batch {i//batch_size + 1}/{(total_chunks + batch_size - 1)//batch_size}")
             else:
-                self.vectorstore.add_texts(chunks, metadatas=metadatas)
+                self._vectorstore.add_texts(chunks, metadatas=metadatas)
             
             log_success(f"Indexed {len(chunks)} chunks from {source or 'content'}")
             return f"Successfully indexed {len(chunks)} chunks to the vector store."
@@ -426,9 +481,9 @@ class VectorDBTool:
             for i in range(0, len(all_texts), batch_size):
                 batch_texts = all_texts[i:i + batch_size]
                 batch_metas = all_metadatas[i:i + batch_size]
-                self.vectorstore.add_texts(batch_texts, metadatas=batch_metas)
+                self._vectorstore.add_texts(batch_texts, metadatas=batch_metas)
         else:
-            self.vectorstore.add_texts(all_texts, metadatas=all_metadatas)
+            self._vectorstore.add_texts(all_texts, metadatas=all_metadatas)
         
         log_success(f"Indexed {len(all_texts)} chunks from {total_pages} pages of {path.name}")
         return f"Successfully indexed {len(all_texts)} chunks from {total_pages} page(s) of {path.name}"
@@ -489,7 +544,7 @@ class VectorDBTool:
             raise ImportError("beautifulsoup4 required for HTML parsing")
         
         html_content = path.read_text(encoding='utf-8', errors='ignore')
-        soup = BeautifulSoup(html_content, 'html.parser')
+        soup = BeautifulSoup(html_content, 'lxml')
         
         # Remove script and style elements
         for script in soup(["script", "style"]):
@@ -543,18 +598,27 @@ class VectorDBTool:
                     "status": "active",
                     "persist_dir": self.persist_dir,
                     "embedding_model": self.model_name,
+                    "spare_embedding_model": self.sparse_model_name,
                     "chunk_size": self.chunk_size,
                     "chunk_overlap": self.chunk_overlap,
+                    "threshold": self.threshold
                 }
                 
                 # Add vector config if available
                 if hasattr(collection_info, 'config'):
                     config = collection_info.config
-                    if hasattr(config, 'params'):
-                        params = config.params
-                        info["vector_dimension"] = getattr(params, 'size', 'Unknown')
-                        info["distance_metric"] = getattr(params, 'distance', 'Unknown')
-                
+                    if hasattr(collection_info.config.params, 'vectors') and "dense" in collection_info.config.params.vectors:
+                        info["vector_dimension"] = collection_info.config.params.vectors["dense"].size
+                        info["distance_metric"] = collection_info.config.params.vectors["dense"].distance
+                    else:
+                        info["vector_dimension"] = "Unknown"
+                        info["distance_metric"] = "Unknown"
+                        
+                    if hasattr(collection_info.config.params, 'vectors') and "sparse" in collection_info.config.params.vectors:
+                        info["sparse_index"] = collection_info.config.params.vectors["sparse"].index
+                    else:
+                        info["sparse_index"] = "Unknown"
+                        
                 return info
         except Exception as e:
             log_warning(f"Could not retrieve collection info: {e}")
