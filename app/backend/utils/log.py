@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import os
+import sys
 import time
-from collections.abc import Callable
 from os import get_terminal_size
 from typing import Final
 
 from loguru import logger
 from rich.console import Console
-from rich.markdown import Markdown
-from rich.panel import Panel
 
 # Configuration
 PRINT_STDOUT: bool = True
@@ -18,10 +17,74 @@ console = Console()
 
 
 def terminal_width() -> int:
-    return get_terminal_size().columns
+    try:
+        return get_terminal_size().columns
+    except OSError:
+        return MAX_WIDTH
 
 
-WIDTH: Final = min(MAX_WIDTH, terminal_width() - 10)
+WIDTH: Final = min(MAX_WIDTH, max(40, terminal_width() - 10))
+
+
+def configure_logging(
+    *,
+    level: str = "INFO",
+    json_logs: bool = False,
+    log_file: str | None = None,
+    rotation: str = "10 MB",
+    retention: str = "14 days",
+    backtrace: bool = False,
+    diagnose: bool = False,
+    stdout: bool = True,
+) -> None:
+    """Configure loguru sinks for production use."""
+    global PRINT_STDOUT
+    PRINT_STDOUT = stdout and not json_logs
+
+    logger.remove()
+
+    sink_options = {
+        "level": level,
+        "backtrace": backtrace,
+        "diagnose": diagnose,
+        "enqueue": True,
+        "colorize": not json_logs,
+        "serialize": json_logs,
+    }
+
+    logger.add(sys.stdout, **sink_options)
+
+    if log_file:
+        logger.add(
+            log_file,
+            **sink_options,
+            rotation=rotation,
+            retention=retention,
+        )
+
+
+def configure_logging_from_env(default_level: str = "INFO") -> None:
+    """Configure logging using environment variables."""
+    level = os.getenv("LOG_LEVEL", default_level)
+    json_logs = os.getenv("LOG_JSON", "False").lower() == "true"
+    log_file = os.getenv("LOG_FILE")
+    rotation = os.getenv("LOG_ROTATION", "10 MB")
+    retention = os.getenv("LOG_RETENTION", "14 days")
+    backtrace = os.getenv("LOG_BACKTRACE", "False").lower() == "true"
+    diagnose = os.getenv("LOG_DIAGNOSE", "False").lower() == "true"
+    stdout = os.getenv("LOG_STDOUT", "True").lower() == "true"
+
+    configure_logging(
+        level=level,
+        json_logs=json_logs,
+        log_file=log_file,
+        rotation=rotation,
+        retention=retention,
+        backtrace=backtrace,
+        diagnose=diagnose,
+        stdout=stdout,
+    )
+
 
 # Helpers
 def log_exception(exception: Exception) -> None:
@@ -30,6 +93,7 @@ def log_exception(exception: Exception) -> None:
 
 def _timestamp() -> str:
     return time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())
+
 
 # Logging Utilities with proper log levels
 def log_debug(msg: str, print_console: bool = False, **kwargs) -> None:

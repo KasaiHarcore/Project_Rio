@@ -1,33 +1,48 @@
 """
 Streamlit Web Interface for FPT Policy RAG Agent
-Grok-style dark theme: Soft black background, off-white text, muted red accents on edges/borders for subtle highlights without eye strain. Adjusted based on current screenshot for better overrides.
 """
 
 import streamlit as st
 import sys
+import time
 from pathlib import Path
 from datetime import datetime
 import tempfile
 import os
+from uuid import UUID
+from typing import Optional
 
-# Add parent directory for imports
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add app directory for imports
+APP_DIR = Path(__file__).parent.parent
+if str(APP_DIR) not in sys.path:
+    sys.path.insert(0, str(APP_DIR))
 
 from dotenv import load_dotenv, set_key, find_dotenv
-from app.backend.services.qdrant import vector_db_tool
-from app.backend.services.agent_service import AgentService
-from app.backend.api.router import register_all_models
-from app.backend.api import form
-from app.backend.config import AgentConfig
-from app.backend.utils.log import log_info, log_success, log_error  # Assuming these exist; unused in code but kept.
+from backend.services.tools.qdrant_tool import vector_db_tool
+from backend.services.agent_service import AgentService
+from backend.services.llm.registry import register_all_models
+from backend.services.llm import form
+from backend.core.settings import AgentConfig
+from backend.utils.log import log_info, log_success, log_error, log_warning, configure_logging_from_env
+from frontend.components.auth_page import render_auth_routing
+from backend.services.auth_service import AuthService
+from backend.services.admin_service import AdminService
+from backend.db.session import get_session
+from backend.db.repositories.user_profile_repo import UserProfileRepository
+from backend.schemas.user import UserProfileUpdate
+from backend.db.models.thread import Thread, ThreadStatus
+from backend.db.models.message import Message, MessageRole
+from backend.services.chat_history_service import chat_history_service
 
 # Load environment
 load_dotenv()
+configure_logging_from_env()
 
 # Register models once
 if "models_registered" not in st.session_state:
     register_all_models()
     st.session_state.models_registered = True
+
 
 # Initialize session state with defaults
 defaults = {
@@ -35,11 +50,17 @@ defaults = {
     "chat_mode": "rag",
     "chat_history": [],
     "current_chat_id": datetime.now().strftime("%Y%m%d_%H%M%S"),
+    "current_thread_id": None,
     "retrieval_k": 5,
     "selected_model": form.get_all_model_names()[0] if form.get_all_model_names() else None,
     "show_settings": False,
     "openai_api_key": os.getenv("OPENAI_API_KEY", ""),
     "openrouter_api_key": os.getenv("OPENROUTER_API_KEY", ""),
+    "cohere_api_key": os.getenv("COHERE_API_KEY", ""),
+    "tavily_api_key": os.getenv("TAVILY_API_KEY", ""),
+    "pending_approval": None,
+    "pending_approval_thread_id": None,
+    "pending_approval_run_id": None,
 }
 for key, value in defaults.items():
     if key not in st.session_state:
@@ -147,6 +168,8 @@ st.markdown(
     /* Sidebar and expanders - Force dark override */
     [data-testid="stSidebar"] { background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-light) 100%) !important; border-right: var(--border-white); }
     [data-testid="stSidebar"] * { color: var(--text-primary) !important; }
+    [data-testid="stSidebarCollapseButton"] { display: none !important; }
+    [data-testid="stSidebarNav"] { display: none !important; }
     .streamlit-expanderHeader { background: var(--bg-light) !important; border-radius: 8px; font-weight: 500; color: var(--text-primary) !important; border: var(--border-white); }
     .streamlit-expanderHeader:hover { background: #282828 !important; }
     .streamlit-expanderContent { border: var(--border-white); border-top: none; background: var(--bg-dark) !important; color: var(--text-primary) !important; }
@@ -165,30 +188,157 @@ st.markdown(
 
 
 # Helper: Process question through agent
-def ask_question(question: str, k: int = 5, mode: str = "rag"):
-    config = AgentConfig(mode=mode, top_k=k, model_name=st.session_state.selected_model)
-    is_valid, error_msg = AgentService.validate_config(config)
-    if not is_valid:
-        raise ValueError(f"Invalid configuration: {error_msg}")
-    return AgentService.execute_query(question, config)
+def ask_question(question: str, k: int = 5, mode: str = "rag", history: Optional[list] = None):
+    user_role = "user"
+    if st.session_state.get("current_user"):
+        user_role = st.session_state.current_user.get("role", "user")
+    thread_id = _ensure_thread_id()
+    config = AgentConfig(
+        mode=mode,
+        user_role=user_role,
+        top_k=k,
+        model_name=st.session_state.selected_model,
+    )
+
+    return AgentService.execute_query(
+        question,
+        config,
+        history=history,
+        thread_id=thread_id,
+    )
+
+
+def _load_user_profile(user_id: UUID) -> dict:
+    try:
+        with get_session() as session:
+            repo = UserProfileRepository(session)
+            profile = repo.get_by_user_id(user_id)
+            if not profile:
+                return {}
+            return {
+                "full_name": profile.full_name or "",
+                "phone": profile.phone or "",
+                "address": profile.address or "",
+                "company": profile.company or "",
+                "job_title": profile.job_title or "",
+                "locale": profile.locale or "",
+            }
+    except Exception as e:
+        log_warning(f"Failed to load user profile: {e}")
+        return {}
+
+
+def _save_user_profile(user_id: UUID, data: dict) -> None:
+    with get_session() as session:
+        repo = UserProfileRepository(session)
+        repo.upsert(user_id, UserProfileUpdate(**data))
+
+
+def _render_profile_form(user_id: UUID) -> None:
+    profile = _load_user_profile(user_id)
+    with st.form("user_profile_form", clear_on_submit=False):
+        st.caption("Profile information is optional and user-provided only.")
+        full_name = st.text_input("Full name", value=profile.get("full_name", ""))
+        phone = st.text_input("Phone", value=profile.get("phone", ""))
+        address = st.text_input("Address", value=profile.get("address", ""))
+        company = st.text_input("Company", value=profile.get("company", ""))
+        job_title = st.text_input("Job title", value=profile.get("job_title", ""))
+        locale = st.text_input("Locale", value=profile.get("locale", ""))
+
+        submitted = st.form_submit_button("Save Profile")
+        if submitted:
+            try:
+                _save_user_profile(
+                    user_id,
+                    {
+                        "full_name": full_name.strip() or None,
+                        "phone": phone.strip() or None,
+                        "address": address.strip() or None,
+                        "company": company.strip() or None,
+                        "job_title": job_title.strip() or None,
+                        "locale": locale.strip() or None,
+                    },
+                )
+                st.success("Profile saved")
+            except Exception as e:
+                st.error(f"Failed to save profile: {e}")
+
+
+def _ensure_thread_id() -> Optional[str]:
+    """Ensure a Thread exists for the current chat and return its ID."""
+    if not st.session_state.get("current_user"):
+        return None
+    if st.session_state.get("current_thread_id"):
+        return st.session_state.current_thread_id
+
+    try:
+        user_id = UUID(st.session_state.current_user["id"])
+        title = f"Chat {st.session_state.current_chat_id}"
+        thread_id = chat_history_service.ensure_thread(user_id, st.session_state.current_thread_id, title)
+        st.session_state.current_thread_id = thread_id
+        return thread_id
+    except Exception as e:
+        log_warning(f"Failed to create thread: {e}")
+        return None
+
+
+def _log_message(role: str, content: str, *, run_id: Optional[str] = None) -> None:
+    """Persist a chat message to SQL (best-effort)."""
+    thread_id = _ensure_thread_id()
+    if not thread_id:
+        return
+    try:
+        role_map = {
+            "user": MessageRole.USER,
+            "assistant": MessageRole.ASSISTANT,
+            "tool": MessageRole.TOOL,
+        }
+        msg_role = role_map.get(role, MessageRole.USER)
+        chat_history_service.append_message_async(
+            user_id=UUID(st.session_state.current_user["id"]),
+            thread_id=thread_id,
+            role=msg_role,
+            content=content,
+            run_id=run_id,
+        )
+    except Exception as e:
+        log_warning(f"Failed to log message: {e}")
 
 
 # UI: Sidebar
 def render_sidebar():
     with st.sidebar:
+        # User info at top
+        if st.session_state.get("current_user"):
+            user = st.session_state.current_user
+            st.markdown(f"### 👤 {user['username']}")
+            st.caption(f"Role: {user['role'].upper()}")
+            if st.button("Edit Profile", type="secondary", use_container_width=True):
+                st.session_state.show_profile_dialog = True
+            st.markdown("---")
+        
         st.markdown("### FPT Policy Agent")
         st.markdown("---")
 
         if st.button("New Chat", use_container_width=True, type="primary"):
             st.session_state.messages = []
             st.session_state.current_chat_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+            st.session_state.current_thread_id = None
             st.rerun()
 
         st.markdown("---")
         
         # Moved Settings Menu (Mode/Uploads) here for better layout
         st.markdown("**Chat Mode**")
-        mode_map = {"RAG": "rag", "Chat": "chat", "Web Search": "web", "Hybrid": "hybrid"}
+        is_admin = (
+            st.session_state.get("current_user")
+            and st.session_state.current_user.get("role") == "admin"
+        )
+        if not is_admin and st.session_state.chat_mode == "sql":
+            st.session_state.chat_mode = "rag"
+        mode_map = {"Auto": "chat", "RAG": "rag", "Web Search": "web"}
+        if is_admin:
+            mode_map["SQL"] = "sql"
         reverse_map = {v: k for k, v in mode_map.items()}
         display_modes = list(mode_map.keys())
         current_display = reverse_map.get(st.session_state.chat_mode, "RAG")
@@ -204,16 +354,31 @@ def render_sidebar():
             st.session_state.chat_mode = new_mode
             st.rerun()
 
-        if st.session_state.chat_mode == "rag":
+        if st.session_state.chat_mode == "rag" or st.session_state.chat_mode == "chat":
             with st.expander("Upload Documents"):
-                uploaded_files = st.file_uploader("Add to knowledge base", type=["txt", "md", "pdf"], accept_multiple_files=True, label_visibility="collapsed")
+                uploaded_files = st.file_uploader(
+                    "Add to knowledge base",
+                    type=["txt", "md", "pdf", "json", "csv", "html", "htm", "docx"],
+                    accept_multiple_files=True,
+                    label_visibility="collapsed",
+                )
                 if uploaded_files and st.button("Upload Files", use_container_width=True):
                     for uploaded_file in uploaded_files:
+                        if getattr(uploaded_file, "size", 0) == 0:
+                            st.warning(f"{uploaded_file.name} is empty. Skipped.")
+                            continue
                         with tempfile.NamedTemporaryFile(delete=False, suffix=Path(uploaded_file.name).suffix) as tmp_file:
                             tmp_file.write(uploaded_file.getbuffer())
-                            vector_db_tool.ingest_file(tmp_file.name)
-                        os.unlink(tmp_file.name)
-                        st.success(f"{uploaded_file.name} uploaded")
+                            tmp_file_path = tmp_file.name
+
+                        try:
+                            vector_db_tool.ingest_file(tmp_file_path)
+                            st.success(f"{uploaded_file.name} uploaded")
+                        except Exception as e:
+                            st.error(f"{uploaded_file.name} failed: {e}")
+                        finally:
+                            if tmp_file_path and os.path.exists(tmp_file_path):
+                                os.unlink(tmp_file_path)
         
         st.markdown("---")
 
@@ -228,10 +393,56 @@ def render_sidebar():
 
         st.markdown("**Chat History**")
         search_query = st.text_input("Search chats", placeholder="Search...", label_visibility="collapsed")
+        if st.session_state.get("current_user"):
+            try:
+                threads = chat_history_service.list_threads(UUID(st.session_state.current_user["id"]), limit=20)
+                st.session_state.chat_history = [
+                    {"id": str(t.id), "title": t.title or "Untitled", "updated_at": t.updated_at}
+                    for t in threads
+                ]
+            except Exception as e:
+                log_warning(f"Failed to load chat history: {e}")
+
         if st.session_state.chat_history:
             for chat in st.session_state.chat_history[-10:]:
-                if st.button(f"{chat['title'][:30]}...", key=f"chat_{chat['id']}", use_container_width=True):
-                    pass  # TODO: Implement chat loading
+                title = chat["title"] or "Untitled"
+                if search_query and search_query.lower() not in title.lower():
+                    continue
+                
+                col1, col2 = st.columns([0.70, 0.30])
+                with col1:
+                    if st.button(f"{title[:20]}...", key=f"chat_{chat['id']}", use_container_width=True):
+                        st.session_state.current_thread_id = chat["id"]
+                        try:
+                            msgs = chat_history_service.get_messages(UUID(chat["id"]), limit=200)
+                            st.session_state.messages = [
+                                {"role": m.role.value, "content": m.content}
+                                for m in msgs
+                            ]
+                        except Exception as e:
+                            log_warning(f"Failed to load messages: {e}")
+                        st.rerun()
+                with col2:
+                    if is_admin and st.button(
+                        "Delete",
+                        key=f"del_{chat['id']}",
+                        help="Delete chat",
+                        use_container_width=True,
+                    ):
+                        try:
+                            cid = UUID(chat["id"])
+                            chat_history_service.hard_delete_thread(cid)
+                            st.toast("Chat permanently deleted", icon="🗑️")
+
+                            # Clear current thread if it was the one deleted
+                            if st.session_state.get("current_thread_id") == chat["id"]:
+                                st.session_state.current_thread_id = None
+                                st.session_state.messages = []
+
+                            time.sleep(0.5)
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Failed to delete: {e}")
         else:
             st.caption("No chat history yet")
 
@@ -257,6 +468,24 @@ def render_sidebar():
                     set_key(env_file, "OPENROUTER_API_KEY", openrouter_key)
                     st.success("✓ OpenRouter key updated")
 
+            cohere_key = st.text_input("Cohere API Key", value=st.session_state.cohere_api_key, type="password", placeholder="...")
+            if cohere_key != st.session_state.cohere_api_key:
+                st.session_state.cohere_api_key = cohere_key
+                os.environ["COHERE_API_KEY"] = cohere_key
+                env_file = find_dotenv()
+                if env_file:
+                    set_key(env_file, "COHERE_API_KEY", cohere_key)
+                    st.success("✓ Cohere key updated")
+
+            tavily_key = st.text_input("Tavily API Key", value=st.session_state.tavily_api_key, type="password", placeholder="tvly-...")
+            if tavily_key != st.session_state.tavily_api_key:
+                st.session_state.tavily_api_key = tavily_key
+                os.environ["TAVILY_API_KEY"] = tavily_key
+                env_file = find_dotenv()
+                if env_file:
+                    set_key(env_file, "TAVILY_API_KEY", tavily_key)
+                    st.success("✓ Tavily key updated")
+
             st.markdown("---")
             st.markdown("**Model Selection**")
             available_models = form.get_all_model_names()
@@ -279,12 +508,45 @@ def render_sidebar():
             st.session_state.retrieval_k = st.slider("Top-K Results", 1, 20, st.session_state.retrieval_k)
 
         st.markdown("---")
-        if st.button("Settings", use_container_width=True):
-            st.session_state.show_settings = not st.session_state.show_settings
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Settings", use_container_width=True):
+                st.session_state.show_settings = not st.session_state.show_settings
+        with col2:
+            if st.button("Logout", use_container_width=True, type="secondary"):
+                # Log logout event
+                if st.session_state.get("current_user"):
+                    try:
+                        with get_session() as session:
+                            AuthService.logout(session, UUID(st.session_state.current_user["id"]))
+                    except Exception:
+                        pass  # Silent fail on logout logging
+                
+                # Clear session state
+                st.session_state.authenticated = False
+                st.session_state.current_user = None
+                st.session_state.messages = []
+                st.success("✅ Logged out successfully")
+                st.rerun()
 
 
 # UI: Main chat
 def render_chat_interface():
+    if st.session_state.get("current_user"):
+        user_id = UUID(st.session_state.current_user["id"])
+        if st.session_state.get("show_profile_dialog"):
+            if hasattr(st, "dialog"):
+                @st.dialog("Your Profile")
+                def _profile_dialog():
+                    _render_profile_form(user_id)
+
+                _profile_dialog()
+            else:
+                with st.expander("Your Profile", expanded=True):
+                    _render_profile_form(user_id)
+            st.session_state.show_profile_dialog = False
+
     # Chat messages container
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
@@ -295,40 +557,144 @@ def render_chat_interface():
                     st.metric("Tokens", s["total_tokens"])
                     st.caption(f"Cost: ${s['total_cost']:.6f}")
 
+    if st.session_state.pending_approval:
+        with st.expander("SQL Approval Required", expanded=True):
+            approval = st.session_state.pending_approval
+            st.markdown("A SQL action requires your approval before execution.")
+            if isinstance(approval, dict):
+                st.markdown("**Proposed SQL:**")
+                st.code(approval.get("query", ""), language="sql")
+                params = approval.get("params") or {}
+                if params:
+                    st.markdown("**Parameters:**")
+                    st.json(params)
+            col1, col2 = st.columns(2)
+            approve = col1.button("Approve", type="primary", use_container_width=True)
+            reject = col2.button("Reject", type="secondary", use_container_width=True)
+
+            if approve or reject:
+                thread_id = st.session_state.pending_approval_thread_id or st.session_state.get("current_thread_id")
+                if not thread_id:
+                    st.error("No thread ID available to resume workflow.")
+                else:
+                    try:
+                        result = AgentService.resume_query(thread_id=thread_id, approved=approve)
+                        st.session_state.pending_approval = None
+                        st.session_state.pending_approval_thread_id = None
+                        st.session_state.pending_approval_run_id = None
+
+                        if result.get("status") == "approval_required":
+                            st.session_state.pending_approval = result.get("interrupt")
+                            st.session_state.pending_approval_thread_id = result.get("thread_id") or thread_id
+                            st.session_state.pending_approval_run_id = result.get("run_id")
+                            st.rerun()
+                        else:
+                            answer = result.get("answer", "")
+                            stats = result.get("stats", {})
+                            if answer:
+                                with st.chat_message("assistant"):
+                                    st.markdown(answer)
+                                st.session_state.messages.append({"role": "assistant", "content": answer, "stats": stats})
+                                _log_message("assistant", answer, run_id=stats.get("run_id"))
+                            st.rerun()
+                    except Exception as e:
+                        st.error(f"Failed to resume workflow: {e}")
+
     # Standard Streamlit chat input (automatically pinned to bottom)
-    prompt = st.chat_input(f"Message FPT Policy Agent ({st.session_state.chat_mode.upper()} mode)...")
+    prompt = None
+    if not st.session_state.pending_approval:
+        prompt = st.chat_input(f"Message FPT Policy Agent ({st.session_state.chat_mode.upper()} mode)...")
+    else:
+        st.info("Pending approval. Please approve or reject the SQL action above to continue.")
     
     # Process user input
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
+        _log_message("user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
         with st.chat_message("assistant"):
             with st.spinner("Working on your query... 🚀"):  # Grok-like fun spinner
                 try:
-                    answer, stats = ask_question(prompt, k=st.session_state.retrieval_k, mode=st.session_state.chat_mode)
-                    st.markdown(answer)
-                    st.session_state.messages.append({"role": "assistant", "content": answer, "stats": stats})
+                    history = []
+                    if st.session_state.get("current_thread_id"):
+                        try:
+                            history = chat_history_service.get_memory_buffer(
+                                UUID(st.session_state.current_thread_id)
+                            )
+                        except Exception as e:
+                            log_warning(f"Failed to load memory buffer: {e}")
+                    result = ask_question(
+                        prompt,
+                        k=st.session_state.retrieval_k,
+                        mode=st.session_state.chat_mode,
+                        history=history,
+                    )
+                    if result.get("status") == "approval_required":
+                        st.session_state.pending_approval = result.get("interrupt")
+                        st.session_state.pending_approval_thread_id = result.get("thread_id") or st.session_state.get("current_thread_id")
+                        st.session_state.pending_approval_run_id = result.get("run_id")
+                        st.info("SQL approval required. Review the request above.")
+                        st.rerun()
+                    else:
+                        answer = result.get("answer", "")
+                        stats = result.get("stats", {})
+                        st.markdown(answer)
+                        st.session_state.messages.append({"role": "assistant", "content": answer, "stats": stats})
+                        _log_message("assistant", answer, run_id=stats.get("run_id"))
                 except Exception as e:
                     st.error(f"Error: {str(e)}")
 
 
 # Main entry
 def main():
-    render_sidebar()
-    render_chat_interface()
-    if st.session_state.show_settings:
-        with st.expander("Advanced Settings", expanded=True):
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("**Storage Settings**")
-                st.code(f"Path: {vector_db_tool.persist_dir}")
-                st.code(f"Collection: {vector_db_tool.collection_name}")
-            with col2:
-                st.markdown("**Model Settings**")
-                st.code(f"Embedding: {vector_db_tool.model_name}")
-                if form.SELECTED_MODEL:
-                    st.code(f"LLM: {form.SELECTED_MODEL.name}")
+    """Main application entry point with authentication routing."""
+    # Authentication check - renders login/register pages if not authenticated
+    is_authenticated = render_auth_routing()
+    
+    # Only show main app if authenticated
+    if is_authenticated:
+        render_sidebar()
+        render_chat_interface()
+        if st.session_state.show_settings:
+            with st.expander("Advanced Settings", expanded=True):
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("**Storage Settings**")
+                    st.code(f"Path: {vector_db_tool.persist_dir}")
+                    st.code(f"Collection: {vector_db_tool.collection_name}")
+                with col2:
+                    st.markdown("**Model Settings**")
+                    st.code(f"Embedding: {vector_db_tool.model_name}")
+                    if form.SELECTED_MODEL:
+                        st.code(f"LLM: {form.SELECTED_MODEL.name}")
+                    
+                    # Show current user info
+                    if st.session_state.get("current_user"):
+                        user = st.session_state.current_user
+                        st.markdown("**Current User**")
+                        st.code(f"ID: {user['id']}")
+                        st.code(f"Joined: {user['created_at'][:10]}")
+                
+                # Admin-only Danger Zone
+                if st.session_state.get("current_user", {}).get("role") == "admin":
+                    st.markdown("---")
+                    st.markdown("**Danger Zone**")
+                    if st.button("Reset System Database", type="secondary", use_container_width=True, help="This will delete ALL data (history, users, vector store)"):
+                        try:
+                            with st.spinner("Resetting database..."):
+                                AdminService.reset_database()
+                            
+                            # Clear session state
+                            st.session_state.messages = []
+                            st.session_state.chat_history = []
+                            st.session_state.current_thread_id = None
+                            
+                            st.success("System reset complete. Please refresh.")
+                            time.sleep(1) # Give user a moment to see success
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Reset failed: {e}")
 
 
 if __name__ == "__main__":

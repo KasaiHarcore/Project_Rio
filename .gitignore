@@ -176,7 +176,6 @@ chromadb/
 *.pth
 *.ckpt
 *.safetensors
-models/
 checkpoints/
 
 # Logs
@@ -219,6 +218,3 @@ node_modules/
 # Python virtual environment variations
 .Python
 pythonenv*
-
-# Develop folder
-Dev/

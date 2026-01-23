@@ -1,12 +1,16 @@
+"""
+Model registry and shared LLM utilities.
+"""
+
 from __future__ import annotations
 
-import sys
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Iterable, Mapping
 from typing import Any
 
-from app.backend.utils.log import log_info, log_success
+from pydantic import BaseModel, Field, field_validator
+
+from backend.utils.log import log_info, log_success
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 thread_cost = threading.local()
@@ -14,10 +18,11 @@ thread_cost = threading.local()
 
 def _init_thread_cost():
     """Initialize thread-local cost tracking attributes if not already set."""
-    if not hasattr(thread_cost, 'process_cost'):
+    if not hasattr(thread_cost, "process_cost"):
         thread_cost.process_cost = 0.0
         thread_cost.process_input_tokens = 0
         thread_cost.process_output_tokens = 0
+
 
 class Model(ABC):
     def __init__(
@@ -47,7 +52,7 @@ class Model(ABC):
     @abstractmethod
     def call(self, messages: list[dict], **kwargs):
         raise NotImplementedError("abstract base class")
-    
+
     def format_messages(
         self,
         *,
@@ -67,7 +72,7 @@ class Model(ABC):
         if ai_prompt:
             messages.append(AIMessage(content=ai_prompt))
             log_info("AI output format detected")
-            
+
         messages.append(HumanMessage(content=user_prompt))
         log_success("Prompt Fetch Successfully")
         return messages
@@ -80,17 +85,20 @@ class Model(ABC):
         output_cost = self.cost_per_output * output_tokens
         cost = input_cost + output_cost
         log_info(
-            f"Model API request cost info: "
+            "Model API request cost info: "
             f"input_tokens={input_tokens}, output_tokens={output_tokens}, cost={cost:.6f}"
         )
         return cost
 
+    def call_structured(self, *args, **kwargs):
+        raise NotImplementedError("Structured output is not supported by this model")
+
     def get_overall_exec_stats(self):
         # Use getattr with defaults to handle thread-local storage across different threads
-        input_tokens = getattr(thread_cost, 'process_input_tokens', 0)
-        output_tokens = getattr(thread_cost, 'process_output_tokens', 0)
-        cost = getattr(thread_cost, 'process_cost', 0.0)
-        
+        input_tokens = getattr(thread_cost, "process_input_tokens", 0)
+        output_tokens = getattr(thread_cost, "process_output_tokens", 0)
+        cost = getattr(thread_cost, "process_cost", 0.0)
+
         return {
             "model": self.name,
             "input_cost_per_token": self.cost_per_input,
@@ -114,15 +122,32 @@ def get_all_model_names():
     return list(MODEL_HUB.keys())
 
 
-SELECTED_MODEL: Model = None  # Initialize to None, set by register_all_models()
-
+SELECTED_MODEL: Model = None
 
 def set_model(model_name: str):
     global SELECTED_MODEL
     if model_name not in MODEL_HUB:
         raise ValueError(f"Invalid model name: {model_name}")
     SELECTED_MODEL = MODEL_HUB[model_name]
-
+    
 MODEL_TEMP: float = 0.0
-MODEL_CHUNK_SIZE: int = 2056
-MODEL_CHUNK_OVERLAP: int = 256
+
+
+def format_markdown_output(text: str) -> str:
+    """Normalize LLM output for consistent markdown rendering."""
+    cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
+    if not cleaned:
+        return ""
+
+    lines = [line.rstrip() for line in cleaned.split("\n")]
+    result = []
+    blank_count = 0
+    for line in lines:
+        if line.strip() == "":
+            blank_count += 1
+            if blank_count <= 2:
+                result.append("")
+        else:
+            blank_count = 0
+            result.append(line)
+    return "\n".join(result).strip()

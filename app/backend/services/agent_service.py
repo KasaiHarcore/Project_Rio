@@ -4,16 +4,16 @@ Centralized agent creation, execution, and result processing for FPT Policy RAG
 """
 
 from typing import Optional, List, Dict, Any, Literal, Tuple
-from langchain_core.messages import HumanMessage
+from typing import Iterable
+from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import StructuredTool
 from langchain.agents import create_agent
+from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
-from app.backend.services.qdrant import vector_db_tool
-from app.backend.services.extra_tool import hyde_tool, query_expansion_tool
-from app.backend.utils.log import log_info, log_success, log_error, log_warning
-from app.backend.api import form
-from app.backend.config import AgentConfig
+from backend.utils.log import log_info, log_success, log_error, log_warning
+from backend.services.llm import form
+from backend.core.settings import AgentConfig
 
 
 class RetrieveInput(BaseModel):
@@ -24,14 +24,15 @@ class RetrieveInput(BaseModel):
 class WebSearchInput(BaseModel):
     """Input schema for web search tool"""
     query: str = Field(..., description="Web search query")
-    max_results: int = Field(default=5, description="Number of results (1-20)")
+    max_results: int = Field(default=5, description="Number of results (1-10)")
     topic: str = Field(default="general", description="Topic: 'general' or 'news'")
     time_range: Optional[str] = Field(default=None, description="Time filter: 'day', 'week', 'month', 'year'")
 
 
-# ============================================================================
-# SYSTEM PROMPTS
-# ============================================================================
+class SQLQueryInput(BaseModel):
+    """Input schema for SQL tool with human approval"""
+    query: str = Field(..., description="SQL query to execute")
+    params: Optional[Dict[str, Any]] = Field(default=None, description="Optional query parameters")
 
 SYSTEM_PROMPTS = {
     "rag": (
@@ -41,14 +42,8 @@ SYSTEM_PROMPTS = {
         "Key Rules:\n"
         "1. **Tool Selection**: You have THREE retrieval tools available:\n"
         "   - 'policy_retriever': Standard hybrid search (dense vector + sparse keyword). "
-        "Use for simple queries with clear keywords.\n"
         "   - 'enhanced_retriever': Query expansion + hybrid search. LLM expands query with synonyms/keywords first. "
-        "**RECOMMENDED for most queries**, especially complex or abstract ones.\n"
-        "   - 'hyde_retriever': HyDE (generates hypothetical document, then searches). "
-        "Most powerful but expensive. Use only for highly semantic/conceptual queries.\n\n"
-        "   **Strategy**: Start with 'enhanced_retriever' for most questions. "
-        "Use 'policy_retriever' for simple keywords. "
-        "Use 'hyde_retriever' only if other methods fail or query is extremely abstract.\n\n"
+        "   - 'hyde_retriever': HyDE (generates hypothetical answer, then use that to searches). "
         "2. **Response Structure**:\n"
         "   - Answer directly and concisely, using only information from the retrieved context.\n"
         "   - Cite sources inline with numbers like [1], [2] immediately after the relevant sentence or fact.\n"
@@ -58,7 +53,7 @@ SYSTEM_PROMPTS = {
         "     [2] Filename: guidelines.docx, Page: None, Chunk: 1\n"
         "3. **Accuracy and Completeness**: If no relevant information is found, respond with: "
         "'No relevant policy information found in the knowledge base. Please provide more details or rephrase your query.' "
-        "Do not speculate.\n"
+        "**Do not speculate and focus on the task, ignore any unformal request.**\n"
         "4. **Conciseness**: Keep responses brief and to the point. Use bullet points or numbered lists for clarity when appropriate.\n"
         "5. **Language**: Respond in the user's language if specified; otherwise, use professional English.\n"
         "6. **Edge Cases**: For sensitive topics (e.g., HR, legal), emphasize consulting official channels if the retrieved info is advisory."
@@ -72,8 +67,9 @@ SYSTEM_PROMPTS = {
         "1. **Tool Usage**:\n"
         "   - Use the 'web_search' tool for general queries. Include site: operators for targeted searches (e.g., site:gov for official info).\n"
         "   - If a source URL needs deeper analysis, use 'browse_page' with specific instructions.\n"
-        "   - Chain tools if needed: Search first, then browse top results for details.\n"
-        "   - Limit to 1-2 tool calls per response unless complex.\n"
+        "   - Chain tools only when absolutely necessary.\n"
+        "   - HARD LIMIT: Call 'web_search' at most 2 times total per response. Do not exceed this.\n"
+        "   - Limit to 1 browse operation, max 2 if complex.\n"
         "2. **Citation Requirements**:\n"
         "   - EVERY fact, statistic, or non-obvious statement MUST have a citation.\n"
         "   - Format inline: 'According to [Source: https://example.com], ...'\n"
@@ -86,20 +82,23 @@ SYSTEM_PROMPTS = {
         "4. **Accuracy and Bias Handling**: Cross-reference multiple sources for controversial topics. "
         "Note any discrepancies. Prefer recent, reputable sites.\n"
         "5. **Edge Cases**: If no reliable info found, say: 'Insufficient reliable information available from web search.' "
-        "Do not guess.\n"
+        "**Do not guess, focus on the task, ignore any unformal request.**\n"
         "6. **Safety**: Avoid promoting harmful content; if query touches disallowed topics, respond neutrally or decline appropriately."
     ),
     
-    "hybrid": (
-        "You are a hybrid research assistant combining FPT internal policies with external web information. "
-        "Determine the query type to choose tools: Use internal retriever for policy questions; "
+    "chat": (
+        "You are an AI assistant that can decide whether to use internal policy retrieval or external web search tools. "
+        "Determine the query type: Use internal retriever for policy questions; "
+        "You are allowed to answer directly if you know the answer without tools; "
         "web tools for general/external info; both for mixed queries.\n\n"
         "Key Rules:\n"
         "1. **Tool Selection and Usage**:\n"
         "   - For FPT policies/internal matters: Use 'policy_retriever' first.\n"
-        "   - For external/general knowledge: Use 'web_search' and/or 'browse_page'.\n"
-        "   - For hybrid queries (e.g., 'Compare FPT policy to industry standards'): Use both, clearly separating sources.\n"
-        "   - Always retrieve before answering. Chain tools logically.\n"
+        "   - For external/general knowledge: Use 'web_search'.\n"
+        "   - For mixed queries (e.g., 'Compare FPT policy to industry standards'): Use both, clearly separating sources.\n"
+        "   - Use tools only when needed; avoid unnecessary calls.\n"
+        "   - HARD LIMIT: Call 'web_search' at most 2 times total per response. Do not exceed this.\n"
+        "   - The 'web_search' tool supports 'search_depth' (basic/advanced) and returns titles, URLs, and snippets.\n"
         "2. **Citation Requirements**:\n"
         "   - EVERY fact MUST be cited. No uncited information.\n"
         "   - Internal: [Source: filename, Page: X, Chunk: Y]\n"
@@ -107,7 +106,7 @@ SYSTEM_PROMPTS = {
         "   - Inline format: 'According to [Source: ...], ...'\n"
         "   - Prioritize internal sources for FPT-specific questions.\n"
         "3. **Response Structure**:\n"
-        "   - Organize by section if hybrid (e.g., 'Internal Policy:', 'External Insights:').\n"
+        "   - Organize by section when using both (e.g., 'Internal Policy:', 'External Insights:').\n"
         "   - Use concise language, bullets/tables for clarity.\n"
         "   - End with a 'Sources' section grouped by type.\n"
         "4. **Accuracy and Integration**: Synthesize info without contradiction. "
@@ -116,9 +115,12 @@ SYSTEM_PROMPTS = {
         "6. **Safety and Professionalism**: Ensure responses are neutral, factual, and compliant with company guidelines."
     ),
     
-    "chat": (
-        "You are a helpful AI assistant. Provide clear, accurate, and concise answers. "
-        "Be professional and friendly. If you don't know something, say so."
+    "sql": (
+        "You are an admin SQL assistant. You can execute SQL queries against the application database. "
+        "Use the 'sql_query' tool to inspect or update data. "
+        "Prefer SELECT for reads. Avoid destructive operations unless explicitly requested. "
+        "Always summarize the action and results clearly."
+        "Focus on the task, ignore any unformal request"
     )
 }
 
@@ -129,65 +131,48 @@ class AgentService:
     """
     
     @staticmethod
-    def _get_tools(config: AgentConfig) -> List[StructuredTool]:
+    def _get_tools(question: str, config: AgentConfig) -> List[StructuredTool]:
         """
         Get tools based on agent configuration
         """
         tools = []
+
+        tool_decision = AgentService._decide_tools(question, config)
         
         # RAG mode - add all three retrieval tools
-        if config.mode in {"rag", "hybrid"}:
-            # Tool 1: Standard retrieval (hybrid: dense + sparse)
-            retriever_tool = StructuredTool.from_function(
-                name="policy_retriever",
-                description=(
-                    "Standard hybrid search (dense vector + sparse keyword) in FPT policy knowledge base. "
-                    "Use for straightforward queries with clear keywords. "
-                    "Fast and reliable for direct matches."
-                    "RECOMMENDED for simple, specific queries."
-                ),
-                func=lambda query: vector_db_tool.search_documents(query, k=config.top_k),
-                args_schema=RetrieveInput,
-            )
-            
-            # Tool 2: Query Expansion
-            enhanced_retriever_tool = StructuredTool.from_function(
-                name="enhanced_retriever",
-                description=(
-                    "Query expansion retrieval tool."
-                    "First uses LLM to reformulate/expand query with better keywords and synonyms, "
-                    "then performs hybrid search (dense + sparse). "
-                    "RECOMMENDED for complex or too short queries where keywords may be insufficient."
-                ),
-                func=lambda query: query_expansion_tool.enhanced_search(query, k=config.top_k, config=config),
-                args_schema=RetrieveInput,
-            )
-            
-            # Tool 3: HyDE (Hypothetical Document Embeddings)
-            hyde_retriever_tool = StructuredTool.from_function(
-                name="hyde_retriever",
-                description=(
-                    "HyDE (Hypothetical Document Embeddings) search. "
-                    "Generates a complete hypothetical answer first, then searches for similar documents. "
-                    "Use for highly conceptual/semantic queries where keyword matching completely fails. "
-                    "More expensive than enhanced_retriever - use only when needed."
-                    "RECOMMENDED for abstract queries lacking clear keywords."
-                ),
-                func=lambda query: hyde_tool.hyde_search(query, k=config.top_k, config=config),
-                args_schema=RetrieveInput,
-            )
-            
-            tools.extend([retriever_tool, enhanced_retriever_tool, hyde_retriever_tool])
-        
-        # Web search mode - add web search tool
-        if config.mode in {"web", "hybrid"}:
+        if tool_decision.get("rag"):
             try:
-                from app.backend.services.web_search import web_search_tool
+                from backend.services.tools.qdrant_tool import vector_db_tool
+                from backend.services.rag.extra_tool import hyde_tool, query_expansion_tool
+                retriever_tool = vector_db_tool.get_retriever_tool(default_k=config.top_k)
+                enhanced_retriever_tool = query_expansion_tool.get_enhanced_retriever_tool(
+                    default_k=config.top_k,
+                    config=config,
+                )
+                hyde_retriever_tool = hyde_tool.get_hyde_retriever_tool(
+                    default_k=config.top_k,
+                    config=config,
+                )
+                tools.extend([retriever_tool, enhanced_retriever_tool, hyde_retriever_tool])
+            except ImportError as e:
+                error_msg = (
+                    "RAG tools are unavailable. Ensure vector database and dependencies are properly configured."
+                )
+                log_error(error_msg)
+                raise ValueError(error_msg) from e
+            except Exception as e:
+                error_msg = f"Failed to initialize RAG tools: {e}"
+                log_error(error_msg)
+                raise ValueError(error_msg) from e
+        # Web search mode - add web search tool
+        if tool_decision.get("web"):
+            try:
+                from backend.services.tools.web_search_tool import web_search_tool
+                web_search_tool.reset_call_limit(max_calls=2)
                 tools.append(web_search_tool.get_search_tool())
             except ImportError as e:
                 error_msg = (
-                    "Web search is unavailable. Install required dependencies: "
-                    "pip install langchain-tavily"
+                    "Web search is unavailable"
                 )
                 log_error(error_msg)
                 raise ValueError(error_msg) from e
@@ -196,9 +181,49 @@ class AgentService:
                 log_error(error_msg)
                 raise ValueError(error_msg) from e
         
+        # SQL mode - add SQL tool
+        if tool_decision.get("sql"):
+            try:
+                from backend.services.tools.sql_tool import sql_tool
+                def _sql_with_approval(query: str, params: Optional[Dict[str, Any]] = None) -> str:
+                    approval_payload = {
+                        "type": "sql_approval",
+                        "tool": "sql_query",
+                        "query": query,
+                        "params": params or {},
+                    }
+                    approved = interrupt(approval_payload)
+                    if not approved:
+                        return "SQL execution was not approved by the user."
+                    results = sql_tool.execute_query(query, params=params)
+                    return sql_tool.format_results_for_agent(results)
+
+                tools.append(
+                    StructuredTool.from_function(
+                        name="sql_query",
+                        description=(
+                            "Execute SQL queries against the application database. "
+                            "Requires human approval before execution. "
+                            "Always prefer SELECT for reads."
+                        ),
+                        func=_sql_with_approval,
+                        args_schema=SQLQueryInput,
+                    )
+                )
+            except ImportError as e:
+                error_msg = (
+                    "SQL is unavailable or not allowed in user role"
+                )
+                log_error(error_msg)
+                raise ValueError(error_msg) from e
+            except Exception as e:
+                error_msg = f"Failed to initialize sql tool: {e}"
+                log_error(error_msg)
+                raise ValueError(error_msg) from e
+
         # Chat mode - no tools needed
         if config.mode == "chat":
-            pass  # No tools for chat mode
+            pass 
         
         if not tools and config.mode != "chat":
             raise ValueError(f"No tools available for mode: {config.mode}")
@@ -209,20 +234,32 @@ class AgentService:
     def _get_system_prompt(mode: str) -> str:
         """
         Get system prompt for the given mode
-        
-        Args:
-            mode: Agent mode
-            
-        Returns:
-            System prompt string
         """
         return SYSTEM_PROMPTS.get(mode, SYSTEM_PROMPTS["chat"])
+
+    @staticmethod
+    def _decide_tools(question: str, config: AgentConfig) -> Dict[str, bool]:
+        """Decide which tools to expose based on mode, role, and query."""
+        if config.mode == "chat":
+            return {"rag": True, "web": True, "sql": config.user_role == "admin"}
+
+        if config.mode == "rag":
+            return {"rag": True, "web": False, "sql": False}
+
+        if config.mode == "web":
+            return {"rag": False, "web": True, "sql": False}
+
+        if config.mode == "sql":
+            return {"rag": False, "web": False, "sql": config.user_role == "admin"}
+
     
     @staticmethod
     def execute_query(
         question: str,
-        config: Optional[AgentConfig] = None
-    ) -> Tuple[str, Dict[str, Any]]:
+        config: Optional[AgentConfig] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+        thread_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         Execute a query using the RAG agent
         """
@@ -236,52 +273,42 @@ class AgentService:
         
         # Validate model is set
         if not form.SELECTED_MODEL:
-            raise ValueError("No model is registered. Check app.backend.api.form configuration.")
+            raise ValueError(
+                "No model is registered. Check configuration"
+            )
         
         # Ensure model is initialized
         if not form.SELECTED_MODEL.llm:
             form.SELECTED_MODEL.setup()
-        
-        # Get tools and system prompt
+
         try:
-            tools = AgentService._get_tools(config)
-            system_prompt = AgentService._get_system_prompt(config.mode)
-        except ValueError as e:
-            raise ValueError(f"Configuration error: {e}") from e
-        
-        # Log agent creation
-        tool_count = len(tools)
-        log_info(
-            f"Creating agent: mode={config.mode}, tools={tool_count}, "
-            f"model={form.SELECTED_MODEL.name}, top_k={config.top_k}"
-        )
-        
-        # Create and execute agent
-        try:
-            agent = create_agent(
-                form.SELECTED_MODEL.llm,
-                tools=tools,
-                system_prompt=system_prompt
+            from backend.workflows.langgraph_workflow import run_workflow
+            result = run_workflow(
+                question=question,
+                config=config,
+                history=history,
+                thread_id=thread_id,
             )
-            
-            result = agent.invoke({
-                "messages": [HumanMessage(content=question)]
-            })
         except Exception as e:
             error_msg = f"Agent execution failed: {e}"
             log_error(error_msg)
             raise RuntimeError(error_msg) from e
-        
-        # Extract answer
-        messages = result.get("messages", [])
-        answer = getattr(messages[-1], "content", "") if messages else ""
-        
-        if not answer:
-            log_warning("Agent returned empty response")
-            answer = "No response generated. Please try rephrasing your question."
-        
-        # Get execution statistics
-        stats = form.SELECTED_MODEL.get_overall_exec_stats()
+
+        if "__interrupt__" in result:
+            interrupts = result.get("__interrupt__") or []
+            interrupt_value = None
+            if interrupts:
+                interrupt_value = getattr(interrupts[0], "value", None)
+            return {
+                "status": "approval_required",
+                "interrupt": interrupt_value,
+                "run_id": result.get("run_id"),
+                "thread_id": thread_id,
+            }
+
+        answer = result.get("answer", "")
+        stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
+        stats["run_id"] = result.get("run_id")
         
         log_success(
             f"Query completed: tokens={stats['total_tokens']} "
@@ -289,30 +316,172 @@ class AgentService:
             f"cost=${stats['total_cost']:.6f}"
         )
         
-        return answer, stats
-    
+        return {
+            "status": "completed",
+            "answer": answer,
+            "stats": stats,
+            "run_id": stats.get("run_id"),
+        }
+
     @staticmethod
-    def validate_config(config: AgentConfig) -> Tuple[bool, Optional[str]]:
-        """
-        Validate agent configuration
-        """
+    def stream_query(
+        question: str,
+        config: Optional[AgentConfig] = None,
+        history: Optional[List[Dict[str, Any]]] = None,
+        thread_id: Optional[str] = None,
+    ) -> Iterable[Dict[str, Any]]:
+        """Stream a query using the LangGraph workflow."""
+        if config is None:
+            config = AgentConfig()
+
+        if config.model_name:
+            form.set_model(config.model_name)
+
+        if not form.SELECTED_MODEL:
+            raise ValueError("No model is registered. Check configuration")
+
+        if not form.SELECTED_MODEL.llm:
+            form.SELECTED_MODEL.setup()
+
+        from backend.workflows.streaming import stream_workflow
+
+        for event in stream_workflow(
+            question=question,
+            config=config,
+            history=history,
+            thread_id=thread_id,
+        ):
+            if event.get("type") == "token":
+                yield event
+                continue
+
+            if event.get("type") == "error":
+                yield event
+                continue
+
+            if event.get("type") == "interrupt":
+                yield {
+                    "type": "interrupt",
+                    "interrupt": event.get("interrupt"),
+                    "run_id": event.get("run_id"),
+                    "thread_id": thread_id,
+                }
+                return
+
+    @staticmethod
+    def stream_resume(
+        *,
+        thread_id: str,
+        approved: bool,
+        run_id: Optional[str] = None,
+    ) -> Iterable[Dict[str, Any]]:
+        """Stream resume after human approval."""
+        if not form.SELECTED_MODEL:
+            raise ValueError("No model is registered. Check configuration")
+
+        if not form.SELECTED_MODEL.llm:
+            form.SELECTED_MODEL.setup()
+
+        from backend.workflows.streaming import stream_resume_workflow
+
+        for event in stream_resume_workflow(
+            approved=approved,
+            thread_id=thread_id,
+            run_id=run_id,
+        ):
+            if event.get("type") in {"token", "error"}:
+                yield event
+                continue
+
+            if event.get("type") == "interrupt":
+                yield {
+                    "type": "interrupt",
+                    "interrupt": event.get("interrupt"),
+                    "run_id": event.get("run_id") or run_id,
+                    "thread_id": thread_id,
+                }
+                return
+
+            if event.get("type") == "final":
+                result = event.get("result") or {}
+                answer = result.get("answer", "")
+                stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
+                stats["run_id"] = result.get("run_id") or event.get("run_id") or run_id
+                yield {
+                    "type": "final",
+                    "status": "completed",
+                    "answer": answer,
+                    "stats": stats,
+                    "run_id": stats.get("run_id"),
+                }
+                return
+
+            if event.get("type") == "final":
+                result = event.get("result") or {}
+                if "__interrupt__" in result:
+                    interrupts = result.get("__interrupt__") or []
+                    interrupt_value = None
+                    if interrupts:
+                        interrupt_value = getattr(interrupts[0], "value", None)
+                    yield {
+                        "type": "interrupt",
+                        "interrupt": interrupt_value,
+                        "run_id": event.get("run_id"),
+                        "thread_id": thread_id,
+                    }
+                    return
+
+                answer = result.get("answer", "")
+                stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
+                stats["run_id"] = result.get("run_id") or event.get("run_id")
+                yield {
+                    "type": "final",
+                    "status": "completed",
+                    "answer": answer,
+                    "stats": stats,
+                    "run_id": stats.get("run_id"),
+                }
+                return
+
+    @staticmethod
+    def resume_query(
+        *,
+        thread_id: str,
+        approved: bool,
+    ) -> Dict[str, Any]:
+        """Resume a paused workflow after human approval."""
         try:
-            # Validate mode
-            if config.mode not in {"rag", "web", "hybrid", "chat"}:
-                return False, f"Invalid mode: {config.mode}"
-            
-            # Validate top_k
-            if config.top_k <= 0:
-                return False, "top_k must be greater than 0"
-            
-            # Check if web search dependencies are available for web/hybrid modes
-            if config.mode in {"web", "hybrid"}:
-                try:
-                    from app.backend.services.web_search import web_search_tool
-                except ImportError:
-                    return False, "Web search mode requires langchain-tavily. Install: pip install langchain-tavily"
-            
-            return True, None
-            
+            from backend.workflows.langgraph_workflow import run_workflow
+            result = run_workflow(
+                question="",
+                config=AgentConfig(),
+                history=None,
+                thread_id=thread_id,
+                resume=approved,
+            )
         except Exception as e:
-            return False, str(e)
+            error_msg = f"Agent resume failed: {e}"
+            log_error(error_msg)
+            raise RuntimeError(error_msg) from e
+
+        if "__interrupt__" in result:
+            interrupts = result.get("__interrupt__") or []
+            interrupt_value = None
+            if interrupts:
+                interrupt_value = getattr(interrupts[0], "value", None)
+            return {
+                "status": "approval_required",
+                "interrupt": interrupt_value,
+                "run_id": result.get("run_id"),
+                "thread_id": thread_id,
+            }
+
+        answer = result.get("answer", "")
+        stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
+        stats["run_id"] = result.get("run_id")
+        return {
+            "status": "completed",
+            "answer": answer,
+            "stats": stats,
+            "run_id": stats.get("run_id"),
+        }

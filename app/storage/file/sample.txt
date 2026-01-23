@@ -1,0 +1,6 @@
+FPT Policy RAG sample text.
+This is a plain text file for ingestion testing.
+Sections:
+- Leave policy overview
+- Travel reimbursement basics
+- Security guidelines summary

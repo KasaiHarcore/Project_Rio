@@ -8,6 +8,7 @@ dependencies = [
   "loguru",
   "rich",
   "pydantic",
+  "requests",
   "langchain-core",
   "langchain-community",
   "langchain",
@@ -26,4 +27,7 @@ dependencies = [
   "cohere",
   "langchain-huggingface",
   "sentence_transformers",
+  "psycopg2-binary",
+  "alembic",
+  "argon2-cffi",
 ]
