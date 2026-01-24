@@ -30,6 +30,9 @@ class AgentConfig:
 	enable_planner: bool = True
 	enable_reflection: bool = True
 	enable_persistence: bool = True
+	web_search_max_calls: int = 6
+	web_search_max_results: int = 5
+	web_search_dedupe: bool = True
 
 	def __post_init__(self):
 		"""Validate configuration"""
@@ -67,6 +70,12 @@ class AgentConfig:
 
 		if self.history_max_items < 0:
 			raise ValueError("history_max_items must be >= 0")
+
+		if self.web_search_max_calls < 0:
+			raise ValueError("web_search_max_calls must be >= 0")
+
+		if self.web_search_max_results < 1 or self.web_search_max_results > 20:
+			raise ValueError("web_search_max_results must be in [1, 20]")
 
 
 @dataclass

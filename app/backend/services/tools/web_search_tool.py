@@ -13,8 +13,6 @@ from backend.utils.log import log_success, log_error, log_info, log_warning
 class WebSearchTool:
     DEFAULT_MAX_RESULTS = 5
     DEFAULT_TOPIC = "general"
-    CACHE_SIZE = 128
-    CACHE_TTL = 3600  # 1 hour in seconds
     DEFAULT_MAX_SEARCHES = 5
     DEFAULT_WINDOW_SECONDS = 3600
     
@@ -45,60 +43,91 @@ class WebSearchTool:
         self._window_seconds = int(os.getenv("TAVILY_WINDOW_SECONDS", self.DEFAULT_WINDOW_SECONDS))
         self._window_start = time.time()
         self._search_count = 0
+        self._enforce_window_limit = os.getenv("TAVILY_ENFORCE_WINDOW_LIMIT", "False").lower() == "true"
         
         self._search_wrapper: Optional[TavilySearch] = None
         self._last_search_time = 0
         self._min_request_interval = 0.1  # 100ms between requests
-        self._cache: Dict[str, Dict[str, Any]] = {}
-        self._cache_order: List[str] = []
 
-        self._call_state = threading.local()
-        self._default_call_limit = int(os.getenv("WEB_SEARCH_MAX_CALLS", "2"))
+        # NOTE: Tool calls may run in a threadpool, so thread-local counters are unreliable.
+        # Enforce budgets in a shared, lock-protected structure.
+        self._run_lock = threading.Lock()
+        self._default_call_limit = int(os.getenv("WEB_SEARCH_MAX_CALLS", "6"))
+        self._default_max_results = int(os.getenv("WEB_SEARCH_MAX_RESULTS", str(self.max_results)))
+        self._default_dedupe = os.getenv("WEB_SEARCH_DEDUPE", "True").lower() == "true"
+        self._budget_id = 0
+        self._run_budget: Dict[str, Any] = {
+            "call_limit": self._default_call_limit,
+            "call_count": 0,
+            "max_results_cap": max(1, min(20, self._default_max_results)),
+            "dedupe": self._default_dedupe,
+            "seen_queries": set(),
+        }
         
         log_info(f"WebSearchTool initialized (depth={search_depth}, max_results={max_results})")
 
     def reset_call_limit(self, max_calls: Optional[int] = None) -> None:
         """Reset per-run call limit counter for this tool."""
         limit = self._default_call_limit if max_calls is None else int(max_calls)
-        setattr(self._call_state, "call_limit", max(0, limit))
-        setattr(self._call_state, "call_count", 0)
+        with self._run_lock:
+            self._budget_id += 1
+            self._run_budget["call_limit"] = max(0, limit)
+            self._run_budget["call_count"] = 0
+            self._run_budget["seen_queries"] = set()
+
+    def configure_run(
+        self,
+        max_calls: Optional[int] = None,
+        max_results: Optional[int] = None,
+        dedupe: Optional[bool] = None,
+    ) -> None:
+        """Configure per-run limits for this tool.
+
+        This is the primary enforcement layer to prevent the model from exhausting
+        credits even if it ignores prompt guidance.
+        """
+        self.reset_call_limit(max_calls=max_calls)
+        if max_results is None:
+            max_results_cap = self._default_max_results
+        else:
+            max_results_cap = int(max_results)
+        with self._run_lock:
+            self._run_budget["max_results_cap"] = max(1, min(20, max_results_cap))
+            self._run_budget["dedupe"] = self._default_dedupe if dedupe is None else bool(dedupe)
+            self._run_budget["seen_queries"] = set()
 
     def _consume_call(self) -> bool:
         """Return True if another call is allowed, else False."""
-        limit = getattr(self._call_state, "call_limit", self._default_call_limit)
-        count = getattr(self._call_state, "call_count", 0)
-        if limit <= 0:
-            return False
-        if count >= limit:
-            return False
-        setattr(self._call_state, "call_count", count + 1)
-        return True
+        with self._run_lock:
+            limit = int(self._run_budget.get("call_limit", self._default_call_limit))
+            count = int(self._run_budget.get("call_count", 0))
+            if limit <= 0:
+                return False
+            if count >= limit:
+                return False
+            self._run_budget["call_count"] = count + 1
+            return True
 
-    def _get_cached(self, cache_key: str) -> Optional[Dict[str, Any]]:
-        cached = self._cache.get(cache_key)
-        if not cached:
-            return None
-        if time.time() - float(cached.get("timestamp", 0)) > self.CACHE_TTL:
-            self._cache.pop(cache_key, None)
-            if cache_key in self._cache_order:
-                self._cache_order.remove(cache_key)
-            return None
-        return cached
-
-    def _set_cached(self, cache_key: str, result: Dict[str, Any]) -> None:
-        if cache_key in self._cache_order:
-            self._cache_order.remove(cache_key)
-        self._cache_order.append(cache_key)
-        self._cache[cache_key] = {
-            "timestamp": time.time(),
-            "result": result,
-        }
-        while len(self._cache_order) > self.CACHE_SIZE:
-            oldest = self._cache_order.pop(0)
-            self._cache.pop(oldest, None)
+    def _should_skip_duplicate(self, query: str) -> bool:
+        normalized_query = (query or "").strip().lower()
+        if not normalized_query:
+            return False
+        with self._run_lock:
+            if not bool(self._run_budget.get("dedupe", self._default_dedupe)):
+                return False
+            seen = self._run_budget.get("seen_queries")
+            if not isinstance(seen, set):
+                seen = set()
+                self._run_budget["seen_queries"] = seen
+            if normalized_query in seen:
+                return True
+            seen.add(normalized_query)
+            return False
 
     def _check_search_limit(self) -> None:
         """Enforce max searches within time window."""
+        if not self._enforce_window_limit:
+            return
         now = time.time()
         if now - self._window_start > self._window_seconds:
             self._window_start = now
@@ -185,7 +214,10 @@ class WebSearchTool:
         """
         Perform web search with comprehensive options
         """
+        with self._run_lock:
+            max_results_cap = int(self._run_budget.get("max_results_cap", self._default_max_results))
         max_results = max_results or self.max_results
+        max_results = min(max_results, max_results_cap)
         effective_search_depth = search_depth or self.search_depth
         
         # Validate parameters
@@ -196,9 +228,6 @@ class WebSearchTool:
         log_info(
             f"Searching: '{query}' (max={max_results}, topic={topic}, time={time_range}, depth={effective_search_depth})"
         )
-
-        cache_key = f"{query}|{max_results}|{topic}|{time_range}|{effective_search_depth}"
-        cached = self._get_cached(cache_key)
         
         try:
             self._rate_limit()
@@ -234,30 +263,17 @@ class WebSearchTool:
             
             # Format results
             formatted = self._format_results(results, query)
-
-            self._set_cached(cache_key, formatted)
             
             log_success(f"Search completed: {len(formatted.get('results', []))} results found")
             return formatted
 
         except ValueError as e:
             if "Search limit reached" in str(e):
-                if cached:
-                    log_warning(f"Search limit reached, returning cached results for '{query}'")
-                    cached_result = dict(cached.get("result", {}))
-                    cached_result["cached"] = True
-                    return cached_result
-                log_warning(f"Search limit reached, no cached results for '{query}'")
+                log_warning(f"Search limit reached for '{query}'")
             else:
                 log_error(f"Search failed for '{query}': {e}")
         except Exception as e:
             log_error(f"Search failed for '{query}': {e}")
-
-        if cached:
-            log_warning(f"Search failed, returning cached results for '{query}'")
-            cached_result = dict(cached.get("result", {}))
-            cached_result["cached"] = True
-            return cached_result
 
         return {
             "query": query,
@@ -364,10 +380,22 @@ class WebSearchTool:
             time_range: Optional[str] = None,
             search_depth: str = "basic",
         ) -> str:
+            if self._should_skip_duplicate(query):
+                log_warning(f"Duplicate web search query skipped: '{query}'")
+                return (
+                    "Duplicate web search query skipped. "
+                    "Refine the query (add constraints like site:, date, or specific terms)."
+                )
+
             if not self._consume_call():
-                limit = getattr(self._call_state, "call_limit", self._default_call_limit)
+                with self._run_lock:
+                    limit = int(self._run_budget.get("call_limit", self._default_call_limit))
                 log_warning(f"Web search call limit reached for this run (max {limit}).")
                 return f"Web search limit reached for this run (max {limit})."
+
+            with self._run_lock:
+                max_results_cap = int(self._run_budget.get("max_results_cap", self._default_max_results))
+            max_results = min(int(max_results), int(max_results_cap))
             return self.search_as_string(
                 query,
                 max_results,
