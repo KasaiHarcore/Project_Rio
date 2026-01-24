@@ -3,12 +3,10 @@ Agent Service - Core RAG Agent Logic
 Centralized agent creation, execution, and result processing for FPT Policy RAG
 """
 
-from typing import Optional, List, Dict, Any, Literal, Tuple
-from typing import Iterable
+from typing import Optional, List, Dict, Any, Literal, Tuple, Iterator
 from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import StructuredTool
 from langchain.agents import create_agent
-from langgraph.types import interrupt
 from pydantic import BaseModel, Field
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
@@ -30,7 +28,7 @@ class WebSearchInput(BaseModel):
 
 
 class SQLQueryInput(BaseModel):
-    """Input schema for SQL tool with human approval"""
+    """Input schema for SQL tool"""
     query: str = Field(..., description="SQL query to execute")
     params: Optional[Dict[str, Any]] = Field(default=None, description="Optional query parameters")
 
@@ -185,16 +183,7 @@ class AgentService:
         if tool_decision.get("sql"):
             try:
                 from backend.services.tools.sql_tool import sql_tool
-                def _sql_with_approval(query: str, params: Optional[Dict[str, Any]] = None) -> str:
-                    approval_payload = {
-                        "type": "sql_approval",
-                        "tool": "sql_query",
-                        "query": query,
-                        "params": params or {},
-                    }
-                    approved = interrupt(approval_payload)
-                    if not approved:
-                        return "SQL execution was not approved by the user."
+                def _sql_query(query: str, params: Optional[Dict[str, Any]] = None) -> str:
                     results = sql_tool.execute_query(query, params=params)
                     return sql_tool.format_results_for_agent(results)
 
@@ -203,10 +192,9 @@ class AgentService:
                         name="sql_query",
                         description=(
                             "Execute SQL queries against the application database. "
-                            "Requires human approval before execution. "
                             "Always prefer SELECT for reads."
                         ),
-                        func=_sql_with_approval,
+                        func=_sql_query,
                         args_schema=SQLQueryInput,
                     )
                 )
@@ -294,18 +282,6 @@ class AgentService:
             log_error(error_msg)
             raise RuntimeError(error_msg) from e
 
-        if "__interrupt__" in result:
-            interrupts = result.get("__interrupt__") or []
-            interrupt_value = None
-            if interrupts:
-                interrupt_value = getattr(interrupts[0], "value", None)
-            return {
-                "status": "approval_required",
-                "interrupt": interrupt_value,
-                "run_id": result.get("run_id"),
-                "thread_id": thread_id,
-            }
-
         answer = result.get("answer", "")
         stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
         stats["run_id"] = result.get("run_id")
@@ -329,8 +305,12 @@ class AgentService:
         config: Optional[AgentConfig] = None,
         history: Optional[List[Dict[str, Any]]] = None,
         thread_id: Optional[str] = None,
-    ) -> Iterable[Dict[str, Any]]:
-        """Stream a query using the LangGraph workflow."""
+    ) -> Iterator[Dict[str, Any]]:
+        """Stream a query and yield token/final/error events.
+
+        This intentionally does NOT support interrupts/approval.
+        """
+
         if config is None:
             config = AgentConfig()
 
@@ -351,137 +331,4 @@ class AgentService:
             history=history,
             thread_id=thread_id,
         ):
-            if event.get("type") == "token":
-                yield event
-                continue
-
-            if event.get("type") == "error":
-                yield event
-                continue
-
-            if event.get("type") == "interrupt":
-                yield {
-                    "type": "interrupt",
-                    "interrupt": event.get("interrupt"),
-                    "run_id": event.get("run_id"),
-                    "thread_id": thread_id,
-                }
-                return
-
-    @staticmethod
-    def stream_resume(
-        *,
-        thread_id: str,
-        approved: bool,
-        run_id: Optional[str] = None,
-    ) -> Iterable[Dict[str, Any]]:
-        """Stream resume after human approval."""
-        if not form.SELECTED_MODEL:
-            raise ValueError("No model is registered. Check configuration")
-
-        if not form.SELECTED_MODEL.llm:
-            form.SELECTED_MODEL.setup()
-
-        from backend.workflows.streaming import stream_resume_workflow
-
-        for event in stream_resume_workflow(
-            approved=approved,
-            thread_id=thread_id,
-            run_id=run_id,
-        ):
-            if event.get("type") in {"token", "error"}:
-                yield event
-                continue
-
-            if event.get("type") == "interrupt":
-                yield {
-                    "type": "interrupt",
-                    "interrupt": event.get("interrupt"),
-                    "run_id": event.get("run_id") or run_id,
-                    "thread_id": thread_id,
-                }
-                return
-
-            if event.get("type") == "final":
-                result = event.get("result") or {}
-                answer = result.get("answer", "")
-                stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
-                stats["run_id"] = result.get("run_id") or event.get("run_id") or run_id
-                yield {
-                    "type": "final",
-                    "status": "completed",
-                    "answer": answer,
-                    "stats": stats,
-                    "run_id": stats.get("run_id"),
-                }
-                return
-
-            if event.get("type") == "final":
-                result = event.get("result") or {}
-                if "__interrupt__" in result:
-                    interrupts = result.get("__interrupt__") or []
-                    interrupt_value = None
-                    if interrupts:
-                        interrupt_value = getattr(interrupts[0], "value", None)
-                    yield {
-                        "type": "interrupt",
-                        "interrupt": interrupt_value,
-                        "run_id": event.get("run_id"),
-                        "thread_id": thread_id,
-                    }
-                    return
-
-                answer = result.get("answer", "")
-                stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
-                stats["run_id"] = result.get("run_id") or event.get("run_id")
-                yield {
-                    "type": "final",
-                    "status": "completed",
-                    "answer": answer,
-                    "stats": stats,
-                    "run_id": stats.get("run_id"),
-                }
-                return
-
-    @staticmethod
-    def resume_query(
-        *,
-        thread_id: str,
-        approved: bool,
-    ) -> Dict[str, Any]:
-        """Resume a paused workflow after human approval."""
-        try:
-            from backend.workflows.langgraph_workflow import run_workflow
-            result = run_workflow(
-                question="",
-                config=AgentConfig(),
-                history=None,
-                thread_id=thread_id,
-                resume=approved,
-            )
-        except Exception as e:
-            error_msg = f"Agent resume failed: {e}"
-            log_error(error_msg)
-            raise RuntimeError(error_msg) from e
-
-        if "__interrupt__" in result:
-            interrupts = result.get("__interrupt__") or []
-            interrupt_value = None
-            if interrupts:
-                interrupt_value = getattr(interrupts[0], "value", None)
-            return {
-                "status": "approval_required",
-                "interrupt": interrupt_value,
-                "run_id": result.get("run_id"),
-                "thread_id": thread_id,
-            }
-
-        answer = result.get("answer", "")
-        stats = result.get("stats", form.SELECTED_MODEL.get_overall_exec_stats())
-        stats["run_id"] = result.get("run_id")
-        return {
-            "status": "completed",
-            "answer": answer,
-            "stats": stats,
-            "run_id": stats.get("run_id"),
-        }
+            yield event

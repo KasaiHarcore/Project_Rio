@@ -28,7 +28,7 @@ def serve() -> None:
         print("Install: pip install streamlit")
         sys.exit(1)
     
-    app_path = Path(__file__).parent / "app" / "frontend" / "streamlit_app.py"
+    app_path = Path(__file__).parent / "app" / "frontend" / "chat_main.py"
     
     if not app_path.exists():
         log_error(f"UI not found: {app_path}")
