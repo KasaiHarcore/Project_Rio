@@ -30,9 +30,6 @@ def render_sidebar() -> None:
                 st.session_state.show_profile_dialog = True
             st.markdown("---")
 
-        st.markdown("### FPT Policy Agent")
-        st.markdown("---")
-
         if st.button("New Chat", use_container_width=True, type="primary"):
             st.session_state.messages = []
             st.session_state.current_chat_id = time.strftime("%Y%m%d_%H%M%S")

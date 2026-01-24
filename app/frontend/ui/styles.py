@@ -7,7 +7,7 @@ import streamlit as st
 
 def setup_page() -> None:
     st.set_page_config(
-        page_title="FPT Policy RAG Agent",
+        page_title="Custom Agent",
         page_icon="📚",
         layout="wide",
         initial_sidebar_state="expanded",
