@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import streamlit as st
 
@@ -70,19 +70,26 @@ def render_chat_interface() -> None:
 
                 placeholder = st.empty()
                 buffer = ""
+                st.session_state.stream_buffer = ""
+                st.session_state.active_stream_id = uuid4().hex
                 final_state = None
                 run_id = None
 
                 with st.spinner("Working on your query... 🚀"):
-                    for event in AgentService.stream_query(
+                    stream_id = st.session_state.active_stream_id
+                    stream_iter = AgentService.stream_query(
                         prompt,
                         config,
                         history=history,
                         thread_id=st.session_state.get("current_thread_id"),
-                    ):
+                    )
+                    for event in stream_iter:
+                        if st.session_state.active_stream_id != stream_id:
+                            break
                         etype = event.get("type")
                         if etype == "token":
                             buffer += event.get("content", "")
+                            st.session_state.stream_buffer = buffer
                             placeholder.markdown(buffer + "▌")
                         elif etype == "final":
                             final_state = event.get("result") or {}
@@ -96,7 +103,11 @@ def render_chat_interface() -> None:
                     stats["run_id"] = run_id
 
                 placeholder.markdown(answer or "No response")
+                st.session_state.stream_buffer = ""
+                st.session_state.active_stream_id = None
                 if answer:
                     append_assistant_message(answer, stats=stats or None, run_id=stats.get("run_id"))
             except Exception as e:
+                st.session_state.stream_buffer = ""
+                st.session_state.active_stream_id = None
                 st.error(f"Error: {str(e)}")

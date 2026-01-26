@@ -65,7 +65,6 @@ class OpenAIModel(Model):
 
 		self.check_api_key()
 
-		# Add timeout to prevent hanging (60 seconds default)
 		self.llm = ChatOpenAI(
 			model=self.model_name,
 			temperature=MODEL_TEMP,

@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import threading
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Iterable
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -52,6 +52,21 @@ class Model(ABC):
     @abstractmethod
     def call(self, messages: list[dict], **kwargs):
         raise NotImplementedError("abstract base class")
+
+    def stream(
+        self,
+        *,
+        system_prompt: str | None = None,
+        user_prompt: str | None = None,
+        ai_prompt: str | None = None,
+        messages: list[BaseMessage] | None = None,
+        **kwargs,
+    ) -> Iterable[str]:
+        """Stream tokens from the model.
+
+        Override in subclasses that support streaming.
+        """
+        raise NotImplementedError("Streaming is not supported by this model")
 
     def format_messages(
         self,

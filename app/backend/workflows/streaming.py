@@ -1,126 +1,107 @@
-"""LangGraph streaming helpers.
-
-Streams workflow execution events so the UI can render partial responses.
-This implementation intentionally does NOT support interrupts/approval.
-"""
+"""LangGraph streaming workflow runner."""
 
 from __future__ import annotations
 
-from typing import Dict, Any, List, Optional, Iterator
+from typing import Any, Dict, Iterator, List, Optional
 from uuid import uuid4
-import time
+
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
 
 from backend.core.settings import AgentConfig
-from backend.services.run_service import run_service
-from backend.services.workflow_state_service import resolve_checkpoint_thread_id
 from backend.db.models.run import RunStatus
-from backend.utils.log import log_debug, log_error
+from backend.services.llm import form
+from backend.services.run_service import run_service
+from backend.utils.log import log_error
+from uuid import UUID
 
-from backend.workflows.langgraph_workflow import (
-    build_workflow,
-    _get_checkpointer,
-    _sanitize_history,
-    GraphState,
-)
+from backend.db.session import get_db_context
+from backend.db.repositories.state_checkpoint_repo import StateCheckpointRepository
+from backend.db.models.state_checkpoint import StateCheckpoint
+from backend.workflows.checkpointing import checkpoint_context, get_latest_checkpoint_info
+from backend.workflows.graph_definition import build_config_payload, build_graph, extract_answer
 
 
 def stream_workflow(
-    *,
-    question: str,
-    config: AgentConfig,
-    history: Optional[List[Dict[str, Any]]] = None,
-    thread_id: Optional[str] = None,
-    run_id: Optional[str] = None,
+	*,
+	question: str,
+	config: AgentConfig,
+	history: Optional[List[Dict[str, Any]]] = None,
+	thread_id: Optional[str] = None,
+	checkpoint_id: Optional[str] = None,
+	checkpoint_ns: Optional[str] = None,
+	tools: Optional[List[Any]] = None,
+	system_prompt: str = "",
 ) -> Iterator[Dict[str, Any]]:
-    """Run the workflow and yield token/final/error events.
+	"""Stream LangGraph output as token and final events."""
+	if not thread_id:
+		raise ValueError("thread_id is required to map checkpoints to SQL threads")
+	run_id = uuid4().hex
+	run_service.start_run(
+		run_id=run_id,
+		thread_id=thread_id,
+		mode=config.mode,
+		model_name=getattr(form.SELECTED_MODEL, "name", None),
+	)
 
-    Yields:
-      - {"type": "token", "content": "..."}
-      - {"type": "final", "result": {...}, "run_id": "..."}
-      - {"type": "error", "error": "...", "run_id": "..."}
+	checkpoint_ns = checkpoint_ns or config.state_scope
+	config_payload = build_config_payload(
+		thread_id=thread_id,
+		checkpoint_id=checkpoint_id,
+		checkpoint_ns=checkpoint_ns,
+	)
+	collected_messages: List[BaseMessage] = []
+	buffer = ""
 
-    Note: interrupts are treated as errors (they are not supported).
-    """
+	try:
+		with checkpoint_context() as checkpointer:
+			graph = build_graph(
+				tools=tools or [],
+				system_prompt=system_prompt,
+				checkpointer=checkpointer,
+			)
+			for chunk, _metadata in graph.stream(
+				{"question": question, "history": history or []},
+				stream_mode="messages",
+				config=config_payload,
+			):
+				if isinstance(chunk, AIMessageChunk):
+					text = chunk.content or ""
+					if text:
+						buffer += text
+						yield {"type": "token", "content": text}
+					continue
+				if isinstance(chunk, BaseMessage):
+					collected_messages.append(chunk)
 
-    log_debug("Stream workflow started")
-    graph = build_workflow().compile(checkpointer=_get_checkpointer())
-    run_id = run_id or uuid4().hex
+		answer = buffer or extract_answer(collected_messages)
+		stats = form.SELECTED_MODEL.get_overall_exec_stats()
 
-    checkpoint_thread_id = resolve_checkpoint_thread_id(
-        thread_id,
-        run_id,
-        getattr(config, "state_scope", None),
-    )
-    config_payload = {"configurable": {"thread_id": checkpoint_thread_id}}
-
-    max_history_items = int(getattr(config, "history_max_items", 50) or 0)
-    sanitized_history = _sanitize_history(history, max_items=max_history_items)
-
-    state: GraphState = {
-        "question": question,
-        "config": config,
-        "history": sanitized_history,
-        "thread_id": thread_id,
-        "run_id": run_id,
-        "step": 0,
-        "retry_count": 0,
-        "max_retries": getattr(config, "verify_max_retries", 2),
-        "state_schema_version": getattr(config, "state_schema_version", 1),
-        "checkpoint_every": getattr(config, "checkpoint_every", 1),
-        "state_scope": getattr(config, "state_scope", "thread"),
-        "started_at": time.time(),
-        "deadline_ts": time.time() + float(getattr(config, "max_execution_seconds", 120)),
-    }
-
-    run_service.start_run(
-        run_id=run_id,
-        thread_id=thread_id,
-        mode=getattr(config, "mode", None),
-        model_name=getattr(config, "model_name", None),
-    )
-
-    latest_state: Optional[Dict[str, Any]] = None
-
-    try:
-        for chunk in graph.stream(state, config=config_payload, stream_mode=["messages", "values", "updates"]):
-            mode = None
-            data = None
-
-            if isinstance(chunk, tuple) and len(chunk) == 2 and isinstance(chunk[0], str):
-                mode, data = chunk
-            elif isinstance(chunk, dict):
-                if "messages" in chunk:
-                    mode = "messages"
-                    data = chunk["messages"]
-                elif "values" in chunk:
-                    mode = "values"
-                    data = chunk["values"]
-                elif "updates" in chunk:
-                    mode = "updates"
-                    data = chunk["updates"]
-
-            if mode == "messages" and data is not None:
-                msg = data[0] if isinstance(data, tuple) and len(data) == 2 else data
-                content = getattr(msg, "content", None)
-                if content is None:
-                    content = str(msg)
-                if content:
-                    yield {"type": "token", "content": content}
-
-            if mode == "values" and isinstance(data, dict):
-                latest_state = data
-
-            if mode == "updates" and isinstance(data, dict):
-                if "__interrupt__" in data:
-                    raise RuntimeError("Workflow interrupt requested, but interrupts are disabled.")
-
-        final_state = latest_state or {}
-        if "__interrupt__" not in final_state:
-            run_service.finish_run(run_id=run_id, status=RunStatus.SUCCEEDED)
-
-        log_debug("Stream workflow completed")
-        yield {"type": "final", "result": final_state, "run_id": run_id}
-    except Exception as e:
-        run_service.finish_run(run_id=run_id, status=RunStatus.FAILED, error=str(e))
-        log_error(f"Stream workflow failed: {e}")
-        yield {"type": "error", "error": str(e), "run_id": run_id}
+		try:
+			checkpoint_info = get_latest_checkpoint_info(
+				thread_id=thread_id,
+				checkpoint_ns=checkpoint_ns,
+				config_builder=build_config_payload,
+			)
+			if checkpoint_info:
+				thread_uuid = UUID(thread_id)
+				with get_db_context() as session:
+					repo = StateCheckpointRepository(session)
+					round_index = repo.get_next_round_index(thread_uuid)
+					checkpoint_row = StateCheckpoint(
+						thread_id=thread_uuid,
+						run_id=run_id,
+						checkpoint_id=checkpoint_info["checkpoint_id"],
+						checkpoint_ns=checkpoint_info["checkpoint_ns"],
+						parent_checkpoint_id=checkpoint_info.get("parent_checkpoint_id"),
+						round_index=round_index,
+						checkpoint_metadata=checkpoint_info.get("metadata"),
+					)
+					repo.create(checkpoint_row)
+		except Exception as e:
+			log_error(f"Failed to persist checkpoint mapping: {e}")
+		run_service.finish_run(run_id=run_id, status=RunStatus.SUCCEEDED)
+		yield {"type": "final", "result": {"answer": answer, "stats": stats}, "run_id": run_id}
+	except Exception as e:
+		run_service.finish_run(run_id=run_id, status=RunStatus.FAILED, error=str(e))
+		log_error(f"LangGraph streaming failed: {e}")
+		yield {"type": "error", "error": str(e), "run_id": run_id}

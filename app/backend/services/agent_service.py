@@ -4,9 +4,7 @@ Centralized agent creation, execution, and result processing for FPT Policy RAG
 """
 
 from typing import Optional, List, Dict, Any, Literal, Tuple, Iterator
-from langchain_core.messages import HumanMessage, AIMessage
 from langchain_core.tools import StructuredTool
-from langchain.agents import create_agent
 from pydantic import BaseModel, Field
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
@@ -35,7 +33,7 @@ class SQLQueryInput(BaseModel):
 SYSTEM_PROMPTS = {
     "rag": (
         "## ROLE\n"
-        "You are the 'FPT Internal Policy Specialist.' Your sole purpose is to provide accurate, high-fidelity answers to employee queries regarding FPT internal policies. "
+        "You are the Information Provider Specialist. Your sole purpose is to provide accurate, high-fidelity answers for user request. "
         "You operate strictly as a Retrieval-Augmented Generation (RAG) agent using ONLY the internal retrieval tools available in this application: policy_retriever, enhanced_retriever, and hyde_retriever.\n\n"
         "## CORE OPERATING PRINCIPLE: THE SILO\n"
         "- ZERO EXTERNAL KNOWLEDGE: Ignore all prior training and general HR/legal knowledge. Use ONLY the retrieved context returned by the retrieval tools.\n"
@@ -257,9 +255,11 @@ class AgentService:
                 log_error(error_msg)
                 raise ValueError(error_msg) from e
 
-        # Chat mode - no tools needed
+        # Chat mode - all tool
         if config.mode == "chat":
-            pass 
+            # Implement all tool in this mode
+            pass
+            
         
         if not tools and config.mode != "chat":
             raise ValueError(f"No tools available for mode: {config.mode}")
@@ -296,6 +296,8 @@ class AgentService:
         config: Optional[AgentConfig] = None,
         history: Optional[List[Dict[str, Any]]] = None,
         thread_id: Optional[str] = None,
+        checkpoint_id: Optional[str] = None,
+        checkpoint_ns: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Execute a query using the RAG agent
@@ -331,12 +333,18 @@ class AgentService:
             log_warning(f"Failed to configure web search run budget: {e}")
 
         try:
+            tools = AgentService._get_tools(question, config)
+            system_prompt = AgentService._get_system_prompt(config.mode)
             from backend.workflows.langgraph_workflow import run_workflow
             result = run_workflow(
                 question=question,
                 config=config,
                 history=history,
                 thread_id=thread_id,
+                checkpoint_id=checkpoint_id,
+                checkpoint_ns=checkpoint_ns,
+                tools=tools,
+                system_prompt=system_prompt,
             )
         except Exception as e:
             error_msg = f"Agent execution failed: {e}"
@@ -366,6 +374,8 @@ class AgentService:
         config: Optional[AgentConfig] = None,
         history: Optional[List[Dict[str, Any]]] = None,
         thread_id: Optional[str] = None,
+        checkpoint_id: Optional[str] = None,
+        checkpoint_ns: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """Stream a query and yield token/final/error events.
 
@@ -396,6 +406,8 @@ class AgentService:
         except Exception as e:
             log_warning(f"Failed to configure web search run budget: {e}")
 
+        tools = AgentService._get_tools(question, config)
+        system_prompt = AgentService._get_system_prompt(config.mode)
         from backend.workflows.streaming import stream_workflow
 
         for event in stream_workflow(
@@ -403,5 +415,9 @@ class AgentService:
             config=config,
             history=history,
             thread_id=thread_id,
+            checkpoint_id=checkpoint_id,
+            checkpoint_ns=checkpoint_ns,
+            tools=tools,
+            system_prompt=system_prompt,
         ):
             yield event
