@@ -69,11 +69,33 @@ def render_chat_interface() -> None:
                 )
 
                 placeholder = st.empty()
+                thinking_box = st.empty()
                 buffer = ""
                 st.session_state.stream_buffer = ""
                 st.session_state.active_stream_id = uuid4().hex
                 final_state = None
                 run_id = None
+                planning_text = ""
+                reflection_text = ""
+
+                def _render_thinking() -> None:
+                    if not (planning_text or reflection_text):
+                        return
+                    with thinking_box.container():
+                        with st.expander("Planning & Reflection", expanded=False):
+                            parts = []
+                            if planning_text:
+                                parts.append(planning_text)
+                            if reflection_text:
+                                parts.append(reflection_text)
+                            content = "\n\n".join([p for p in parts if p])
+                            st.text_area(
+                                "Planning & Reflection Output",
+                                value=content,
+                                height=90,
+                                disabled=True,
+                                label_visibility="collapsed",
+                            )
 
                 with st.spinner("Working on your query... 🚀"):
                     stream_id = st.session_state.active_stream_id
@@ -87,11 +109,19 @@ def render_chat_interface() -> None:
                         if st.session_state.active_stream_id != stream_id:
                             break
                         etype = event.get("type")
-                        if etype == "token":
+                        if etype == "planning":
+                            planning_text = event.get("content", "") or ""
+                            _render_thinking()
+                        elif etype == "reflection":
+                            reflection_text = event.get("content", "") or ""
+                            _render_thinking()
+                        elif etype == "token":
+                            thinking_box.empty()
                             buffer += event.get("content", "")
                             st.session_state.stream_buffer = buffer
                             placeholder.markdown(buffer + "▌")
                         elif etype == "final":
+                            thinking_box.empty()
                             final_state = event.get("result") or {}
                             run_id = event.get("run_id")
                         elif etype == "error":
