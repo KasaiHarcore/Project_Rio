@@ -7,7 +7,6 @@ from backend.db.models.run import Run, RunStatus
 from backend.db.models.user_profile import UserProfile
 from backend.db.models.tool_usage import ToolUsage, ToolStatus
 from backend.db.models.audit_log import AuditLog
-from backend.db.models.state_checkpoint import StateCheckpoint
 
 __all__ = [
     "User",
@@ -22,5 +21,4 @@ __all__ = [
     "ToolUsage",
     "ToolStatus",
     "AuditLog",
-    "StateCheckpoint",
 ]

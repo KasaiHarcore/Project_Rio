@@ -95,32 +95,3 @@ def load_checkpoint(
 			"parent_config": tup.parent_config,
 			"pending_writes": tup.pending_writes,
 		}
-
-
-def get_latest_checkpoint_info(
-	*,
-	thread_id: str,
-	checkpoint_ns: str = "",
-	config_builder,
-) -> Optional[Dict[str, Any]]:
-	"""Return latest checkpoint identifiers and metadata for a thread."""
-	config = config_builder(
-		thread_id=thread_id,
-		checkpoint_ns=checkpoint_ns,
-	)
-	with checkpoint_context() as checkpointer:
-		tup = checkpointer.get_tuple(config)
-		if not tup:
-			return None
-		return {
-			"checkpoint_id": tup.config["configurable"]["checkpoint_id"],
-			"checkpoint_ns": tup.config["configurable"].get("checkpoint_ns", ""),
-			"thread_id": tup.config["configurable"]["thread_id"],
-			"ts": tup.checkpoint.get("ts"),
-			"metadata": tup.metadata,
-			"parent_checkpoint_id": (
-				tup.parent_config["configurable"]["checkpoint_id"]
-				if tup.parent_config
-				else None
-			),
-		}

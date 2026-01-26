@@ -28,6 +28,11 @@ class GraphState(TypedDict, total=False):
 	answer: str
 	stats: Dict[str, Any]
 	run_id: str
+	planning: str
+	reflection: str
+	reflection_valid: bool
+	reflection_feedback: str
+	reflection_attempts: int
 
 
 def build_config_payload(
@@ -77,6 +82,17 @@ def extract_answer(messages: List[BaseMessage]) -> str:
 		if isinstance(msg, AIMessage):
 			return msg.content or ""
 	return ""
+
+
+def extract_tool_context(messages: List[BaseMessage]) -> str:
+	"""Collect tool outputs into a single context string."""
+	chunks: List[str] = []
+	for msg in messages or []:
+		if isinstance(msg, ToolMessage) and msg.content:
+			content = str(msg.content).strip()
+			if content:
+				chunks.append(content)
+	return "\n\n".join(chunks).strip()
 
 
 def should_use_tools(state: GraphState) -> str:

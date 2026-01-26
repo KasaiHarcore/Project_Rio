@@ -1,6 +1,6 @@
 """Run model for LangGraph executions tied to chat threads."""
 
-from typing import Optional
+from typing import List, Optional
 from sqlalchemy import String, Enum as SQLEnum, Text, ForeignKey, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID

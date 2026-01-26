@@ -66,7 +66,6 @@ def get_engine():
                         user_profile,
                         tool_usage,
                         audit_log,
-                            state_checkpoint,
                     )
                     Base.metadata.create_all(bind=_engine)
                     log_success("Database schema initialized")
@@ -191,7 +190,6 @@ def init_db() -> None:
         user_profile,
         tool_usage,
         audit_log,
-        state_checkpoint,
     )
     
     engine = get_engine()
