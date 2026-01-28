@@ -18,21 +18,14 @@ from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 
 from backend.services.llm import form
+from backend.schemas.query import ChatMessageRecord
 
 
 class GraphState(TypedDict, total=False):
 	"""State for LangGraph agent workflow."""
-	question: str
-	history: List[Dict[str, Any]]
+	schema_version: int
+	# The only checkpointed channel we rely on for resume/time-travel.
 	messages: Annotated[List[BaseMessage], add_messages]
-	answer: str
-	stats: Dict[str, Any]
-	run_id: str
-	planning: str
-	reflection: str
-	reflection_valid: bool
-	reflection_feedback: str
-	reflection_attempts: int
 
 
 def build_config_payload(
@@ -56,8 +49,7 @@ def build_config_payload(
 def build_messages(
 	*,
 	question: str,
-	history: Optional[List[Dict[str, Any]]],
-	system_prompt: str,
+	history: Optional[List[ChatMessageRecord]],
 ) -> List[BaseMessage]:
 	"""Construct LangChain messages for the agent."""
 	messages: List[BaseMessage] = []
@@ -115,15 +107,6 @@ def build_graph(
 	) -> StateGraph:
 	"""Create a LangGraph workflow with tool execution loop."""
 
-	def _prepare(state: GraphState) -> Dict[str, Any]:
-		return {
-			"messages": build_messages(
-				question=state.get("question", ""),
-				history=state.get("history"),
-				system_prompt=system_prompt,
-			)
-		}
-
 	llm = form.SELECTED_MODEL.llm
 	llm_with_tools = llm.bind_tools(tools) if tools else llm
 
@@ -143,13 +126,11 @@ def build_graph(
 	)
 
 	graph = StateGraph(GraphState)
-	graph.add_node("prepare", _prepare)
 	graph.add_node("agent", agent_node)
 	if tools:
 		graph.add_node("tools", ToolNode(tools))
 
-	graph.add_edge(START, "prepare")
-	graph.add_edge("prepare", "agent")
+	graph.add_edge(START, "agent")
 
 	if tools:
 		graph.add_conditional_edges("agent", should_use_tools, {"tools": "tools", END: END})
