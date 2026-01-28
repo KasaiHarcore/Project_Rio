@@ -10,6 +10,11 @@ from pydantic import BaseModel, Field
 from backend.utils.log import log_info, log_success, log_error, log_warning
 from backend.services.llm import form
 from backend.core.settings import AgentConfig
+from backend.db.models.tool_usage import ToolStatus
+from backend.services.tool_usage_service import log_tool_usage
+from backend.telemetry.langsmith import traced_span
+
+import time
 
 
 class RetrieveInput(BaseModel):
@@ -180,7 +185,7 @@ class AgentService:
         """
         Get tools based on agent configuration
         """
-        tools = []
+        tools: List[StructuredTool] = []
 
         tool_decision = AgentService._decide_tools(question, config)
         
@@ -264,7 +269,137 @@ class AgentService:
         if not tools and config.mode != "chat":
             raise ValueError(f"No tools available for mode: {config.mode}")
         
-        return tools
+        return AgentService._instrument_tools(tools, config=config)
+
+    @staticmethod
+    def _instrument_tools(tools: List[StructuredTool], *, config: AgentConfig) -> List[StructuredTool]:
+        """Wrap tool execution with tracing + logging.
+
+        This is intentionally best-effort: if tracing/logging fails, tools still run.
+        """
+        instrumented: List[StructuredTool] = []
+        for tool in tools or []:
+            try:
+                instrumented.append(AgentService._instrument_tool(tool, config=config))
+            except Exception as e:
+                log_warning(f"Tool instrumentation skipped for {getattr(tool, 'name', '?')}: {e}")
+                instrumented.append(tool)
+        return instrumented
+
+    @staticmethod
+    def _instrument_tool(tool: StructuredTool, *, config: AgentConfig) -> StructuredTool:
+        name = getattr(tool, "name", "tool")
+        original_func = getattr(tool, "func", None)
+        original_coroutine = getattr(tool, "coroutine", None)
+
+        def _log_and_trace_success(*, duration_ms: int, input_data: Dict[str, Any], output_text: str) -> None:
+            try:
+                log_tool_usage(
+                    tool_name=name,
+                    status=ToolStatus.SUCCESS,
+                    input_data=input_data,
+                    output_preview=(output_text or "")[:2000],
+                )
+            except Exception:
+                # Tool usage logging must never break execution.
+                return
+
+        def _log_and_trace_error(*, duration_ms: int, input_data: Dict[str, Any], err: Exception) -> None:
+            try:
+                log_tool_usage(
+                    tool_name=name,
+                    status=ToolStatus.FAILED,
+                    input_data=input_data,
+                    output_preview="",
+                    error_message=str(err),
+                )
+            except Exception:
+                return
+
+        def wrapped_func(*args, **kwargs):
+            # Most StructuredTool calls will pass only kwargs matching args_schema.
+            input_data: Dict[str, Any] = {}
+            try:
+                input_data = dict(kwargs) if kwargs else {"args": list(args)}
+            except Exception:
+                input_data = {"args": "<unserializable>", "kwargs": "<unserializable>"}
+
+            log_info(f"Tool start: {name}")
+            start = time.perf_counter()
+            with traced_span(
+                name=f"tool.{name}",
+                run_type="tool",
+                inputs={
+                    "tool": name,
+                    "mode": getattr(config, "mode", None),
+                    "input": input_data,
+                },
+            ) as span:
+                try:
+                    if original_func is None:
+                        raise RuntimeError("Tool has no callable func")
+                    result = original_func(*args, **kwargs)
+                    # Tool outputs can be large; keep trace payload compact.
+                    output_text = result if isinstance(result, str) else str(result)
+                    duration_ms = int((time.perf_counter() - start) * 1000)
+                    span.set_outputs(
+                        {
+                            "output_preview": (output_text or "")[:2000],
+                            "duration_ms": duration_ms,
+                        }
+                    )
+                    _log_and_trace_success(duration_ms=duration_ms, input_data=input_data, output_text=output_text)
+                    log_success(f"Tool success: {name} ({duration_ms} ms)")
+                    return result
+                except Exception as e:
+                    duration_ms = int((time.perf_counter() - start) * 1000)
+                    span.add_metadata(duration_ms=duration_ms)
+                    _log_and_trace_error(duration_ms=duration_ms, input_data=input_data, err=e)
+                    log_error(f"Tool failed: {name} ({duration_ms} ms): {e}")
+                    raise
+
+        # Async tools: best-effort wrap if present.
+        async def wrapped_coroutine(*args, **kwargs):  # type: ignore[no-redef]
+            input_data: Dict[str, Any] = {}
+            try:
+                input_data = dict(kwargs) if kwargs else {"args": list(args)}
+            except Exception:
+                input_data = {"args": "<unserializable>", "kwargs": "<unserializable>"}
+
+            log_info(f"Tool start: {name}")
+            start = time.perf_counter()
+            with traced_span(
+                name=f"tool.{name}",
+                run_type="tool",
+                inputs={
+                    "tool": name,
+                    "mode": getattr(config, "mode", None),
+                    "input": input_data,
+                },
+            ) as span:
+                try:
+                    if original_coroutine is None:
+                        raise RuntimeError("Tool has no coroutine")
+                    result = await original_coroutine(*args, **kwargs)
+                    output_text = result if isinstance(result, str) else str(result)
+                    duration_ms = int((time.perf_counter() - start) * 1000)
+                    span.set_outputs({"output_preview": (output_text or "")[:2000], "duration_ms": duration_ms})
+                    _log_and_trace_success(duration_ms=duration_ms, input_data=input_data, output_text=output_text)
+                    log_success(f"Tool success: {name} ({duration_ms} ms)")
+                    return result
+                except Exception as e:
+                    duration_ms = int((time.perf_counter() - start) * 1000)
+                    span.add_metadata(duration_ms=duration_ms)
+                    _log_and_trace_error(duration_ms=duration_ms, input_data=input_data, err=e)
+                    log_error(f"Tool failed: {name} ({duration_ms} ms): {e}")
+                    raise
+
+        # Mutate tool to preserve all metadata/args_schema.
+        if original_func is not None:
+            tool.func = wrapped_func  # type: ignore[assignment]
+        if original_coroutine is not None:
+            tool.coroutine = wrapped_coroutine  # type: ignore[assignment]
+        return tool
     
     @staticmethod
     def _get_system_prompt(mode: str) -> str:
