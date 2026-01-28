@@ -177,8 +177,8 @@ class OpenAI_GPT52(OpenAIModel):
 		super().__init__(
 			name="gpt-5.2",
 			model_name="gpt-5.2-2025-12-11",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			cost_per_input=0.00000175,
+			cost_per_output=0.000014,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's GPT-5.2 model released on 11th December 2025"
@@ -189,8 +189,8 @@ class OpenAI_GPT5_mini(OpenAIModel):
 		super().__init__(
 			name="gpt-5-mini",
 			model_name="gpt-5-mini-2025-08-07",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			cost_per_input=0.00000025,
+			cost_per_output=0.000002,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's lightweight GPT-5 Mini model released on 7th August 2025"
@@ -200,9 +200,9 @@ class OpenAI_GPT5_nano(OpenAIModel):
 	def __init__(self):
 		super().__init__(
 			name="gpt-5-nano",
-			model_name="gpt-5-nano-2025-08-07",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			model_name="gpt-5-nano-2025-08-07", 
+			cost_per_input=0.00000005,
+			cost_per_output=0.000004,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's ultra-lightweight GPT-5 Nano model released on 7th August 2025"
@@ -212,9 +212,9 @@ class OpenAI_GPT5_pro(OpenAIModel):
 	def __init__(self):
 		super().__init__(
 			name="gpt-5-pro",
-			model_name="gpt-5.2-pro-2025-12-11",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			model_name="gpt-5.2-pro-2025-12-11", # 15$ for 1M input tokens, 120$ for 1M output tokens
+			cost_per_input=0.000015,
+			cost_per_output=0.00012,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's GPT-5 Pro model released on 11th December 2025"
@@ -225,8 +225,8 @@ class OpenAI_GPT5(OpenAIModel):
 		super().__init__(
 			name="gpt-5",
 			model_name="gpt-5-2025-08-07",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			cost_per_input=0.00000125,
+			cost_per_output=0.00001,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's GPT-5 model released on 7th August 2025"
@@ -237,8 +237,8 @@ class OpenAI_GPT41(OpenAIModel):
 		super().__init__(
 			name="gpt-4.1",
 			model_name="gpt-4.1-2025-04-14",
-			cost_per_input=0.0,
-			cost_per_output=0.0,
+			cost_per_input=0.000002,
+			cost_per_output=0.000008,
 			parallel_tool_call=True,
 		)
 		self.note = "OpenAI's GPT-4.1 model released on 14th April 2025"

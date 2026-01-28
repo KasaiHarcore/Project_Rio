@@ -158,13 +158,24 @@ class OpenRouterModel(Model):
                 yield text
 
 
-class OpenAI_OSS_120B(OpenRouterModel):
+class OpenAI_OSS_120B_Free(OpenRouterModel):
     def __init__(self):
         super().__init__(
-            name="gpt-oss-120b",
+            name="gpt-oss-120b_free",
             model_name="openai/gpt-oss-120b:free",
             cost_per_input=0.0,
             cost_per_output=0.0,
             parallel_tool_call=True,
         )
         self.note = "OpenRouter OSS 120B (free)"
+        
+class OpenAI_OSS_120B_Paid(OpenRouterModel):
+    def __init__(self):
+        super().__init__(
+            name="gpt-oss-120b_paid",
+            model_name="openai/gpt-oss-120b",
+            cost_per_input=0.000000039,
+            cost_per_output=0.0000019,
+            parallel_tool_call=True,
+        )
+        self.note = "OpenRouter OSS 120B (paid)"
