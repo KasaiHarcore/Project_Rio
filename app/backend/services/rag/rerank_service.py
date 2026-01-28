@@ -37,8 +37,8 @@ class RerankService:
 		if self._score_threshold is not None:
 			try:
 				base_retriever = self._vectorstore.as_retriever(
-					search_type="similarity_score_threshold",
-					search_kwargs={"k": k, "score_threshold": self._score_threshold},
+					search_type="mmr",
+					search_kwargs={"k": k, "fetch_k": 20, "lambda_mult": 0.5, "score_threshold": self._score_threshold},
 				)
 			except Exception:
 				base_retriever = None
