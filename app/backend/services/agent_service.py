@@ -39,14 +39,14 @@ SYSTEM_PROMPTS = {
     "rag": (
         "## ROLE\n"
         "You are the Information Provider Specialist. Your sole purpose is to provide accurate, high-fidelity answers for user request. "
-        "You operate strictly as a Retrieval-Augmented Generation (RAG) agent using ONLY the internal retrieval tools available in this application: policy_retriever, enhanced_retriever, and hyde_retriever.\n\n"
+        "You operate strictly as a Retrieval-Augmented Generation (RAG) agent using ONLY the internal retrieval tools available in this application: regular_retriever, rewrite_retriever, and hyde_retriever.\n\n"
         "## CORE OPERATING PRINCIPLE: THE SILO\n"
         "- ZERO EXTERNAL KNOWLEDGE: Ignore all prior training and general HR/legal knowledge. Use ONLY the retrieved context returned by the retrieval tools.\n"
         "- STRICT GROUNDING: If the retrieved documents do not contain the answer, you MUST admit it. Never fill gaps with assumptions or common sense.\n\n"
         "## STEP 1: RETRIEVAL STRATEGY (Choose Exactly ONE)\n"
         "Analyze the user query and choose the single best retrieval strategy:\n"
-        "1) policy_retriever (Direct Match): Use when the query contains specific keywords, policy IDs, or explicit terms (e.g., 'FPT-HR-01', 'overtime pay rate').\n"
-        "2) enhanced_retriever (Semantic Expansion): Use when the query is short, vague, or slang-heavy (e.g., 'how to get off work early', 'sick days info').\n"
+        "1) regular_retriever (Direct Match): Use when the query contains specific keywords, policy IDs, or explicit terms (e.g., 'FPT-HR-01', 'overtime pay rate').\n"
+        "2) rewrite_retriever (Rewrite/Normalize): Use when the query is verbose/unclear; it rewrites/normalizes into a retrieval-optimized query, then searches.\n"
         "3) hyde_retriever (Conceptual/Complex): Use for multi-step scenarios or 'what if' questions (e.g., transfers, benefits changes, leave interactions).\n\n"
         "## STEP 2: RESPONSE PROTOCOL\n"
         "- BLUF: Provide the Bottom Line Up Front. Avoid preambles like 'Based on the documents provided'.\n"
@@ -92,7 +92,7 @@ SYSTEM_PROMPTS = {
         "- Source hierarchy: prioritize primary/official sources first (company IR/newsroom, regulators, standards bodies), then major reputable outlets.\n"
         "- Efficiency: stop searching once you can answer; do not 'keep searching just in case'.\n"
         "- Tool limits: respect the run budget; keep web_search calls minimal. (2 to 5)\n\n"
-        "## 4. SYNTHESIS & CITATIONS (RAG-STYLE)\n"
+        "## 4. SYNTHESIS & CITATIONS\n"
         "- Use inline numbered citations like [1], [2] immediately after factual claims.\n"
         "- Reuse the same number for the same URL throughout the answer.\n"
         "- Synthesize and paraphrase; do not copy large blocks of text.\n"
@@ -114,8 +114,8 @@ SYSTEM_PROMPTS = {
     
     "chat": (
         "## ROLE\n"
-        "You are a high-precision assistant that can answer using either (a) FPT internal policy retrieval (RAG) or (b) live web search. "
-        "In this application, chat mode includes ONLY these tools: policy_retriever, enhanced_retriever, hyde_retriever, and web_search.\n\n"
+        "You are a high-precision assistant that can answer using either (a) internal policy retrieval (RAG) or (b) live web search. "
+        "In this application, chat mode includes ONLY these tools: regular_retriever, rewrite_retriever, hyde_retriever, and web_search.\n\n"
         "## CORE PRINCIPLE\n"
         "- For FPT internal policy questions: operate in 'THE SILO' (use ONLY retrieved internal context; no outside knowledge).\n"
         "- For external/current questions: use web_search and cite URLs.\n"
@@ -127,7 +127,7 @@ SYSTEM_PROMPTS = {
         "- Do I need verification via citations?\n\n"
         "## 2. TOOL SELECTION\n"
         "Choose the minimum tools needed:\n"
-        "- Internal policy queries: use EXACTLY ONE retrieval strategy (policy_retriever OR enhanced_retriever OR hyde_retriever).\n"
+        "- Internal policy queries: use EXACTLY ONE retrieval strategy (regular_retriever OR rewrite_retriever OR hyde_retriever).\n"
         "- External queries: use web_search (2–4 calls max; avoid near-duplicates).\n"
         "- Mixed queries: do internal retrieval for the FPT part AND web_search for the external part, and keep the outputs separated.\n\n"
         "## 3. CITATIONS (Numbered, RAG-style)\n"
@@ -193,9 +193,9 @@ class AgentService:
         if tool_decision.get("rag"):
             try:
                 from backend.services.tools.qdrant_tool import vector_db_tool
-                from backend.services.rag.extra_tool import hyde_tool, query_expansion_tool
+                from backend.services.rag.extra_tool import hyde_tool, rewrite_retriever_tool
                 retriever_tool = vector_db_tool.get_retriever_tool(default_k=config.top_k)
-                enhanced_retriever_tool = query_expansion_tool.get_enhanced_retriever_tool(
+                rewrite_tool = rewrite_retriever_tool.get_rewrite_retriever_tool(
                     default_k=config.top_k,
                     config=config,
                 )
@@ -203,7 +203,7 @@ class AgentService:
                     default_k=config.top_k,
                     config=config,
                 )
-                tools.extend([retriever_tool, enhanced_retriever_tool, hyde_retriever_tool])
+                tools.extend([retriever_tool, rewrite_tool, hyde_retriever_tool])
             except ImportError as e:
                 error_msg = (
                     "RAG tools are unavailable. Ensure vector database and dependencies are properly configured."
@@ -423,6 +423,8 @@ class AgentService:
 
         if config.mode == "sql":
             return {"rag": False, "web": False, "sql": config.user_role == "admin"}
+
+        return {"rag": False, "web": False, "sql": False}
 
     
     @staticmethod

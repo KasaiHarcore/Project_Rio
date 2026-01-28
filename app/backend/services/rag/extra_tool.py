@@ -1,7 +1,7 @@
 """
 Advanced Retrieval Tools
 - HyDE: Generates hypothetical documents for semantic search
-- Query Expansion: Reformulates queries with better keywords
+- Query Rewriting/Normalization: Rewrites queries into a retrieval-optimized form
 """
 import json
 
@@ -20,6 +20,14 @@ class HypotheticalDocuments(BaseModel):
     hypothesis_1: str = Field(..., description="First hypothetical document from one perspective")
     hypothesis_2: str = Field(..., description="Second hypothetical document from different angle")
     hypothesis_3: str = Field(..., description="Third hypothetical document from another perspective")
+
+
+class NormalizedQuery(BaseModel):
+    """Structured output for query rewriting/normalization."""
+
+    query: str = Field(
+        ..., description="A rewritten/normalized query string optimized for retrieving relevant documents"
+    )
 
 
 class HyDETool:
@@ -221,199 +229,135 @@ DO NOT include any text before or after the JSON. ONLY JSON."""
             args_schema=HyDERetrieverInput,
         )
 
-
-class ExpandedQuery(BaseModel):
-    """Structured output for expanded query"""
-    expanded_query: str = Field(
-        ..., description="Expanded search query with relevant keywords, synonyms, and related terms"
-    )
+hyde_tool = HyDETool()
 
 
-class QueryExpansionTool:
-    """
-    Query Expansion retrieval tool
+class QueryRewriteTool:
+    """LLM-based query rewriting/normalization.
+
+    Produces a single retrieval-optimized query string and is intended to be fed
+    directly into the vector search tool.
     """
 
-    QUERY_EXPANSION_PROMPT = """You are a query expansion expert. Given a user's question, expand it into a better search query that will find relevant policy documents.
+    REWRITE_SYSTEM_PROMPT = """You are an expert search query normalizer for an internal policy knowledge base.
 
-Key Guidelines:
-- Add relevant keywords and terminology that might appear in policy documents
-- Reformulate vague questions into specific search terms
-- Include synonyms and related concepts
-- Keep it concise (1-3 sentences max)
-- Focus on SEARCHABLE terms, not a full answer
-- Use professional/formal language typical of policies
+Your job: rewrite the user's input into ONE concise, retrieval-optimized query.
 
-Examples:
-User: "vacation days"
-Expanded: "vacation days paid time off PTO leave policy annual leave entitlement"
+Rules:
+- Output must be ONLY valid JSON (no markdown, no extra text).
+- JSON format MUST be exactly: {"query": "..."}
+- Keep the original language (Vietnamese stays Vietnamese; English stays English).
+- Remove filler/chitchat, keep intent + key entities.
+- Prefer explicit policy/HR terms and concrete keywords.
+- Preserve codes/IDs exactly if present (e.g., FPT-HR-01).
+- Do NOT answer the question; only rewrite the query.
 
-User: "How to handle conflicts?"
-Expanded: "workplace conflict resolution procedures mediation dispute handling employee grievance process"
-
-User: "remote work policy"
-Expanded: "remote work policy telecommuting work from home WFH hybrid work arrangements"
-
-You MUST respond with ONLY valid JSON in this EXACT format:
-{
-  "expanded_query": "your expanded query here"
-}
-
-DO NOT include any text before or after the JSON. ONLY JSON."""
+Return ONLY JSON."""
 
     @staticmethod
-    def expand_query(
-        question: str,
-        config: Optional[AgentConfig] = None,
-    ) -> str:
-        """
-        Expand and reformulate query using LLM with structured output
-        """
-        # Use default config if not provided
+    def rewrite_query(question: str, config: Optional[AgentConfig] = None) -> str:
+        if not question or not question.strip():
+            log_warning("Empty query provided to rewrite_query")
+            return ""
+
         if config is None:
             config = AgentConfig()
 
-        # Set model if specified
         if config.model_name:
             form.set_model(config.model_name)
 
-        # Validate model is set
         if not form.SELECTED_MODEL:
             raise ValueError("No model is registered. Check backend.services.llm.form configuration.")
 
-        # Ensure model is initialized
         if not hasattr(form.SELECTED_MODEL, "llm") or not form.SELECTED_MODEL.llm:
             form.SELECTED_MODEL.setup()
 
-        log_info(f"Expanding query: '{question}'")
+        log_info(f"Rewriting/normalizing query: '{question}'")
 
-        # Generate expanded query
         messages = [
-            SystemMessage(content=QueryExpansionTool.QUERY_EXPANSION_PROMPT),
+            SystemMessage(content=QueryRewriteTool.REWRITE_SYSTEM_PROMPT),
             HumanMessage(content=question),
         ]
 
         response = form.SELECTED_MODEL.llm.invoke(messages)
         content = response.content.strip() if hasattr(response, "content") else str(response).strip()
 
-        # Extract JSON if wrapped in markdown code blocks
-        if "```json" in content:
-            content = content.split("```json")[1].split("```")[0].strip()
-        elif "```" in content:
-            content = content.split("```")[1].split("```")[0].strip()
+        try:
+            if "```json" in content:
+                content = content.split("```json")[1].split("```")[0].strip()
+            elif "```" in content:
+                content = content.split("```")[1].split("```")[0].strip()
 
-        # Parse JSON
-        json_data = json.loads(content)
+            json_data = json.loads(content)
+            result = NormalizedQuery(**json_data)
+            normalized = result.query.strip()
 
-        # Validate
-        result = ExpandedQuery(**json_data)
-        expanded = result.expanded_query.strip()
+            if not normalized:
+                raise ValueError("Normalized query is empty")
 
-        if not expanded:
-            raise ValueError("LLM returned empty expanded_query field")
+            log_success(f"Normalized query generated ({len(normalized)} chars)")
+            log_info(f"  Normalized: {normalized[:120]}...")
+            return normalized
 
-        log_success(f"Query expanded: '{question}' → '{expanded[:100]}...'")
-        return expanded
+        except json.JSONDecodeError as e:
+            error_msg = f"Failed to parse JSON from LLM: {e}"
+            log_error(error_msg)
+            raise ValueError(f"LLM must return valid JSON. Got: {content[:200]}") from e
+        except Exception as e:
+            error_msg = f"Failed to rewrite/normalize query: {e}"
+            log_error(error_msg)
+            raise
+
+
+class RewriteRetrieverTool:
+    """Retrieval tool that normalizes the query first, then runs vector search."""
 
     @staticmethod
-    def enhanced_search(
-        question: str,
-        k: int = 10,
-        config: Optional[AgentConfig] = None,
-        use_multi_expansion: bool = False,
-        num_expansions: int = 3,
-    ) -> str:
-        """
-        Perform query expansion enhanced search
-        """
+    def rewrite_search(question: str, k: int = 10, config: Optional[AgentConfig] = None) -> str:
         if not question or not question.strip():
-            log_warning("Empty query provided to enhanced_search")
+            log_warning("Empty query provided to rewrite_search")
             return "No query provided."
 
-        log_info(f"Enhanced search initiated: query='{question}', k={k}")
+        log_info(f"Rewrite retrieval initiated: query='{question}', k={k}")
 
         try:
-            if use_multi_expansion:
-                # Multi-expansion: Generate multiple query variants
-                all_queries = set()
-                all_queries.add(question)  # Include original
+            normalized = QueryRewriteTool.rewrite_query(question, config=config)
+            # If rewrite returned empty for any reason, fallback.
+            if not normalized:
+                log_warning("Query rewrite returned empty; falling back to standard search")
+                return vector_db_tool.search_documents(question, k=k)
 
-                for i in range(num_expansions):
-                    log_info(f"Generating expansion {i+1}/{num_expansions}")
-                    expanded = QueryExpansionTool.expand_query(question, config)
-                    all_queries.add(expanded)
-
-                # Search with combined queries
-                combined_query = " ".join(all_queries)
-                log_info(f"Combined query: '{combined_query[:150]}...'")
-                results = vector_db_tool.search_documents(combined_query, k=k)
-
-                log_success(f"Multi-expansion search completed with {len(all_queries)} variants")
-                return results
-
-            else:
-                # Single expansion: Expand once and search
-                expanded_query = QueryExpansionTool.expand_query(question, config)
-
-                # Use the expanded query with standard hybrid search
-                results = vector_db_tool.search_documents(expanded_query, k=k)
-
-                log_success("Enhanced search completed")
-                return results
+            return vector_db_tool.search_documents(normalized, k=k)
 
         except Exception as e:
-            error_msg = f"Enhanced search failed: {e}"
-            log_error(error_msg)
-            # Fallback to regular search with original query
-            log_warning("Falling back to standard search")
+            log_warning(f"Rewrite retrieval failed; falling back to standard search: {e}")
             return vector_db_tool.search_documents(question, k=k)
 
-    def get_enhanced_retriever_tool(
+    def get_rewrite_retriever_tool(
         self,
         *,
         default_k: int = 5,
         config: Optional[AgentConfig] = None,
     ) -> "StructuredTool":
-        """Get LangChain StructuredTool for query expansion retrieval."""
+        """Get LangChain StructuredTool for rewrite retrieval (query rewrite + search)."""
         from langchain_core.tools import StructuredTool
 
-        class EnhancedRetrieverInput(BaseModel):
-            query: str = Field(..., description="Search query for policy documents")
+        class RewriteRetrieverInput(BaseModel):
+            query: str = Field(..., description="User query to rewrite/normalize before searching")
             k: int = Field(default=default_k, description="Number of results to retrieve")
-            use_multi_expansion: bool = Field(
-                default=False,
-                description="Whether to generate multiple expanded queries",
-            )
-            num_expansions: int = Field(
-                default=3,
-                description="Number of expansions when multi-expansion is enabled",
-            )
 
-        def _run_expanded(
-            query: str,
-            k: int = default_k,
-            use_multi_expansion: bool = False,
-            num_expansions: int = 3,
-        ) -> str:
-            return QueryExpansionTool.enhanced_search(
-                query,
-                k=k,
-                config=config,
-                use_multi_expansion=use_multi_expansion,
-                num_expansions=num_expansions,
-            )
+        def _run_rewrite(query: str, k: int = default_k) -> str:
+            return RewriteRetrieverTool.rewrite_search(query, k=k, config=config)
 
         return StructuredTool.from_function(
-            name="enhanced_retriever",
+            name="rewrite_retriever",
             description=(
-                "Query expansion retrieval tool."
-                "First uses LLM to reformulate/expand query with better keywords and synonyms, "
-                "then performs hybrid search (dense + sparse). "
+                "Retrieval that first rewrites/normalizes the query using the LLM, "
+                "then runs standard hybrid search (dense + sparse). "
             ),
-            func=_run_expanded,
-            args_schema=EnhancedRetrieverInput,
+            func=_run_rewrite,
+            args_schema=RewriteRetrieverInput,
         )
 
 
-hyde_tool = HyDETool()
-query_expansion_tool = QueryExpansionTool()
+rewrite_retriever_tool = RewriteRetrieverTool()
