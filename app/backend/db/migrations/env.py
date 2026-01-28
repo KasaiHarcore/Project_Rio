@@ -21,7 +21,17 @@ from backend.core.settings import get_app_config
 
 # Import all models to register with Base metadata
 from backend.db.models import (
-    user, thread, message, run, user_profile, tool_usage, audit_log
+    user,
+    thread,
+    message,
+    run,
+    user_profile,
+    tool_usage,
+    audit_log,
+    agent_memory,
+    thread_summary,
+    run_step,
+    run_evaluation,
 )
 
 # Alembic Config object
