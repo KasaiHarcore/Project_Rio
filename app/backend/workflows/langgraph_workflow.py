@@ -7,8 +7,10 @@ from uuid import uuid4
 
 from backend.core.settings import AgentConfig
 from backend.db.models.run import RunStatus
+from backend.db.models.run_step import RunStepStatus, RunStepType
 from backend.services.llm import form
 from backend.services.run_service import run_service
+from backend.services.run_step_service import run_step_service
 from backend.utils.log import log_error, log_warning, log_info, log_success
 from backend.services.tool_usage_service import clear_tool_logging_context, set_tool_logging_context
 from backend.telemetry.langsmith import (
@@ -68,6 +70,23 @@ def run_workflow(
 		checkpoint_id=checkpoint_id,
 		checkpoint_ns=checkpoint_ns,
 	)
+
+	step_index = 0
+
+	def _start_step(step_type: RunStepType, name: str) -> Optional[Any]:
+		nonlocal step_index
+		step_id = run_step_service.start_step(
+			run_id=run_id,
+			step_index=step_index,
+			step_type=step_type,
+			name=name,
+		)
+		step_index += 1
+		return step_id
+
+	def _finish_step(step_id: Optional[Any], status: RunStepStatus = RunStepStatus.SUCCEEDED) -> None:
+		if step_id:
+			run_step_service.finish_step(step_id=step_id, status=status)
 
 	def _call_llm_text(prompt: str) -> str:
 		return form.SELECTED_MODEL.call(user_prompt=prompt, return_text=True)
@@ -141,27 +160,33 @@ def run_workflow(
 					if planner_enabled:
 						current_stage = "planning"
 						log_info(f"Generating plan for question (attempt {attempt + 1})")
+						planning_step_id = _start_step(RunStepType.LLM, f"planning.attempt_{attempt+1}")
 						plan_prompt = build_planning_prompt(
 							user_request=question,
 							behavior_context=behavior_context,
 							mode=config.mode,
 						)
-						with traced_span(
-							name=f"planning.attempt_{attempt+1}",
-							run_type="llm",
-							inputs={
-								"mode": getattr(config, "mode", None),
-								"behavior_context": (behavior_context or "")[:500],
-							},
-						) as span:
-							plan_text = form.format_markdown_output(_call_llm_text(plan_prompt))
-							span.set_outputs(
-								{
-									"plan_preview": (plan_text or "")[:1200],
-									"plan_len": len(plan_text or ""),
-								}
-							)
-							phase_timings_ms[f"planning_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+						try:
+							with traced_span(
+								name=f"planning.attempt_{attempt+1}",
+								run_type="llm",
+								inputs={
+									"mode": getattr(config, "mode", None),
+									"behavior_context": (behavior_context or "")[:500],
+								},
+							) as span:
+								plan_text = form.format_markdown_output(_call_llm_text(plan_prompt))
+								span.set_outputs(
+									{
+										"plan_preview": (plan_text or "")[:1200],
+										"plan_len": len(plan_text or ""),
+									}
+								)
+								phase_timings_ms[f"planning_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+							_finish_step(planning_step_id, RunStepStatus.SUCCEEDED)
+						except Exception:
+							_finish_step(planning_step_id, RunStepStatus.FAILED)
+							raise
 						if plan_text:
 							system_prompt_with_plan = f"{system_prompt}\n\n{plan_text}"
 						else:
@@ -172,56 +197,77 @@ def run_workflow(
 					# Build and execute graph
 					current_stage = "build_graph"
 					log_info(f"Building LangGraph with {len(tools or [])} tools")
-					with traced_span(
-						name="langgraph.build_graph",
-						run_type="chain",
-						inputs={"tools_count": len(tools or [])},
-					) as span:
-						graph = build_graph(
-							tools=tools or [],
-							system_prompt=system_prompt_with_plan,
-							checkpointer=checkpointer,
-						)
-						span.set_outputs({"ok": True})
+					build_step_id = _start_step(RunStepType.TOOL, "langgraph.build_graph")
+					try:
+						with traced_span(
+							name="langgraph.build_graph",
+							run_type="chain",
+							inputs={"tools_count": len(tools or [])},
+						) as span:
+							graph = build_graph(
+								tools=tools or [],
+								system_prompt=system_prompt_with_plan,
+								checkpointer=checkpointer,
+							)
+							span.set_outputs({"ok": True})
+						_finish_step(build_step_id, RunStepStatus.SUCCEEDED)
+					except Exception:
+						_finish_step(build_step_id, RunStepStatus.FAILED)
+						raise
 
 					current_stage = "langgraph.invoke"
 					log_info("Invoking LangGraph workflow")
 					initial_messages = build_messages(question=question, history=history or [])
-					with traced_span(
-						name=f"langgraph.invoke.attempt_{attempt+1}",
-						run_type="chain",
-						inputs={
-							"question_preview": (question or "")[:500],
-							"history_items": len(history or []),
-							"planning_len": len(plan_text or ""),
-						},
-					) as span:
-						result = graph.invoke(
-							{"messages": initial_messages},
-							config=config_payload,
-						)
-						messages = result.get("messages", [])
-						answer = extract_answer(messages)
-						stats = form.SELECTED_MODEL.get_overall_exec_stats()
+					invoke_step_id = _start_step(RunStepType.LLM, f"langgraph.invoke.attempt_{attempt+1}")
+					try:
+						with traced_span(
+							name=f"langgraph.invoke.attempt_{attempt+1}",
+							run_type="chain",
+							inputs={
+								"question_preview": (question or "")[:500],
+								"history_items": len(history or []),
+								"planning_len": len(plan_text or ""),
+							},
+						) as span:
+							result = graph.invoke(
+								{"messages": initial_messages},
+								config=config_payload,
+							)
+							messages = result.get("messages", [])
+							try:
+								from backend.services.tools.redis_tool import redis_tool
+								state_snapshot = {
+									"schema_version": getattr(config, "state_schema_version", 1),
+									"messages": messages,
+								}
+								redis_tool.save_graph_state(thread_id=thread_id, state=state_snapshot)
+							except Exception:
+								pass
+							answer = extract_answer(messages)
+							stats = form.SELECTED_MODEL.get_overall_exec_stats()
 
-						# What did agent do? (tool calls)
-						tool_names_used = []
-						for msg in messages or []:
-							calls = getattr(msg, "tool_calls", None) or []
-							for call in calls:
-								name = (call or {}).get("name") if isinstance(call, dict) else None
-								if name:
-									tool_names_used.append(str(name))
-						span.set_outputs(
-							{
-								"answer_preview": (answer or "")[:1200],
-								"answer_len": len(answer or ""),
-								"messages_count": len(messages or []),
-								"tools_used": tool_names_used,
-								"cost": stats,
-							}
-						)
-						phase_timings_ms[f"invoke_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+							# What did agent do? (tool calls)
+							tool_names_used = []
+							for msg in messages or []:
+								calls = getattr(msg, "tool_calls", None) or []
+								for call in calls:
+									name = (call or {}).get("name") if isinstance(call, dict) else None
+									if name:
+										tool_names_used.append(str(name))
+							span.set_outputs(
+								{
+									"answer_preview": (answer or "")[:1200],
+									"answer_len": len(answer or ""),
+									"messages_count": len(messages or []),
+									"tools_used": tool_names_used,
+									"cost": stats,
+								}
+							)
+							phase_timings_ms[f"invoke_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+						_finish_step(invoke_step_id, RunStepStatus.SUCCEEDED)
+					except Exception:
+						_finish_step(invoke_step_id, RunStepStatus.FAILED)
+						raise
 					log_success(f"LangGraph execution completed (attempt {attempt + 1})")
 
 					# Reflection phase
@@ -231,6 +277,7 @@ def run_workflow(
 					current_stage = "reflection"
 					tool_context = extract_tool_context(messages)
 					log_info("Running reflection validation")
+					refl_step_id = _start_step(RunStepType.REFLECTION, f"reflection.attempt_{attempt+1}")
 					refl_prompt = build_reflection_prompt(
 						user_request=question,
 						plan=plan_text,
@@ -238,26 +285,31 @@ def run_workflow(
 						answer=answer,
 						mode=config.mode,
 					)
-					with traced_span(
-						name=f"reflection.attempt_{attempt+1}",
-						run_type="llm",
-						inputs={
-							"plan_len": len(plan_text or ""),
-							"answer_len": len(answer or ""),
-							"tool_context_len": len(tool_context or ""),
-						},
-					) as span:
-						reflection_text = form.format_markdown_output(_call_llm_text(refl_prompt))
-						reflection_attempts = attempt + 1
-						reflection_valid = _is_valid_reflection(reflection_text)
-						span.set_outputs(
-							{
-								"reflection_preview": (reflection_text or "")[:1200],
-								"reflection_len": len(reflection_text or ""),
-								"valid": bool(reflection_valid),
-							}
-						)
-						phase_timings_ms[f"reflection_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+					try:
+						with traced_span(
+							name=f"reflection.attempt_{attempt+1}",
+							run_type="llm",
+							inputs={
+								"plan_len": len(plan_text or ""),
+								"answer_len": len(answer or ""),
+								"tool_context_len": len(tool_context or ""),
+							},
+						) as span:
+							reflection_text = form.format_markdown_output(_call_llm_text(refl_prompt))
+							reflection_attempts = attempt + 1
+							reflection_valid = _is_valid_reflection(reflection_text)
+							span.set_outputs(
+								{
+									"reflection_preview": (reflection_text or "")[:1200],
+									"reflection_len": len(reflection_text or ""),
+									"valid": bool(reflection_valid),
+								}
+							)
+							phase_timings_ms[f"reflection_attempt_{attempt+1}"] = int(span.metadata.get("duration_ms", 0) or 0)
+						_finish_step(refl_step_id, RunStepStatus.SUCCEEDED)
+					except Exception:
+						_finish_step(refl_step_id, RunStepStatus.FAILED)
+						raise
 					if reflection_valid:
 						log_success("Reflection validation passed")
 						break
@@ -320,7 +372,7 @@ def list_checkpoints(
 	limit: int = 20,
 	before_checkpoint_id: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-	"""List checkpoints for a thread (newest first)."""
+	"""List checkpoints for a thread"""
 	return _list_checkpoints(
 		thread_id=thread_id,
 		checkpoint_ns=checkpoint_ns,
