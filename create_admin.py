@@ -1,6 +1,5 @@
 """
 Script to create a new Admin user manually.
-Usage: python create_admin.py
 """
 
 import sys

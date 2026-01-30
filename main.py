@@ -8,14 +8,9 @@ APP_DIR = Path(__file__).parent / "app"
 if str(APP_DIR) not in sys.path:
     sys.path.insert(0, str(APP_DIR))
 
-from dotenv import load_dotenv
-
 from backend.utils.log import log_info, log_error, log_warning
-from backend.services.llm.registry import register_all_models
 from backend.core.startup import run_startup_tasks
 
-load_dotenv()
-register_all_models()
 run_startup_tasks()
 
 
