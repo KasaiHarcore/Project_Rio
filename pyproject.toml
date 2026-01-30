@@ -30,4 +30,7 @@ dependencies = [
   "psycopg2-binary",
   "alembic",
   "argon2-cffi",
+  "pgvector",
+  "redis",
+  "langchain-redis",
 ]
