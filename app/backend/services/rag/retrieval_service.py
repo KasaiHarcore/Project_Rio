@@ -4,6 +4,7 @@ from pathlib import Path
 from typing import List
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
+from backend.cache import cache_service
 
 
 class RetrievalService:
@@ -19,10 +20,25 @@ class RetrievalService:
 			log_warning("Empty query provided to search_documents")
 			return "No query provided."
 
-		log_info(f"Searching for: '{query}' (top {k} results)")
+		query_norm = query.strip()
+		try:
+			cached = cache_service.get_retrieval_cache(query=query_norm, k=int(k))
+			if cached and cached.result_text:
+				log_info("Returning cached retrieval result")
+				return cached.result_text
+		except Exception:
+			pass
+
+		# Best-effort dedup marker (does not suppress execution; used for observability).
+		try:
+			cache_service.mark_tool_call(tool_name="retrieval", params={"query": query_norm, "k": int(k)})
+		except Exception:
+			pass
+
+		log_info(f"Searching for: '{query_norm}' (top {k} results)")
 		try:
 			retriever = self._rerank_service.build_retriever(k=k)
-			docs = retriever.invoke(query)
+			docs = retriever.invoke(query_norm)
 			log_success(f"Found {len(docs)} relevant document(s)")
 
 			if not docs:
@@ -45,7 +61,12 @@ class RetrievalService:
 
 				parts.append(f"{header}\n\n{meta}\n\n{d.page_content}")
 
-			return "\n\n---\n\n".join(parts)
+			result_text = "\n\n---\n\n".join(parts)
+			try:
+				cache_service.set_retrieval_cache(query=query_norm, k=int(k), result_text=result_text)
+			except Exception:
+				pass
+			return result_text
 		except Exception as e:
 			log_error(f"Search failed: {e}")
 			return f"Search error: {str(e)}"

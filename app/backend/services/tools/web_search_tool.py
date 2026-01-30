@@ -9,6 +9,7 @@ from langchain_tavily import TavilySearch
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from backend.utils.log import log_success, log_error, log_info, log_warning
+from backend.cache import cache_service
 
 class WebSearchTool:
     DEFAULT_MAX_RESULTS = 5
@@ -224,6 +225,27 @@ class WebSearchTool:
         query, max_results, topic, time_range = self._validate_params(
             query, max_results, topic, time_range
         )
+
+        cache_params = {
+            "max_results": int(max_results),
+            "topic": topic,
+            "time_range": time_range,
+            "search_depth": effective_search_depth,
+            "include_domains": include_domains or [],
+            "exclude_domains": exclude_domains or [],
+        }
+        try:
+            cached = cache_service.get_web_cache(query=query, params=cache_params)
+            if cached and cached.result:
+                log_info("Returning cached web search result")
+                return cached.result
+        except Exception:
+            pass
+
+        try:
+            cache_service.mark_tool_call(tool_name="web_search", params={"query": query, **cache_params})
+        except Exception:
+            pass
         
         log_info(
             f"Searching: '{query}' (max={max_results}, topic={topic}, time={time_range}, depth={effective_search_depth})"
@@ -263,6 +285,12 @@ class WebSearchTool:
             
             # Format results
             formatted = self._format_results(results, query)
+
+            # Cache formatted result (best-effort)
+            try:
+                cache_service.set_web_cache(query=query, params=cache_params, result=formatted)
+            except Exception:
+                pass
             
             log_success(f"Search completed: {len(formatted.get('results', []))} results found")
             return formatted

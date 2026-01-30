@@ -30,7 +30,7 @@ class NormalizedQuery(BaseModel):
     )
 
 
-class HyDETool:
+class HyDETool: 
     """
     HyDE (Hypothetical Document Embeddings) retrieval tool
     """
