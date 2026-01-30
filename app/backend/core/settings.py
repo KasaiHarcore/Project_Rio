@@ -1,13 +1,33 @@
 """
-Configuration Management for FPT Policy RAG Agent
-Centralized configuration for CLI and Web interfaces
+Configuration Management for Agent
+Centralized configuration: CLI / Web interfaces
 """
 
-import os
-from urllib.parse import quote_plus
-from typing import Optional, Literal
 from dataclasses import dataclass
+import os
 from pathlib import Path
+from typing import Literal, Optional
+from urllib.parse import quote_plus
+
+
+def _env_bool(key: str, default: str = "False") -> bool:
+	return os.getenv(key, default).lower() == "true"
+
+
+def _env_int(key: str, default: str) -> int:
+	return int(os.getenv(key, default))
+
+
+def _env_float(key: str, default: str) -> float:
+	return float(os.getenv(key, default))
+
+
+def _env_str(key: str, default: Optional[str] = None) -> Optional[str]:
+	value = os.getenv(key)
+	if value is None:
+		return default
+	value = value.strip()
+	return value if value else default
 
 
 @dataclass
@@ -98,23 +118,125 @@ class VectorDBConfig:
 		"""Create configuration from environment variables"""
 		retrieval_score_threshold = os.getenv("VECTORDB_SCORE_THRESHOLD")
 		return cls(
-			persist_dir=os.getenv("QDRANT_PATH", "./app/storage/qdrant"),
-			collection_name=os.getenv("QDRANT_COLLECTION", "rag-fpt"),
-			embedding_model=os.getenv(
-				"EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
-			),
-			sparse_embedding_model=os.getenv("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25"),
-			chunk_size=int(os.getenv("CHUNK_SIZE", "1000")),
-			chunk_overlap=int(os.getenv("CHUNK_OVERLAP", "200")),
-			threshold=float(os.getenv("THRESHOLD", "0.7")),
+			persist_dir=_env_str("QDRANT_PATH", "./app/storage/qdrant"),
+			collection_name=_env_str("QDRANT_COLLECTION", "rag-fpt"),
+			embedding_model=_env_str("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+			sparse_embedding_model=_env_str("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25"),
+			chunk_size=_env_int("CHUNK_SIZE", "1000"),
+			chunk_overlap=_env_int("CHUNK_OVERLAP", "200"),
+			threshold=_env_float("THRESHOLD", "0.7"),
 			retrieval_score_threshold=(
 				float(retrieval_score_threshold)
 				if retrieval_score_threshold is not None
 				and retrieval_score_threshold.strip() != ""
 				else None
 			),
-			vector_db_autocreate=os.getenv("VECTORDB_AUTOCREATE", "True").lower() == "true",
-			vector_db_eager_init=os.getenv("VECTORDB_EAGER_INIT", "True").lower() == "true",
+			vector_db_autocreate=_env_bool("VECTORDB_AUTOCREATE", "True"),
+			vector_db_eager_init=_env_bool("VECTORDB_EAGER_INIT", "True"),
+		)
+
+
+@dataclass
+class RedisConfig:
+	"""Redis configuration (cache + working memory)."""
+
+	host: str = "localhost"
+	port: int = 6379
+	db: int = 0
+	username: Optional[str] = None
+	password: Optional[str] = None
+	ssl: bool = False
+
+	# Connection behavior
+	socket_timeout_seconds: float = 2.0
+	socket_connect_timeout_seconds: float = 2.0
+	health_check_interval_seconds: int = 30
+
+	# Keying / TTLs
+	key_prefix: str = "ai-agent"
+	graph_state_ttl_seconds: int = 3600
+
+	# Hot / warm memory
+	hot_conversation_ttl_seconds: int = 6 * 3600
+	hot_conversation_max_messages: int = 200
+	warm_summary_ttl_seconds: int = 7 * 86400
+	session_state_ttl_seconds: int = 6 * 3600
+	user_memory_ttl_seconds: int = 86400
+
+	# Tool/result caches
+	tool_dedup_ttl_seconds: int = 600
+	retrieval_cache_ttl_seconds: int = 1800
+	web_cache_ttl_seconds: int = 900
+
+	# LLM cache
+	enable_llm_cache: bool = True
+	llm_cache_type: Literal["exact", "semantic"] = "semantic"
+	llm_cache_ttl_seconds: int = 86400
+
+	def __post_init__(self):
+		if self.port <= 0 or self.port > 65535:
+			raise ValueError("redis port must be in [1, 65535]")
+		if self.db < 0:
+			raise ValueError("redis db must be >= 0")
+		if self.socket_timeout_seconds <= 0:
+			raise ValueError("redis socket_timeout_seconds must be > 0")
+		if self.socket_connect_timeout_seconds <= 0:
+			raise ValueError("redis socket_connect_timeout_seconds must be > 0")
+		if self.graph_state_ttl_seconds <= 0:
+			raise ValueError("redis graph_state_ttl_seconds must be > 0")
+		if self.hot_conversation_ttl_seconds <= 0:
+			raise ValueError("redis hot_conversation_ttl_seconds must be > 0")
+		if self.hot_conversation_max_messages < 0:
+			raise ValueError("redis hot_conversation_max_messages must be >= 0")
+		if self.warm_summary_ttl_seconds <= 0:
+			raise ValueError("redis warm_summary_ttl_seconds must be > 0")
+		if self.session_state_ttl_seconds <= 0:
+			raise ValueError("redis session_state_ttl_seconds must be > 0")
+		if self.user_memory_ttl_seconds <= 0:
+			raise ValueError("redis user_memory_ttl_seconds must be > 0")
+		if self.tool_dedup_ttl_seconds <= 0:
+			raise ValueError("redis tool_dedup_ttl_seconds must be > 0")
+		if self.retrieval_cache_ttl_seconds <= 0:
+			raise ValueError("redis retrieval_cache_ttl_seconds must be > 0")
+		if self.web_cache_ttl_seconds <= 0:
+			raise ValueError("redis web_cache_ttl_seconds must be > 0")
+		if self.llm_cache_ttl_seconds <= 0:
+			raise ValueError("redis llm_cache_ttl_seconds must be > 0")
+		cache_type = (self.llm_cache_type or "semantic").lower()
+		if cache_type not in {"exact", "semantic"}:
+			cache_type = "semantic"
+		self.llm_cache_type = cache_type  # type: ignore[assignment]
+  
+	@classmethod
+	def from_env(cls) -> "RedisConfig":
+		"""Create configuration from environment variables."""
+		return cls(
+			host=_env_str("REDIS_HOST", "localhost"),
+			port=_env_int("REDIS_PORT", "6379"),
+			db=_env_int("REDIS_DB", "0"),
+			username=_env_str("REDIS_USER"),
+			password=_env_str("REDIS_PASSWORD"),
+			ssl=_env_bool("REDIS_SSL", "False"),
+			socket_timeout_seconds=_env_float("REDIS_SOCKET_TIMEOUT", "2.0"),
+			socket_connect_timeout_seconds=_env_float("REDIS_SOCKET_CONNECT_TIMEOUT", "2.0"),
+			health_check_interval_seconds=_env_int("REDIS_HEALTH_CHECK_INTERVAL", "30"),
+			key_prefix=_env_str("REDIS_KEY_PREFIX", "ai-agent"),
+			graph_state_ttl_seconds=_env_int("REDIS_GRAPH_STATE_TTL", "3600"),
+			hot_conversation_ttl_seconds=_env_int("REDIS_HOT_TTL", str(6 * 3600)),
+			hot_conversation_max_messages=_env_int("REDIS_HOT_MAX_MESSAGES", "200"),
+			warm_summary_ttl_seconds=_env_int("REDIS_WARM_SUMMARY_TTL", str(7 * 86400)),
+			session_state_ttl_seconds=_env_int("REDIS_SESSION_STATE_TTL", str(6 * 3600)),
+			user_memory_ttl_seconds=_env_int("REDIS_USER_MEMORY_TTL", "86400"),
+			tool_dedup_ttl_seconds=_env_int("REDIS_TOOL_DEDUP_TTL", "600"),
+			retrieval_cache_ttl_seconds=_env_int("REDIS_RETRIEVAL_CACHE_TTL", "1800"),
+			web_cache_ttl_seconds=_env_int("REDIS_WEB_CACHE_TTL", "900"),
+			enable_llm_cache=_env_bool("REDIS_ENABLE_LLM_CACHE", "True"),
+			llm_cache_type=(
+				_env_str("REDIS_LLM_CACHE_TYPE", "semantic").strip().lower()
+				if _env_str("REDIS_LLM_CACHE_TYPE")
+				else "semantic"
+			),
+			llm_cache_ttl_seconds=_env_int("REDIS_LLM_CACHE_TTL", "86400"),
 		)
 
 
@@ -166,21 +288,21 @@ class AppConfig:
 				database_url = f"postgresql+psycopg2://{pg_user}@{pg_host}:{pg_port}/{pg_db}"
 
 		return cls(
-			openai_api_key=os.getenv("OPENAI_API_KEY"),
-			openrouter_api_key=os.getenv("OPENROUTER_API_KEY"),
-			tavily_api_key=os.getenv("TAVILY_API_KEY"),
+			openai_api_key=_env_str("OPENAI_API_KEY"),
+			openrouter_api_key=_env_str("OPENROUTER_API_KEY"),
+			tavily_api_key=_env_str("TAVILY_API_KEY"),
 			database_url=database_url,
-			database_echo=os.getenv("DATABASE_ECHO", "False").lower() == "true",
-			database_pool_size=int(os.getenv("DATABASE_POOL_SIZE", "5")),
-			database_max_overflow=int(os.getenv("DATABASE_MAX_OVERFLOW", "10")),
-			database_pool_timeout=int(os.getenv("DATABASE_POOL_TIMEOUT", "30")),
-			database_pool_recycle=int(os.getenv("DATABASE_POOL_RECYCLE", "3600")),
-			database_statement_timeout_ms=int(os.getenv("DATABASE_STATEMENT_TIMEOUT_MS", "0")),
-			database_application_name=os.getenv("DATABASE_APPLICATION_NAME", "ai-agent"),
-			storage_dir=os.getenv("STORAGE_DIR", "./app/storage"),
-			docs_dir=os.getenv("DOCS_DIR", "./app/docs"),
-			log_level=os.getenv("LOG_LEVEL", "INFO"),
-			enable_db_autocreate=os.getenv("ENABLE_DB_AUTOCREATE", "True").lower() == "true",
+			database_echo=_env_bool("DATABASE_ECHO", "False"),
+			database_pool_size=_env_int("DATABASE_POOL_SIZE", "5"),
+			database_max_overflow=_env_int("DATABASE_MAX_OVERFLOW", "10"),
+			database_pool_timeout=_env_int("DATABASE_POOL_TIMEOUT", "30"),
+			database_pool_recycle=_env_int("DATABASE_POOL_RECYCLE", "3600"),
+			database_statement_timeout_ms=_env_int("DATABASE_STATEMENT_TIMEOUT_MS", "0"),
+			database_application_name=_env_str("DATABASE_APPLICATION_NAME", "ai-agent"),
+			storage_dir=_env_str("STORAGE_DIR", "./app/storage"),
+			docs_dir=_env_str("DOCS_DIR", "./app/docs"),
+			log_level=_env_str("LOG_LEVEL", "INFO"),
+			enable_db_autocreate=_env_bool("ENABLE_DB_AUTOCREATE", "True"),
 		)
 
 	def validate(self) -> tuple[bool, list[str]]:
@@ -215,6 +337,7 @@ class AppConfig:
 # Global configuration instances
 _app_config: Optional[AppConfig] = None
 _vectordb_config: Optional[VectorDBConfig] = None
+_redis_config: Optional[RedisConfig] = None
 
 
 def get_app_config() -> AppConfig:
@@ -231,3 +354,11 @@ def get_vectordb_config() -> VectorDBConfig:
 	if _vectordb_config is None:
 		_vectordb_config = VectorDBConfig.from_env()
 	return _vectordb_config
+
+
+def get_redis_config() -> RedisConfig:
+	"""Get or create Redis configuration."""
+	global _redis_config
+	if _redis_config is None:
+		_redis_config = RedisConfig.from_env()
+	return _redis_config

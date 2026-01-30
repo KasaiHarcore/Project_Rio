@@ -99,15 +99,6 @@ def get_db() -> Generator[Session, None, None]:
     
     Yields:
         Session: Database session instance
-        
-    Example:
-        ```python
-        from fastapi import Depends
-        
-        @app.get("/users")
-        def get_users(db: Session = Depends(get_db)):
-            return db.query(User).all()
-        ```
     """
     SessionLocal = get_session_factory()
     db = SessionLocal()

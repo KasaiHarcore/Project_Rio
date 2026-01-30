@@ -28,6 +28,20 @@ class RunStepStatus(str, Enum):
 
 
 class RunStep(Base):
+    """
+    RunStep model for tracking execution steps within a Run.
+    
+    Attributes:
+        id: UUID primary key
+        run_id: Foreign key to Run
+        step_index: Index of the step within the run
+        step_type: Type of the step (llm, tool, retrieval, reflection)
+        name: Optional name of the step
+        status: Status of the step (running, succeeded, failed)
+        started_at: Timestamp when the step started
+        ended_at: Timestamp when the step ended
+        run: Relationship to Run model
+    """
     __tablename__ = "run_steps"
 
     id: Mapped[uuid.UUID] = mapped_column(

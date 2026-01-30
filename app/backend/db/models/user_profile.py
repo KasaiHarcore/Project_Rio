@@ -9,7 +9,19 @@ from backend.db.base import Base, TimestampMixin
 
 
 class UserProfile(Base, TimestampMixin):
-	"""User profile for optional personal information."""
+	"""
+	User profile for optional personal information.
+ 
+	Attributes:
+		id: UUID primary key
+		user_id: UUID foreign key to User
+		full_name: Optional full name
+		phone: Optional phone number
+		address: Optional address
+		company: Optional company name
+		job_title: Optional job title
+		locale: Optional locale
+	"""
 
 	id: Mapped[uuid.UUID] = mapped_column(
 		UUID(as_uuid=True),

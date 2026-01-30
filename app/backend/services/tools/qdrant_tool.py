@@ -89,9 +89,10 @@ class VectorDBTool:
 			log_error(f"Failed to create Qdrant directory: {e}")
 			raise
 
-		# Initialize everything at once (optional)
-		if self.eager_init:
-			self._ensure_initialized()
+	def startup_check(self) -> Dict[str, Any]:
+		"""Full startup initialization (idempotent)."""
+		self._ensure_initialized()
+		return self.get_collection_info()
 
 	def _ensure_initialized(self) -> None:
 		if self._initialized:
@@ -119,7 +120,6 @@ class VectorDBTool:
 				else:
 					self._client = QdrantClient(path=self.persist_dir)
 				atexit.register(self._client.close)
-				log_success("Qdrant client initialized")
 			except Exception as e:
 				log_error(f"Failed to initialize Qdrant client: {e}")
 				raise
@@ -410,9 +410,9 @@ class VectorDBTool:
 			return self.search_documents(query, k=k)
 
 		return StructuredTool.from_function(
-			name="policy_retriever",
+			name="regular_retriever",
 			description=(
-				"Standard hybrid search (dense vector + sparse keyword) in FPT policy knowledge base. "
+				"Standard hybrid search (dense vector + sparse keyword) in database. "
 				"Use for straightforward queries with clear keywords. "
 			),
 			func=_run_retriever,

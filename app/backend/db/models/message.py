@@ -19,7 +19,8 @@ class MessageRole(str, Enum):
 
 
 class Message(Base):
-    """Message model for storing chat queries, responses, and tool interactions.
+    """
+    Message model for storing chat queries, responses, and tool interactions.
     
     Attributes:
         id: UUID primary key

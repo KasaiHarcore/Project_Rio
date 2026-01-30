@@ -1,5 +1,4 @@
 """Custom exception types for consistent error handling."""
-
 from typing import Any, Optional
 
 

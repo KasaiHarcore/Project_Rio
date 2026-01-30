@@ -1,8 +1,4 @@
-"""Admin-only Pydantic schemas for dashboard and management.
-
-SECURITY WARNING: These schemas MUST only be used in admin-protected endpoints.
-Requires role-based access control and audit logging for all operations.
-"""
+"""Admin-only Pydantic schemas for dashboard and management."""
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any

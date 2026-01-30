@@ -10,7 +10,8 @@ from backend.db.base import Base
 
 
 class AuditLog(Base):
-    """AuditLog model for tracking user actions and system events.
+    """
+    AuditLog model for tracking user actions and system events.
     
     Attributes:
         id: UUID primary key

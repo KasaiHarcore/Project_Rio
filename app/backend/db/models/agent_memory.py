@@ -11,23 +11,9 @@ from sqlalchemy.types import UserDefinedType
 from sqlalchemy import DateTime, Enum as SQLEnum, ForeignKey, Index, String, Text, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector as PGVector
 
 from backend.db.base import Base
-
-
-try:
-    # Optional dependency (recommended) for pgvector support.
-    from pgvector.sqlalchemy import Vector as PGVector
-
-    class Vector(PGVector):
-        pass
-except Exception:  # pragma: no cover
-    # Fallback type to keep imports working even if pgvector isn't installed.
-    # This still maps to Postgres `vector` type.
-    class Vector(UserDefinedType):
-        def get_col_spec(self, **kw):  # type: ignore[override]
-            return "vector"
-
 
 class MemoryType(str, Enum):
     SHORT_TERM = "short_term"
@@ -78,7 +64,7 @@ class AgentMemory(Base):
     )
 
     embedding: Mapped[Optional[list[float]]] = mapped_column(
-        Vector(),
+        PGVector(),
         nullable=True,
     )
 

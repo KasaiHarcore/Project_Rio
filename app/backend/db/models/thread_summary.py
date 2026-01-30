@@ -14,6 +14,14 @@ from backend.db.base import Base
 
 
 class ThreadSummary(Base):
+    """
+    ThreadSummary model for storing latest summary per thread.
+    
+    Attributes:
+        thread_id: UUID primary key, foreign key to Thread
+        summary: Text field for the thread summary
+        updated_at: Timestamp when the summary was last updated
+    """
     __tablename__ = "thread_summaries"
 
     thread_id: Mapped[uuid.UUID] = mapped_column(

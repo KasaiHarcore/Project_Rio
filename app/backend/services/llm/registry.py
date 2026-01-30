@@ -14,7 +14,8 @@ def register_all_models() -> None:
     form.register_model(openai_client.OpenAI_GPT5_pro())
     form.register_model(openai_client.OpenAI_GPT5())
     form.register_model(openai_client.OpenAI_GPT41())
-    form.register_model(openrouter_client.OpenAI_OSS_120B())
+    form.register_model(openrouter_client.OpenAI_OSS_120B_Free())
+    form.register_model(openrouter_client.OpenAI_OSS_120B_Paid())
 
     # Set a deterministic default once, without re-instantiating
-    form.SELECTED_MODEL = form.MODEL_HUB.get("gpt-oss-120b")
+    form.SELECTED_MODEL = form.MODEL_HUB.get("gpt-oss-120b_free")

@@ -10,7 +10,7 @@ from backend.services.chat_history_service import chat_history_service
 from backend.services.agent_service import AgentService
 from backend.core.settings import AgentConfig
 from backend.utils.log import log_warning
-from frontend.ui.helpers import append_assistant_message, log_message, render_profile_form
+from frontend.ui.helpers import append_assistant_message, ensure_thread_id, log_message, render_profile_form
 
 
 def render_chat_interface() -> None:
@@ -44,7 +44,6 @@ def render_chat_interface() -> None:
     # Process user input
     if prompt:
         st.session_state.messages.append({"role": "user", "content": prompt})
-        log_message("user", prompt)
         with st.chat_message("user"):
             st.markdown(prompt)
 
@@ -75,6 +74,7 @@ def render_chat_interface() -> None:
                 st.session_state.active_stream_id = uuid4().hex
                 final_state = None
                 run_id = None
+                user_logged = False
                 planning_text = ""
                 reflection_text = ""
 
@@ -99,17 +99,28 @@ def render_chat_interface() -> None:
 
                 with st.spinner("Working on your query... 🚀"):
                     stream_id = st.session_state.active_stream_id
+                    # LangGraph checkpointing maps checkpoints to SQL threads, so
+                    # we must have a stable thread_id before starting the workflow.
+                    thread_id = st.session_state.get("current_thread_id") or ensure_thread_id()
                     stream_iter = AgentService.stream_query(
                         prompt,
                         config,
                         history=history,
-                        thread_id=st.session_state.get("current_thread_id"),
+                        thread_id=thread_id,
                     )
                     for event in stream_iter:
                         if st.session_state.active_stream_id != stream_id:
                             break
                         etype = event.get("type")
-                        if etype == "planning":
+                        if etype == "run_started":
+                            run_id = event.get("run_id")
+                            # Keep session state in sync in case thread_id was just created.
+                            if event.get("thread_id") and not st.session_state.get("current_thread_id"):
+                                st.session_state.current_thread_id = event.get("thread_id")
+                            if run_id and not user_logged:
+                                log_message("user", prompt, run_id=run_id)
+                                user_logged = True
+                        elif etype == "planning":
                             planning_text = event.get("content", "") or ""
                             _render_thinking()
                         elif etype == "reflection":
@@ -135,6 +146,8 @@ def render_chat_interface() -> None:
                 placeholder.markdown(answer or "No response")
                 st.session_state.stream_buffer = ""
                 st.session_state.active_stream_id = None
+                if not user_logged:
+                    log_message("user", prompt, run_id=run_id)
                 if answer:
                     append_assistant_message(answer, stats=stats or None, run_id=stats.get("run_id"))
             except Exception as e:
