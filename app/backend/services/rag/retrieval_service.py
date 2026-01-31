@@ -1,10 +1,18 @@
 """Retrieval pipeline for vector search and hybrid rerank retrieval."""
 
 from pathlib import Path
-from typing import List
+from typing import List, TYPE_CHECKING
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
-from backend.cache import cache_service
+
+if TYPE_CHECKING:
+	from backend.cache.service import CacheService
+
+
+def _get_cache_service():
+	"""Lazy import to avoid circular dependency."""
+	from backend.cache import cache_service
+	return cache_service
 
 
 class RetrievalService:
@@ -22,6 +30,7 @@ class RetrievalService:
 
 		query_norm = query.strip()
 		try:
+			cache_service = _get_cache_service()
 			cached = cache_service.get_retrieval_cache(query=query_norm, k=int(k))
 			if cached and cached.result_text:
 				log_info("Returning cached retrieval result")
@@ -31,7 +40,8 @@ class RetrievalService:
 
 		# Best-effort dedup marker (does not suppress execution; used for observability).
 		try:
-			cache_service.mark_tool_call(tool_name="retrieval", params={"query": query_norm, "k": int(k)})
+			cache_svc = _get_cache_service()
+			cache_svc.mark_tool_call(tool_name="retrieval", params={"query": query_norm, "k": int(k)})
 		except Exception:
 			pass
 
@@ -63,7 +73,8 @@ class RetrievalService:
 
 			result_text = "\n\n---\n\n".join(parts)
 			try:
-				cache_service.set_retrieval_cache(query=query_norm, k=int(k), result_text=result_text)
+				cache_svc = _get_cache_service()
+				cache_svc.set_retrieval_cache(query=query_norm, k=int(k), result_text=result_text)
 			except Exception:
 				pass
 			return result_text

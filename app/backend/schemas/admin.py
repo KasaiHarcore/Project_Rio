@@ -1,4 +1,23 @@
-"""Admin-only Pydantic schemas for dashboard and management."""
+"""Admin-Only Pydantic Schemas for Dashboard and Management.
+
+View Schemas:
+    - AdminUserView: User with statistics
+    - AdminThreadView: Thread with message count
+    - AdminMessageView: Message with tool usage count
+    - AdminToolUsageView: Tool call details
+    - AdminAuditLogView: Audit log with username
+
+List Schemas:
+    - Admin*List: Paginated lists with total, page, has_next
+
+Stats Schemas:
+    - AdminToolUsageStats: Tool usage aggregates
+    - AdminSystemStats: Overall system metrics
+
+Action Schemas:
+    - AdminUserUpdateAction: Update user role
+    - AdminBulkDeleteAction: Bulk delete with confirmation
+"""
 
 from datetime import datetime
 from typing import List, Optional, Dict, Any

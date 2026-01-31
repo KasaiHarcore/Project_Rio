@@ -50,6 +50,7 @@ class MemoryService:
     def add_agent_memory(
         self,
         *,
+        session: Optional[Session] = None,
         user_id: UUID | str,
         thread_id: UUID | str,
         run_id: Optional[str],
@@ -78,6 +79,9 @@ class MemoryService:
             sess.add(memory)
 
         try:
+            if session is not None:
+                _write(session)
+                return
             with get_db_context() as db:
                 _write(db)
         except Exception as e:
@@ -86,6 +90,7 @@ class MemoryService:
     def upsert_thread_summary(
         self,
         *,
+        session: Optional[Session] = None,
         thread_id: UUID | str,
         summary: str,
     ) -> None:
@@ -105,6 +110,9 @@ class MemoryService:
             sess.add(ThreadSummary(thread_id=thread_uuid, summary=summary))
 
         try:
+            if session is not None:
+                _write(session)
+                return
             with get_db_context() as db:
                 _write(db)
         except Exception as e:

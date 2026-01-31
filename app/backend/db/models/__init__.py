@@ -1,4 +1,20 @@
-"""SQLAlchemy ORM models for application entities."""
+"""SQLAlchemy ORM Models for Application Entities.
+
+Model Hierarchy:
+    User
+    ├── UserProfile (1:1)
+    ├── Thread (1:N)
+    │   ├── Message (1:N)
+    │   │   └── ToolUsage (1:N)
+    │   ├── Run (1:N)
+    │   │   ├── RunStep (1:N)
+    │   │   └── RunEvaluation (1:N)
+    │   └── ThreadSummary (1:1)
+    └── AuditLog (1:N)
+
+Standalone:
+    - AgentMemory (user memories for personalization)
+"""
 
 from backend.db.models.user import User, UserRole
 from backend.db.models.thread import Thread, ThreadStatus

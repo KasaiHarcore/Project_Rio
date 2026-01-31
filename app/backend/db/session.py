@@ -1,12 +1,37 @@
-"""Database session creation and lifecycle management."""
+"""Database Session Creation and Lifecycle Management.
 
-from typing import Generator
+This module provides:
+- Engine creation with connection pooling
+- Session factory for database connections
+- Context managers for session lifecycle
+- Development helpers (init_db, drop_db)
+
+Connection Pool Settings (via AppConfig):
+    - pool_size: Number of connections to keep open
+    - max_overflow: Max additional connections when pool is full
+    - pool_timeout: Seconds to wait for connection from pool
+    - pool_recycle: Seconds before recycling connections
+
+Usage:
+    # FastAPI dependency injection
+    @app.get("/items")
+    def get_items(db: Session = Depends(get_db)):
+        return db.query(Item).all()
+    
+    # Context manager
+    with get_db_context() as db:
+        user = db.query(User).first()
+"""
+
 from contextlib import contextmanager
-from sqlalchemy import create_engine, event, pool, inspect
-from sqlalchemy.orm import sessionmaker, Session
+from typing import Generator
+
+from sqlalchemy import create_engine, event, inspect, pool
 from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.orm import Session, sessionmaker
+
 from backend.core.settings import get_app_config
-from backend.utils.log import log_info, log_error, log_debug, log_success
+from backend.utils.log import log_debug, log_error, log_info, log_success
 
 # Global engine and session factory
 _engine = None

@@ -1,4 +1,11 @@
-"""Pydantic schemas for Message model."""
+"""Pydantic Schemas for Message Model.
+
+Schemas:
+    - MessageBase: Common message fields
+    - MessageCreate: New message payload
+    - MessageUpdate: Partial update payload
+    - MessageInDB: Full message with DB fields
+"""
 
 from datetime import datetime
 from typing import Optional

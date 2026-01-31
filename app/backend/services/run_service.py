@@ -18,11 +18,20 @@ class RunService:
 
     @staticmethod
     def _table_exists() -> bool:
+        """Check if run table exists in database.
+        
+        Returns False on any error to ensure service degrades gracefully.
+        """
         try:
             engine = get_engine()
             inspector = inspect(engine)
             return "run" in inspector.get_table_names()
-        except Exception:
+        except (ConnectionError, TimeoutError) as e:
+            log_warning(f"Database connection issue in _table_exists: {e}")
+            return False
+        except Exception as e:
+            # Catch-all for unexpected errors - log but don't crash
+            log_warning(f"Unexpected error checking run table existence: {e}")
             return False
 
     def start_run(
@@ -40,7 +49,9 @@ class RunService:
             if thread_id:
                 try:
                     thread_uuid = UUID(thread_id)
-                except Exception:
+                except (ValueError, AttributeError):
+                    # ValueError: Invalid UUID format
+                    # AttributeError: thread_id doesn't support UUID operations
                     thread_uuid = None
             with get_db_context() as session:
                 repo = RunRepository(session)

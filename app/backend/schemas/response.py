@@ -1,4 +1,27 @@
-"""Shared response envelopes and error payloads."""
+"""Shared Response Envelopes and Error Payloads.
+
+This module provides standardized API response formats:
+    - BaseResponse: Base with success flag and request_id
+    - ErrorResponse: Error with code, message, details
+    - ChatResponse: Chat completion with answer and stats
+
+Usage:
+    # Success response
+    return ChatResponse(
+        success=True,
+        answer="Hello!",
+        stats=ChatStats(total_tokens=100),
+    )
+    
+    # Error response
+    return ErrorResponse(
+        success=False,
+        error=ErrorDetail(
+            code="NOT_FOUND",
+            message="User not found",
+        ),
+    )
+"""
 
 from typing import Optional, Dict, Any, List
 from pydantic import BaseModel, Field

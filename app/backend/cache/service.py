@@ -23,7 +23,7 @@ from backend.cache.schemas import (
 from backend.cache.utils import make_cache_key
 from backend.core.settings import get_redis_config
 from backend.services.tools.redis_tool import redis_tool
-from backend.utils.log import log_debug, log_warning
+from backend.utils.log import log_debug, log_info, log_warning
 
 
 class CacheService:
@@ -228,6 +228,64 @@ class CacheService:
 			"key_prefix": cfg.key_prefix,
 			"ts": datetime.utcnow().isoformat(),
 		}
+
+	def clear_thread_cache(self, *, thread_id: str) -> Dict[str, bool]:
+		"""
+		Clear all cached data for a specific thread.
+		
+		Useful for debugging stale response issues or forcing fresh data.
+		
+		Args:
+			thread_id: The thread ID to clear cache for
+		
+		Returns:
+			Dictionary showing which caches were cleared
+		"""
+		if not thread_id:
+			return {"error": "thread_id required"}
+		
+		results = {
+			"hot_messages": False,
+			"warm_summary": False,
+			"session_state": False,
+			"graph_state": False,
+		}
+		
+		if not redis_tool.ping():
+			log_warning("Redis unavailable; cannot clear thread cache")
+			return results
+		
+		client = redis_tool.client()
+		
+		# Clear hot messages
+		try:
+			key = redis_tool._key("hot", thread_id)
+			results["hot_messages"] = bool(client.delete(key))
+		except Exception as e:
+			log_warning(f"Failed to clear hot messages: {e}")
+		
+		# Clear warm summary
+		try:
+			key = redis_tool._key("warm_summary", thread_id)
+			results["warm_summary"] = bool(client.delete(key))
+		except Exception as e:
+			log_warning(f"Failed to clear warm summary: {e}")
+		
+		# Clear session state
+		try:
+			key = redis_tool._key("session", thread_id)
+			results["session_state"] = bool(client.delete(key))
+		except Exception as e:
+			log_warning(f"Failed to clear session state: {e}")
+		
+		# Clear graph state
+		try:
+			results["graph_state"] = redis_tool.delete_graph_state(thread_id=thread_id)
+		except Exception as e:
+			log_warning(f"Failed to clear graph state: {e}")
+		
+		log_info(f"Cleared thread cache for {thread_id}: {results}")
+		return results
 
 
 cache_service = CacheService()

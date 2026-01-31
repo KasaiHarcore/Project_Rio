@@ -1,4 +1,11 @@
-"""Pydantic schemas for Thread model."""
+"""Pydantic Schemas for Thread Model.
+
+Schemas:
+    - ThreadBase: Common thread fields
+    - ThreadCreate: New thread payload
+    - ThreadUpdate: Partial update payload
+    - ThreadInDB: Full thread with DB fields
+"""
 
 from datetime import datetime
 from typing import Optional

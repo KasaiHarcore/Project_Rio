@@ -76,21 +76,21 @@ def render_chat_interface() -> None:
                 run_id = None
                 user_logged = False
                 planning_text = ""
-                reflection_text = ""
+                supervisor_reasoning = ""
 
                 def _render_thinking() -> None:
-                    if not (planning_text or reflection_text):
+                    if not (planning_text or supervisor_reasoning):
                         return
                     with thinking_box.container():
-                        with st.expander("Planning & Reflection", expanded=False):
+                        with st.expander("Thinking Process", expanded=False):
                             parts = []
                             if planning_text:
-                                parts.append(planning_text)
-                            if reflection_text:
-                                parts.append(reflection_text)
+                                parts.append(f"**Planning:**\n{planning_text}")
+                            if supervisor_reasoning:
+                                parts.append(f"**Supervisor:**\n{supervisor_reasoning}")
                             content = "\n\n".join([p for p in parts if p])
                             st.text_area(
-                                "Planning & Reflection Output",
+                                "Thinking Process Output",
                                 value=content,
                                 height=90,
                                 disabled=True,
@@ -123,9 +123,14 @@ def render_chat_interface() -> None:
                         elif etype == "planning":
                             planning_text = event.get("content", "") or ""
                             _render_thinking()
-                        elif etype == "reflection":
-                            reflection_text = event.get("content", "") or ""
-                            _render_thinking()
+                        elif etype == "supervisor":
+                            # Capture supervisor's reasoning when evaluating worker results
+                            decision = event.get("decision") or {}
+                            reasoning = decision.get("reasoning", "")
+                            if reasoning and event.get("iteration", 0) > 0:
+                                # Only show reasoning after first iteration (when evaluating results)
+                                supervisor_reasoning = reasoning
+                                _render_thinking()
                         elif etype == "token":
                             thinking_box.empty()
                             buffer += event.get("content", "")

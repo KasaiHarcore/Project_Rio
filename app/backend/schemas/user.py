@@ -1,4 +1,14 @@
-"""Pydantic schemas for User model."""
+"""Pydantic Schemas for User and UserProfile Models.
+
+Schemas:
+    - UserBase: Common user fields
+    - UserCreate: Registration payload
+    - UserUpdate: Partial update payload
+    - UserInDB: Full user with DB fields
+    - UserProfileBase: Common profile fields
+    - UserProfileUpdate: Profile update payload
+    - UserProfileInDB: Full profile with DB fields
+"""
 
 from datetime import datetime
 from typing import Optional

@@ -1,4 +1,10 @@
-"""Memory-related schemas and enums."""
+"""Memory-Related Schemas and Enums.
+
+Memory Types:
+    - SHORT_TERM: Conversation context within a session
+    - LONG_TERM: Persistent user preferences and facts
+    - SUMMARY: Condensed conversation summaries
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,11 @@
-"""Pydantic schemas for ToolUsage model."""
+"""Pydantic Schemas for ToolUsage Model.
+
+Schemas:
+    - ToolUsageBase: Common tool usage fields
+    - ToolUsageCreate: New tool usage payload
+    - ToolUsageUpdate: Partial update payload
+    - ToolUsageInDB: Full tool usage with DB fields
+"""
 
 from datetime import datetime
 from typing import Optional

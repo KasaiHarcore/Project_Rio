@@ -1,4 +1,10 @@
-"""Pydantic schemas for AuditLog model."""
+"""Pydantic Schemas for AuditLog Model.
+
+Schemas:
+    - AuditLogBase: Common audit log fields
+    - AuditLogCreate: New audit log payload
+    - AuditLogInDB: Full audit log with DB fields
+"""
 
 from datetime import datetime
 from typing import Optional, Dict, Any

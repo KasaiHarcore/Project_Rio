@@ -1,4 +1,18 @@
-"""Typing and validation models for chat history."""
+"""Chat History Typing and Validation Models.
+
+This module provides:
+    - ChatMessageRecord: TypedDict for chat messages
+    - ChatHistoryBuffer: TypedDict for LLM context
+    - ChatHistorySave: TypedDict for saving messages
+    - ChatMessageRecordModel: Pydantic validation model
+    - normalize_chat_history: Validation utility function
+
+Usage:
+    history = normalize_chat_history(
+        history=raw_messages,
+        max_items=50,
+    )
+"""
 
 from datetime import datetime
 from typing import Optional, Dict, Any, List, Literal, TypedDict, Iterable

@@ -9,6 +9,36 @@ from pathlib import Path
 from typing import Literal, Optional
 from urllib.parse import quote_plus
 
+# =============================================================================
+# Workflow Constants
+# =============================================================================
+
+# Preview length for tool outputs in traces
+TOOL_PREVIEW_LENGTH = 500
+
+# Default maximum iterations for supervisor
+DEFAULT_MAX_ITERATIONS = 10
+
+# Default checkpoint namespace
+DEFAULT_CHECKPOINT_NS = "thread"
+
+# Worker timeouts (in seconds)
+WORKER_TIMEOUT_SECONDS = 60
+
+# Supervisor prompt limits
+MAX_CONTEXT_LENGTH = 8000
+MAX_RESPONSE_LENGTH = 4000
+
+# Streaming batch sizes
+STREAM_TOKEN_BATCH_SIZE = 3
+
+# Human-in-the-loop timeout (in seconds)
+HUMAN_INTERRUPT_TIMEOUT = 3600
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 1.0
+RETRY_BACKOFF_MAX = 10.0
 
 def _env_bool(key: str, default: str = "False") -> bool:
 	return os.getenv(key, default).lower() == "true"
@@ -48,7 +78,7 @@ class AgentConfig:
 	model_backoff_max: float = 4.0
 	history_max_items: int = 50
 	enable_planner: bool = True
-	enable_reflection: bool = True
+	enable_reflection: bool = True  # Note: Reflection is now integrated into supervisor routing
 	enable_persistence: bool = True
 	web_search_max_calls: int = 6
 	web_search_max_results: int = 5
@@ -66,6 +96,10 @@ class AgentConfig:
 
 		if self.user_role not in {"user", "admin"}:
 			raise ValueError("Invalid user_role: must be 'user' or 'admin'")
+
+		# SQL mode requires admin role
+		if self.mode == "sql" and self.user_role != "admin":
+			raise ValueError("SQL mode is restricted to admin users only")
 
 		if self.verify_max_retries < 0:
 			raise ValueError("verify_max_retries must be >= 0")
