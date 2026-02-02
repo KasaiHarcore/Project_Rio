@@ -4,16 +4,14 @@ This module provides:
 - Session management (get_db, get_session, get_db_context)
 - Base class and mixins for models
 - Model imports for convenience
-- Repository layer for data access
 
 Usage:
-    from backend.db import get_db, User, UserRepository
+    from backend.db import get_db, User, Thread
     
     # FastAPI dependency
     @app.get("/users")
     def get_users(db: Session = Depends(get_db)):
-        repo = UserRepository(db)
-        return repo.get_multi()
+        return db.query(User).all()
 """
 
 from backend.db.base import Base, TimestampMixin
@@ -44,22 +42,12 @@ from backend.db.models import (
     AgentMemory,
     MemoryType,
     ThreadSummary,
-    RunStep,
-    RunStepType,
-    RunStepStatus,
-    RunEvaluation,
-    EvaluationVerdict,
 )
 
 # Re-export repositories for convenience
 from backend.db.repositories import (
-    UserRepository,
-    UserProfileRepository,
-    ThreadRepository,
-    MessageRepository,
     RunRepository,
     ToolUsageRepository,
-    AuditLogRepository,
 )
 
 __all__ = [
@@ -90,17 +78,7 @@ __all__ = [
     "AgentMemory",
     "MemoryType",
     "ThreadSummary",
-    "RunStep",
-    "RunStepType",
-    "RunStepStatus",
-    "RunEvaluation",
-    "EvaluationVerdict",
     # Repositories
-    "UserRepository",
-    "UserProfileRepository",
-    "ThreadRepository",
-    "MessageRepository",
     "RunRepository",
     "ToolUsageRepository",
-    "AuditLogRepository",
 ]

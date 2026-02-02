@@ -11,6 +11,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from backend.db.session import get_db_context, get_engine, init_db
 from backend.utils.log import log_info, log_error, log_debug, log_warning, log_success
 from backend.core.exceptions import DatabaseError, ValidationError
+from backend.db.models.tool_usage import ToolStatus
+from backend.services.tool_usage_service import log_tool_usage
 
 
 class SQLTool:
@@ -63,6 +65,17 @@ class SQLTool:
                     
                     log_success(f"Query executed successfully, returned {len(data)} rows")
                     
+                    # Log successful tool usage
+                    try:
+                        log_tool_usage(
+                            tool_name="sql_query",
+                            status=ToolStatus.SUCCESS,
+                            input_data={"query": query[:200]},
+                            output_preview=f"{len(data)} rows returned",
+                        )
+                    except Exception:
+                        pass
+                    
                     return {
                         "success": True,
                         "data": data,
@@ -77,6 +90,17 @@ class SQLTool:
                     
                     log_success(f"Query executed successfully, affected {row_count} rows")
                     
+                    # Log successful tool usage
+                    try:
+                        log_tool_usage(
+                            tool_name="sql_query",
+                            status=ToolStatus.SUCCESS,
+                            input_data={"query": query[:200]},
+                            output_preview=f"{row_count} rows affected",
+                        )
+                    except Exception:
+                        pass
+                    
                     return {
                         "success": True,
                         "data": [],
@@ -90,6 +114,16 @@ class SQLTool:
         except (OperationalError, ProgrammingError) as e:
             error_msg = f"SQL execution error: {str(e)}"
             log_error(error_msg)
+            # Log failed tool usage
+            try:
+                log_tool_usage(
+                    tool_name="sql_query",
+                    status=ToolStatus.FAILED,
+                    input_data={"query": query[:200]},
+                    error_message=error_msg[:500],
+                )
+            except Exception:
+                pass
             return {
                 "success": False,
                 "data": [],
@@ -100,6 +134,16 @@ class SQLTool:
         except SQLAlchemyError as e:
             error_msg = f"Database error: {str(e)}"
             log_error(error_msg)
+            # Log failed tool usage
+            try:
+                log_tool_usage(
+                    tool_name="sql_query",
+                    status=ToolStatus.FAILED,
+                    input_data={"query": query[:200]},
+                    error_message=error_msg[:500],
+                )
+            except Exception:
+                pass
             raise DatabaseError(error_msg)
 
     def get_table_info(self, table_name: Optional[str] = None) -> Dict[str, Any]:

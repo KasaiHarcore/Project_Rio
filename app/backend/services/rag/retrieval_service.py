@@ -4,6 +4,8 @@ from pathlib import Path
 from typing import List, TYPE_CHECKING
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
+from backend.db.models.tool_usage import ToolStatus
+from backend.services.tool_usage_service import log_tool_usage
 
 if TYPE_CHECKING:
 	from backend.cache.service import CacheService
@@ -53,6 +55,16 @@ class RetrievalService:
 
 			if not docs:
 				log_warning("No documents found for query")
+				# Log tool usage
+				try:
+					log_tool_usage(
+						tool_name="qdrant_retrieval",
+						status=ToolStatus.SUCCESS,
+						input_data={"query": query_norm, "k": k},
+						output_preview="No documents found",
+					)
+				except Exception:
+					pass
 				return "No relevant documents found in the knowledge base."
 
 			parts: List[str] = []
@@ -77,7 +89,30 @@ class RetrievalService:
 				cache_svc.set_retrieval_cache(query=query_norm, k=int(k), result_text=result_text)
 			except Exception:
 				pass
+			
+			# Log successful tool usage
+			try:
+				log_tool_usage(
+					tool_name="qdrant_retrieval",
+					status=ToolStatus.SUCCESS,
+					input_data={"query": query_norm, "k": k},
+					output_preview=f"Found {len(docs)} documents",
+				)
+			except Exception:
+				pass
+			
 			return result_text
 		except Exception as e:
 			log_error(f"Search failed: {e}")
+			# Log failed tool usage
+			try:
+				log_tool_usage(
+					tool_name="qdrant_retrieval",
+					status=ToolStatus.FAILED,
+					input_data={"query": query_norm, "k": k},
+					error_message=str(e)[:500],
+				)
+			except Exception:
+				pass
 			return f"Search error: {str(e)}"
+

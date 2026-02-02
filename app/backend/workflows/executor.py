@@ -30,10 +30,8 @@ from backend.core.settings import (
     STREAM_TOKEN_BATCH_SIZE,
 )
 from backend.db.models.run import RunStatus
-from backend.db.models.run_step import RunStepStatus, RunStepType
 from backend.services.llm import form
 from backend.services.run_service import run_service
-from backend.services.run_step_service import run_step_service
 from backend.services.tool_usage_service import (
     clear_tool_logging_context,
     set_tool_logging_context,
@@ -110,7 +108,7 @@ def run_workflow(
         - timing: Timing information
         - metadata: Additional execution metadata
     """
-    # Generate identifiers
+    # Identifiers
     thread_id = thread_id or str(uuid4())
     run_id = uuid4().hex
     checkpoint_ns = checkpoint_ns or config.state_scope
@@ -136,25 +134,9 @@ def run_workflow(
     
     # Tracking variables
     current_stage = "init"
-    step_index = 0
     phase_timings: Dict[str, int] = {}
     worker_results_list: List[Dict[str, Any]] = []
     root_run = None
-    
-    def _start_step(step_type: RunStepType, name: str):
-        nonlocal step_index
-        step_id = run_step_service.start_step(
-            run_id=run_id,
-            step_index=step_index,
-            step_type=step_type,
-            name=name,
-        )
-        step_index += 1
-        return step_id
-    
-    def _finish_step(step_id, status: RunStepStatus = RunStepStatus.SUCCEEDED):
-        if step_id:
-            run_step_service.finish_step(step_id=step_id, status=status)
     
     # Prepare trace inputs
     trace_inputs = {
@@ -242,7 +224,7 @@ def run_workflow(
                                         stale_in_progress = False
 
                             is_terminal = (
-                                status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAIL-ED, ExecutionStatus.WAITING_HUMAN)
+                                status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.WAITING_HUMAN)
                                 or status_str in (
                                     ExecutionStatus.COMPLETED.value,
                                     ExecutionStatus.FAILED.value,
@@ -282,7 +264,6 @@ def run_workflow(
                 )
                 
                 # Execute the workflow
-                invoke_step_id = _start_step(RunStepType.LLM, "workflow.invoke")
                 start_time = time.time()
                 
                 try:
@@ -313,10 +294,7 @@ def run_workflow(
                             "workers_used": [r.worker_type.value for r in worker_results],
                         })
                     
-                    _finish_step(invoke_step_id, RunStepStatus.SUCCEEDED)
-                    
                 except Exception as e:
-                    _finish_step(invoke_step_id, RunStepStatus.FAILED)
                     raise
                 
                 # Save state to Redis for quick access

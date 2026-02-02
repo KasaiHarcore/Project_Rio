@@ -33,4 +33,5 @@ dependencies = [
   "pgvector",
   "redis",
   "langchain-redis",
+  "pyjwt",
 ]

@@ -8,14 +8,15 @@ from typing import Optional, List, Dict, Any
 from uuid import UUID
 import os
 
-from backend.db.session import get_db_context
+from sqlalchemy.orm import Session
+from sqlalchemy import inspect
+
+from backend.db.session import get_db_context, get_engine
 from backend.db.models.thread import Thread, ThreadStatus
 from backend.db.models.message import Message, MessageRole
-from backend.db.repositories.thread_repo import ThreadRepository
-from backend.db.repositories.message_repo import MessageRepository
-from backend.db.models.agent_memory import MemoryType
-from backend.services.memory_service import memory_service
-from backend.utils.log import log_debug, log_info, log_warning
+from backend.db.models.agent_memory import AgentMemory, MemoryType
+from backend.db.models.thread_summary import ThreadSummary
+from backend.utils.log import log_debug, log_info, log_warning, log_error
 from backend.services.llm import form
 from backend.schemas.query import ChatMessageRecord
 from backend.cache import cache_service
@@ -30,6 +31,17 @@ SUMMARY_PREFIX = "[SUMMARY]"
 def _default_thread_title(content: str) -> str:
     cleaned = " ".join((content or "").strip().split())
     return cleaned[:60] if cleaned else f"Chat {datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
+
+
+def _parse_uuid(value: Optional[str | UUID]) -> Optional[UUID]:
+    if not value:
+        return None
+    if isinstance(value, UUID):
+        return value
+    try:
+        return UUID(str(value))
+    except Exception:
+        return None
 
 
 class ChatHistoryService:
@@ -52,10 +64,97 @@ class ChatHistoryService:
         thread = session.query(Thread).filter(Thread.id == thread_uuid, Thread.user_id == user_id).first()
         return thread
 
+    # --- Memory Service Logic Merged Here ---
+
+    def add_agent_memory(
+        self,
+        *,
+        session: Optional[Session] = None,
+        user_id: UUID | str,
+        thread_id: UUID | str,
+        run_id: Optional[str],
+        memory_type: MemoryType,
+        content: str,
+        embedding: Optional[list[float]] = None,
+    ) -> None:
+        if not content or not memory_type:
+            return
+
+        user_uuid = _parse_uuid(user_id)
+        thread_uuid = _parse_uuid(thread_id)
+        if not user_uuid or not thread_uuid:
+            return
+
+        def _write(sess: Session) -> None:
+            memory = AgentMemory(
+                user_id=user_uuid,
+                thread_id=thread_uuid,
+                run_id=run_id,
+                memory_type=memory_type,
+                content=content,
+                embedding=embedding,
+            )
+            sess.add(memory)
+
+        try:
+            if session is not None:
+                _write(session)
+            else:
+                with get_db_context() as db:
+                    _write(db)
+        except Exception as e:
+            log_debug(f"Agent memory write skipped: {e}")
+
+    def upsert_thread_summary(
+        self,
+        *,
+        session: Optional[Session] = None,
+        thread_id: UUID | str,
+        summary: str,
+    ) -> None:
+        if not summary:
+            return
+
+        thread_uuid = _parse_uuid(thread_id)
+        if not thread_uuid:
+            return
+
+        def _write(sess: Session) -> None:
+            existing = sess.query(ThreadSummary).filter(ThreadSummary.thread_id == thread_uuid).first()
+            if existing:
+                existing.summary = summary
+                existing.updated_at = datetime.utcnow()
+            else:
+                sess.add(ThreadSummary(thread_id=thread_uuid, summary=summary))
+
+        try:
+            if session is not None:
+                _write(session)
+            else:
+                with get_db_context() as db:
+                    _write(db)
+        except Exception as e:
+            log_debug(f"Thread summary write skipped: {e}")
+
+    def get_thread_summary(self, *, thread_id: UUID | str) -> Optional[str]:
+        thread_uuid = _parse_uuid(thread_id)
+        if not thread_uuid:
+            return None
+
+        try:
+            with get_db_context() as db:
+                record = db.query(ThreadSummary).filter(ThreadSummary.thread_id == thread_uuid).first()
+                if record and record.summary:
+                    return record.summary
+        except Exception as e:
+            log_debug(f"Thread summary read skipped: {e}")
+        return None
+
+    # --- End Memory Logic ---
+
     def ensure_thread(self, user_id: UUID, thread_id: Optional[str], title: Optional[str]) -> str:
         """Ensure a thread exists and return its ID."""
         with get_db_context() as session:
-            thread_repo = ThreadRepository(session)
             if thread_id:
                 existing = self._get_thread_if_owned(session, thread_id, user_id)
                 if existing:
@@ -86,9 +185,6 @@ class ChatHistoryService:
         def _task():
             try:
                 with get_db_context() as session:
-                    thread_repo = ThreadRepository(session)
-                    message_repo = MessageRepository(session)
-
                     thread_uuid = None
                     existing = self._get_thread_if_owned(session, thread_id, user_id)
                     if existing:
@@ -105,12 +201,12 @@ class ChatHistoryService:
                         thread_uuid = new_thread.id
 
                     if role == MessageRole.USER:
-                        existing_thread = thread_repo.get_by_id(thread_uuid)
+                        existing_thread = session.query(Thread).get(thread_uuid)
                         if existing_thread and (not existing_thread.title or existing_thread.title.startswith("Chat ")):
                             existing_thread.title = _default_thread_title(content)
                             session.flush()
 
-                    existing_thread = thread_repo.get_by_id(thread_uuid)
+                    existing_thread = session.query(Thread).get(thread_uuid)
                     if existing_thread:
                         existing_thread.updated_at = datetime.utcnow()
                         session.flush()
@@ -124,7 +220,7 @@ class ChatHistoryService:
                     session.add(message)
 
                     if role in (MessageRole.USER, MessageRole.ASSISTANT):
-                        memory_service.add_agent_memory(
+                        self.add_agent_memory(
                             session=session,
                             user_id=user_id,
                             thread_id=thread_uuid,
@@ -153,20 +249,34 @@ class ChatHistoryService:
     def list_threads(self, user_id: UUID, limit: int = 20) -> List[Thread]:
         """Return recent threads for a user."""
         with get_db_context() as session:
-            repo = ThreadRepository(session)
-            return repo.get_by_user(user_id, skip=0, limit=limit)
+            return (
+                session.query(Thread)
+                .filter(Thread.user_id == user_id)
+                .order_by(Thread.updated_at.desc())
+                .limit(limit)
+                .all()
+            )
 
     def hard_delete_thread(self, thread_id: UUID) -> bool:
         """Permanently delete thread (admin action)."""
         with get_db_context() as session:
-            repo = ThreadRepository(session)
-            return repo.delete(thread_id)
+            thread = session.query(Thread).get(thread_id)
+            if thread:
+                session.delete(thread)
+                session.commit()
+                return True
+            return False
 
     def get_messages(self, thread_id: UUID, limit: int = 200) -> List[Message]:
         """Return messages for a thread."""
         with get_db_context() as session:
-            repo = MessageRepository(session)
-            return repo.get_by_thread(thread_id, skip=0, limit=limit)
+            return (
+                session.query(Message)
+                .filter(Message.thread_id == thread_id)
+                .order_by(Message.created_at.asc())
+                .limit(limit)
+                .all()
+            )
 
     def get_memory_buffer(self, thread_id: UUID, window_rounds: int = WINDOW_ROUNDS) -> List[ChatMessageRecord]:
         """Return a memory buffer for LLM: latest summary + last window rounds."""
@@ -193,8 +303,13 @@ class ChatHistoryService:
             pass
 
         with get_db_context() as session:
-            repo = MessageRepository(session)
-            messages = repo.get_by_thread(thread_id, skip=0, limit=1000)
+            messages = (
+                session.query(Message)
+                .filter(Message.thread_id == thread_id)
+                .order_by(Message.created_at.asc())
+                .limit(1000)
+                .all()
+            )
 
         # Backfill Redis hot window (best-effort) if empty.
         try:
@@ -219,7 +334,7 @@ class ChatHistoryService:
             cutoff_time = summary_message.created_at
             messages = [m for m in messages if not cutoff_time or (m.created_at and m.created_at > cutoff_time)]
         else:
-            summary_text = memory_service.get_thread_summary(thread_id=thread_id)
+            summary_text = self.get_thread_summary(thread_id=thread_id)
 
         # Keep last window_rounds user messages (and their surrounding assistant/tool messages)
         buffer: List[ChatMessageRecord] = []
@@ -246,8 +361,13 @@ class ChatHistoryService:
 
     def _compact_if_needed(self, session, thread_id: UUID) -> None:
         """Summarize and compact when window exceeds threshold."""
-        repo = MessageRepository(session)
-        messages = repo.get_by_thread(thread_id, skip=0, limit=1000)
+        messages = (
+            session.query(Message)
+            .filter(Message.thread_id == thread_id)
+            .order_by(Message.created_at.asc())
+            .limit(1000)
+            .all()
+        )
 
         last_summary = None
         for msg in reversed(messages):
@@ -275,7 +395,7 @@ class ChatHistoryService:
         summary_text = self._summarize_messages(selected)
         if not summary_text:
             return
-        memory_service.upsert_thread_summary(
+        self.upsert_thread_summary(
             session=session,
             thread_id=thread_id,
             summary=summary_text,
@@ -283,7 +403,7 @@ class ChatHistoryService:
         try:
             thread = session.query(Thread).filter(Thread.id == thread_id).first()
             if thread and thread.user_id:
-                memory_service.add_agent_memory(
+                self.add_agent_memory(
                     session=session,
                     user_id=thread.user_id,
                     thread_id=thread_id,
