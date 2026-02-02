@@ -9,7 +9,7 @@ import streamlit as st
 
 from backend.core.settings import AgentConfig
 from backend.db.models.message import MessageRole
-from backend.db.repositories.user_profile_repo import UserProfileRepository
+from backend.db.models.user_profile import UserProfile
 from backend.db.session import get_session
 from backend.schemas.user import UserProfileUpdate
 from backend.services.agent_service import AgentService
@@ -48,8 +48,7 @@ def append_assistant_message(content: str, *, stats: Optional[dict] = None, run_
 def load_user_profile(user_id: UUID) -> dict:
     try:
         with get_session() as session:
-            repo = UserProfileRepository(session)
-            profile = repo.get_by_user_id(user_id)
+            profile = session.query(UserProfile).filter(UserProfile.user_id == user_id).first()
             if not profile:
                 return {}
             return {
@@ -67,8 +66,15 @@ def load_user_profile(user_id: UUID) -> dict:
 
 def save_user_profile(user_id: UUID, data: dict) -> None:
     with get_session() as session:
-        repo = UserProfileRepository(session)
-        repo.upsert(user_id, UserProfileUpdate(**data))
+        profile = session.query(UserProfile).filter(UserProfile.user_id == user_id).first()
+        if profile:
+            for key, value in data.items():
+                if hasattr(profile, key):
+                    setattr(profile, key, value)
+        else:
+            profile = UserProfile(user_id=user_id, **data)
+            session.add(profile)
+        session.commit()
 
 
 def render_profile_form(user_id: UUID) -> None:
