@@ -1,17 +1,25 @@
-"""Streamlit UI launcher."""
+"""Streamlit UI launcher (repo root)."""
 
 import argparse
 import sys
 from pathlib import Path
 
-APP_DIR = Path(__file__).parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
 
-from backend.utils.log import log_info, log_error, log_warning
-from backend.core.startup import run_startup_tasks
+def _bootstrap_src_layout() -> None:
+    """Allow running from source without requiring an editable install."""
+    repo_root = Path(__file__).resolve().parent
+    src_dir = repo_root / "src"
+    if src_dir.exists() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
 
-run_startup_tasks()
+
+try:
+    from backend.utils.log import log_info, log_error, log_warning
+    from backend.core.startup import run_startup_tasks
+except ModuleNotFoundError:
+    _bootstrap_src_layout()
+    from backend.utils.log import log_info, log_error, log_warning
+    from backend.core.startup import run_startup_tasks
 
 
 def serve() -> None:
@@ -22,8 +30,12 @@ def serve() -> None:
         log_error("Streamlit not installed")
         print("Install: pip install streamlit")
         sys.exit(1)
+
+    # Ensure integrations/config are initialized before serving UI.
+    run_startup_tasks()
     
-    app_path = Path(__file__).parent / "app" / "frontend" / "chat_main.py"
+    repo_root = Path(__file__).resolve().parent
+    app_path = repo_root / "src" / "backend" / "interfaces" / "demo" / "chat_main.py"
     
     if not app_path.exists():
         log_error(f"UI not found: {app_path}")

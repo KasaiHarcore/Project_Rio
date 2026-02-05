@@ -10,15 +10,35 @@ load_dotenv()
 import getpass
 from pathlib import Path
 
-# Add app directory to python path (needed to resolve 'backend' module)
-APP_DIR = Path(__file__).resolve().parent / "app"
-if str(APP_DIR) not in sys.path:
-    sys.path.insert(0, str(APP_DIR))
 
-from backend.db.session import get_db_context
-from backend.db.models.user import User, UserRole
-from backend.security.auth import get_password_hash
-from backend.utils.log import log_info, log_success, log_error, configure_logging_from_env
+def _bootstrap_src_layout() -> None:
+    repo_root = Path(__file__).resolve().parent
+    src_dir = repo_root / "src"
+    if src_dir.exists() and str(src_dir) not in sys.path:
+        sys.path.insert(0, str(src_dir))
+
+
+try:
+    from backend.infra.db.session import get_db_context
+    from backend.infra.db.models.user import User, UserRole
+    from backend.infra.security.auth import get_password_hash
+    from backend.common.utils.log import (
+        log_info,
+        log_success,
+        log_error,
+        configure_logging_from_env,
+    )
+except ModuleNotFoundError:
+    _bootstrap_src_layout()
+    from backend.infra.db.session import get_db_context
+    from backend.infra.db.models.user import User, UserRole
+    from backend.infra.security.auth import get_password_hash
+    from backend.common.utils.log import (
+        log_info,
+        log_success,
+        log_error,
+        configure_logging_from_env,
+    )
 
 configure_logging_from_env()
 

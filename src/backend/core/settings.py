@@ -1,0 +1,398 @@
+"""
+Configuration Management for Agent
+Centralized configuration: CLI / Web interfaces
+"""
+
+from dataclasses import dataclass
+import os
+from pathlib import Path
+from typing import Literal, Optional
+from urllib.parse import quote_plus
+
+# =============================================================================
+# Workflow Constants
+# =============================================================================
+
+# Preview length for tool outputs in traces
+TOOL_PREVIEW_LENGTH = 500
+
+# Default maximum iterations for supervisor
+DEFAULT_MAX_ITERATIONS = 10
+
+# Default checkpoint namespace
+DEFAULT_CHECKPOINT_NS = "thread"
+
+# Worker timeouts (in seconds)
+WORKER_TIMEOUT_SECONDS = 60
+
+# Supervisor prompt limits
+MAX_CONTEXT_LENGTH = 8000
+MAX_RESPONSE_LENGTH = 4000
+
+# Streaming batch sizes
+STREAM_TOKEN_BATCH_SIZE = 3
+
+# Human-in-the-loop timeout (in seconds)
+HUMAN_INTERRUPT_TIMEOUT = 3600
+
+# Retry configuration
+MAX_RETRIES = 3
+RETRY_BACKOFF_BASE = 1.0
+RETRY_BACKOFF_MAX = 10.0
+
+def _env_bool(key: str, default: str = "False") -> bool:
+	return os.getenv(key, default).lower() == "true"
+
+
+def _env_int(key: str, default: str) -> int:
+	return int(os.getenv(key, default))
+
+
+def _env_float(key: str, default: str) -> float:
+	return float(os.getenv(key, default))
+
+
+def _env_str(key: str, default: Optional[str] = None) -> Optional[str]:
+	value = os.getenv(key)
+	if value is None:
+		return default
+	value = value.strip()
+	return value if value else default
+
+
+@dataclass
+class AgentConfig:
+	"""Agent execution configuration"""
+
+	mode: Literal["rag", "web", "chat", "sql"] = "chat"
+	user_role: Literal["user", "admin"] = "user"
+	top_k: int = 5
+	model_name: Optional[str] = None
+	verify_max_retries: int = 2
+	state_schema_version: int = 1
+	checkpoint_every: int = 1
+	state_scope: Literal["thread", "session", "user"] = "thread"
+	max_execution_seconds: int = 120
+	model_max_retries: int = 2
+	model_backoff_base: float = 0.5
+	model_backoff_max: float = 4.0
+	history_max_items: int = 50
+	enable_planner: bool = True
+	enable_reflection: bool = True  # Note: Reflection is now integrated into supervisor routing
+	enable_persistence: bool = True
+	web_search_max_calls: int = 6
+	web_search_max_results: int = 5
+	web_search_dedupe: bool = True
+
+	def __post_init__(self):
+		"""Validate configuration"""
+		if self.top_k <= 0:
+			raise ValueError("top_k must be greater than 0")
+
+		if self.mode not in {"rag", "web", "chat", "sql"}:
+			raise ValueError(
+				f"Invalid mode: {self.mode}. Must be one of: rag, web, chat, sql"
+			)
+
+		if self.user_role not in {"user", "admin"}:
+			raise ValueError("Invalid user_role: must be 'user' or 'admin'")
+
+		# SQL mode requires admin role
+		if self.mode == "sql" and self.user_role != "admin":
+			raise ValueError("SQL mode is restricted to admin users only")
+
+		if self.verify_max_retries < 0:
+			raise ValueError("verify_max_retries must be >= 0")
+
+		if self.state_schema_version <= 0:
+			raise ValueError("state_schema_version must be >= 1")
+
+		if self.checkpoint_every <= 0:
+			raise ValueError("checkpoint_every must be >= 1")
+
+		if self.max_execution_seconds <= 0:
+			raise ValueError("max_execution_seconds must be >= 1")
+
+		if self.model_max_retries < 0:
+			raise ValueError("model_max_retries must be >= 0")
+
+		if self.model_backoff_base <= 0:
+			raise ValueError("model_backoff_base must be > 0")
+
+		if self.model_backoff_max < self.model_backoff_base:
+			raise ValueError("model_backoff_max must be >= model_backoff_base")
+
+		if self.history_max_items < 0:
+			raise ValueError("history_max_items must be >= 0")
+
+		if self.web_search_max_calls < 0:
+			raise ValueError("web_search_max_calls must be >= 0")
+
+		if self.web_search_max_results < 1 or self.web_search_max_results > 20:
+			raise ValueError("web_search_max_results must be in [1, 20]")
+
+
+@dataclass
+class VectorDBConfig:
+	"""Vector database configuration"""
+
+	persist_dir: str = "./storage/qdrant"
+	collection_name: str = "rag-fpt"
+	embedding_model: str = "sentence-transformers/all-MiniLM-L6-v2"
+	sparse_embedding_model: str = "Qdrant/bm25"
+	chunk_size: int = 1000
+	chunk_overlap: int = 200
+	threshold: float = 0.7
+	retrieval_score_threshold: Optional[float] = None
+	vector_db_autocreate: bool = True
+	vector_db_eager_init: bool = True
+
+	@classmethod
+	def from_env(cls) -> "VectorDBConfig":
+		"""Create configuration from environment variables"""
+		retrieval_score_threshold = os.getenv("VECTORDB_SCORE_THRESHOLD")
+		return cls(
+			persist_dir=_env_str("QDRANT_PATH", "./storage/qdrant"),
+			collection_name=_env_str("QDRANT_COLLECTION", "rag-fpt"),
+			embedding_model=_env_str("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2"),
+			sparse_embedding_model=_env_str("SPARSE_EMBEDDING_MODEL", "Qdrant/bm25"),
+			chunk_size=_env_int("CHUNK_SIZE", "1000"),
+			chunk_overlap=_env_int("CHUNK_OVERLAP", "200"),
+			threshold=_env_float("THRESHOLD", "0.7"),
+			retrieval_score_threshold=(
+				float(retrieval_score_threshold)
+				if retrieval_score_threshold is not None
+				and retrieval_score_threshold.strip() != ""
+				else None
+			),
+			vector_db_autocreate=_env_bool("VECTORDB_AUTOCREATE", "True"),
+			vector_db_eager_init=_env_bool("VECTORDB_EAGER_INIT", "True"),
+		)
+
+
+@dataclass
+class RedisConfig:
+	"""Redis configuration (cache + working memory)."""
+
+	host: str = "localhost"
+	port: int = 6379
+	db: int = 0
+	username: Optional[str] = None
+	password: Optional[str] = None
+	ssl: bool = False
+
+	# Connection behavior
+	socket_timeout_seconds: float = 2.0
+	socket_connect_timeout_seconds: float = 2.0
+	health_check_interval_seconds: int = 30
+
+	# Keying / TTLs
+	key_prefix: str = "ai-agent"
+	graph_state_ttl_seconds: int = 3600
+
+	# Hot / warm memory
+	hot_conversation_ttl_seconds: int = 6 * 3600
+	hot_conversation_max_messages: int = 200
+	warm_summary_ttl_seconds: int = 7 * 86400
+	session_state_ttl_seconds: int = 6 * 3600
+	user_memory_ttl_seconds: int = 86400
+
+	# Tool/result caches
+	tool_dedup_ttl_seconds: int = 600
+	retrieval_cache_ttl_seconds: int = 1800
+	web_cache_ttl_seconds: int = 900
+
+	# LLM cache
+	enable_llm_cache: bool = True
+	llm_cache_type: Literal["exact", "semantic"] = "semantic"
+	llm_cache_ttl_seconds: int = 86400
+
+	def __post_init__(self):
+		if self.port <= 0 or self.port > 65535:
+			raise ValueError("redis port must be in [1, 65535]")
+		if self.db < 0:
+			raise ValueError("redis db must be >= 0")
+		if self.socket_timeout_seconds <= 0:
+			raise ValueError("redis socket_timeout_seconds must be > 0")
+		if self.socket_connect_timeout_seconds <= 0:
+			raise ValueError("redis socket_connect_timeout_seconds must be > 0")
+		if self.graph_state_ttl_seconds <= 0:
+			raise ValueError("redis graph_state_ttl_seconds must be > 0")
+		if self.hot_conversation_ttl_seconds <= 0:
+			raise ValueError("redis hot_conversation_ttl_seconds must be > 0")
+		if self.hot_conversation_max_messages < 0:
+			raise ValueError("redis hot_conversation_max_messages must be >= 0")
+		if self.warm_summary_ttl_seconds <= 0:
+			raise ValueError("redis warm_summary_ttl_seconds must be > 0")
+		if self.session_state_ttl_seconds <= 0:
+			raise ValueError("redis session_state_ttl_seconds must be > 0")
+		if self.user_memory_ttl_seconds <= 0:
+			raise ValueError("redis user_memory_ttl_seconds must be > 0")
+		if self.tool_dedup_ttl_seconds <= 0:
+			raise ValueError("redis tool_dedup_ttl_seconds must be > 0")
+		if self.retrieval_cache_ttl_seconds <= 0:
+			raise ValueError("redis retrieval_cache_ttl_seconds must be > 0")
+		if self.web_cache_ttl_seconds <= 0:
+			raise ValueError("redis web_cache_ttl_seconds must be > 0")
+		if self.llm_cache_ttl_seconds <= 0:
+			raise ValueError("redis llm_cache_ttl_seconds must be > 0")
+		cache_type = (self.llm_cache_type or "semantic").lower()
+		if cache_type not in {"exact", "semantic"}:
+			cache_type = "semantic"
+		self.llm_cache_type = cache_type  # type: ignore[assignment]
+  
+	@classmethod
+	def from_env(cls) -> "RedisConfig":
+		"""Create configuration from environment variables."""
+		return cls(
+			host=_env_str("REDIS_HOST", "localhost"),
+			port=_env_int("REDIS_PORT", "6379"),
+			db=_env_int("REDIS_DB", "0"),
+			username=_env_str("REDIS_USER"),
+			password=_env_str("REDIS_PASSWORD"),
+			ssl=_env_bool("REDIS_SSL", "False"),
+			socket_timeout_seconds=_env_float("REDIS_SOCKET_TIMEOUT", "2.0"),
+			socket_connect_timeout_seconds=_env_float("REDIS_SOCKET_CONNECT_TIMEOUT", "2.0"),
+			health_check_interval_seconds=_env_int("REDIS_HEALTH_CHECK_INTERVAL", "30"),
+			key_prefix=_env_str("REDIS_KEY_PREFIX", "ai-agent"),
+			graph_state_ttl_seconds=_env_int("REDIS_GRAPH_STATE_TTL", "3600"),
+			hot_conversation_ttl_seconds=_env_int("REDIS_HOT_TTL", str(6 * 3600)),
+			hot_conversation_max_messages=_env_int("REDIS_HOT_MAX_MESSAGES", "200"),
+			warm_summary_ttl_seconds=_env_int("REDIS_WARM_SUMMARY_TTL", str(7 * 86400)),
+			session_state_ttl_seconds=_env_int("REDIS_SESSION_STATE_TTL", str(6 * 3600)),
+			user_memory_ttl_seconds=_env_int("REDIS_USER_MEMORY_TTL", "86400"),
+			tool_dedup_ttl_seconds=_env_int("REDIS_TOOL_DEDUP_TTL", "600"),
+			retrieval_cache_ttl_seconds=_env_int("REDIS_RETRIEVAL_CACHE_TTL", "1800"),
+			web_cache_ttl_seconds=_env_int("REDIS_WEB_CACHE_TTL", "900"),
+			enable_llm_cache=_env_bool("REDIS_ENABLE_LLM_CACHE", "True"),
+			llm_cache_type=(
+				_env_str("REDIS_LLM_CACHE_TYPE", "semantic").strip().lower()
+				if _env_str("REDIS_LLM_CACHE_TYPE")
+				else "semantic"
+			),
+			llm_cache_ttl_seconds=_env_int("REDIS_LLM_CACHE_TTL", "86400"),
+		)
+
+
+@dataclass
+class AppConfig:
+	"""Application-wide configuration"""
+
+	# API Keys
+	openai_api_key: Optional[str] = None
+	openrouter_api_key: Optional[str] = None
+	tavily_api_key: Optional[str] = None
+
+	# Database Configuration
+	database_url: str = None
+	database_echo: bool = False
+	database_pool_size: int = 5
+	database_max_overflow: int = 10
+	database_pool_timeout: int = 30
+	database_pool_recycle: int = 3600
+	database_statement_timeout_ms: int = 0
+	database_application_name: str = "ai-agent"
+
+	# Paths
+	storage_dir: str = "./storage"
+	docs_dir: str = "./docs"
+
+	# Logging
+	log_level: str = "INFO"
+
+	# Workflow state retention
+	# Database bootstrap (dev-only)
+	enable_db_autocreate: bool = False
+
+	@classmethod
+	def from_env(cls) -> "AppConfig":
+		"""Create configuration from environment variables"""
+		database_url = os.getenv("DATABASE_URL")
+		if not database_url:
+			pg_host = os.getenv("PGHOST") or os.getenv("LOCAL_POSTGRES_WIN_HOST") or "localhost"
+			pg_port = os.getenv("PGPORT") or os.getenv("LOCAL_POSTGRES_PORT") or "5432"
+			pg_db = os.getenv("PGDATABASE") or os.getenv("LOCAL_POSTGRES_DB") or "rag_db"
+			pg_user = os.getenv("PGUSER") or os.getenv("LOCAL_POSTGRES_USER") or "postgres"
+			pg_password = os.getenv("PGPASSWORD") or os.getenv("LOCAL_POSTGRES_PASSWORD")
+
+			if pg_password:
+				pg_password = quote_plus(pg_password)
+				database_url = f"postgresql+psycopg2://{pg_user}:{pg_password}@{pg_host}:{pg_port}/{pg_db}"
+			else:
+				database_url = f"postgresql+psycopg2://{pg_user}@{pg_host}:{pg_port}/{pg_db}"
+
+		return cls(
+			openai_api_key=_env_str("OPENAI_API_KEY"),
+			openrouter_api_key=_env_str("OPENROUTER_API_KEY"),
+			tavily_api_key=_env_str("TAVILY_API_KEY"),
+			database_url=database_url,
+			database_echo=_env_bool("DATABASE_ECHO", "False"),
+			database_pool_size=_env_int("DATABASE_POOL_SIZE", "5"),
+			database_max_overflow=_env_int("DATABASE_MAX_OVERFLOW", "10"),
+			database_pool_timeout=_env_int("DATABASE_POOL_TIMEOUT", "30"),
+			database_pool_recycle=_env_int("DATABASE_POOL_RECYCLE", "3600"),
+			database_statement_timeout_ms=_env_int("DATABASE_STATEMENT_TIMEOUT_MS", "0"),
+			database_application_name=_env_str("DATABASE_APPLICATION_NAME", "ai-agent"),
+			storage_dir=_env_str("STORAGE_DIR", "./storage"),
+			docs_dir=_env_str("DOCS_DIR", "./docs"),
+			log_level=_env_str("LOG_LEVEL", "INFO"),
+			enable_db_autocreate=_env_bool("ENABLE_DB_AUTOCREATE", "True"),
+		)
+
+	def validate(self) -> tuple[bool, list[str]]:
+		"""Validate configuration"""
+		errors = []
+
+		if self.database_pool_size <= 0:
+			errors.append("database_pool_size must be > 0")
+		if self.database_max_overflow < 0:
+			errors.append("database_max_overflow must be >= 0")
+		if self.database_pool_timeout < 1:
+			errors.append("database_pool_timeout must be >= 1")
+		if self.database_pool_recycle < 0:
+			errors.append("database_pool_recycle must be >= 0")
+		if self.database_statement_timeout_ms < 0:
+			errors.append("database_statement_timeout_ms must be >= 0")
+
+		# Validate paths
+		for path_name, path_value in [
+			("storage_dir", self.storage_dir),
+			("docs_dir", self.docs_dir),
+		]:
+			path = Path(path_value)
+			try:
+				path.mkdir(parents=True, exist_ok=True)
+			except Exception as e:
+				errors.append(f"Cannot create {path_name} at {path_value}: {e}")
+
+		return len(errors) == 0, errors
+
+
+# Global configuration instances
+_app_config: Optional[AppConfig] = None
+_vectordb_config: Optional[VectorDBConfig] = None
+_redis_config: Optional[RedisConfig] = None
+
+
+def get_app_config() -> AppConfig:
+	"""Get or create application configuration"""
+	global _app_config
+	if _app_config is None:
+		_app_config = AppConfig.from_env()
+	return _app_config
+
+
+def get_vectordb_config() -> VectorDBConfig:
+	"""Get or create vector database configuration"""
+	global _vectordb_config
+	if _vectordb_config is None:
+		_vectordb_config = VectorDBConfig.from_env()
+	return _vectordb_config
+
+
+def get_redis_config() -> RedisConfig:
+	"""Get or create Redis configuration."""
+	global _redis_config
+	if _redis_config is None:
+		_redis_config = RedisConfig.from_env()
+	return _redis_config
