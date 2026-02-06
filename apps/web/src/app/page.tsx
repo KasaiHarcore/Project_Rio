@@ -2,71 +2,60 @@
 
 import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
-import { ChatHeader } from "@/components/features/chat/ChatHeader"
-import { ChatList } from "@/components/features/chat/ChatList"
-import { ChatInput } from "@/components/features/chat/ChatInput"
-import { ChatSidebar } from "@/components/features/chat/ChatSidebar"
+import { MissionBoard } from "@/components/features/dashboard/MissionBoard"
+import { MissionControl } from "@/components/features/mission/MissionControl"
 import { SplashScreen } from "@/components/layout/splash-screen"
-import { AnimatePresence } from "framer-motion"
-import { useChat } from '@ai-sdk/react'
+import { AnimatePresence, motion } from "framer-motion"
+import { useUIStore } from '@/store/ui-store'
 
 export default function Page() {
-  const [showSplash, setShowSplash] = useState(true)
-  const [input, setInput] = useState('')
-  
-  const { messages, sendMessage, status } = useChat({
-     api: '/api/chat',
-     initialMessages: [
-         {
-             id: 'welcome',
-             role: 'assistant',
-             content: "System Check: **OK**. Neural link stable. Sensei, Aris is ready for the next level! How can I assist with your study plan today?"
-         }
-     ]
-  })
+  const splashSeen = useUIStore((state) => state.splashSeen)
+  const setSplashSeen = useUIStore((state) => state.setSplashSeen)
+  const [showSplash, setShowSplash] = useState(!splashSeen)
+  const viewMode = useUIStore((state) => state.viewMode)
 
-  // Start with explicit loading state derived from status
-  const isLoading = status === 'submitted' || status === 'streaming'
-
-  const handleSubmit = (e: React.FormEvent, chatRequestOptions?: any) => {
-    e.preventDefault()
-    if (!input.trim()) return
-    
-    // Send message using the new API signature
-    sendMessage({ role: 'user', content: input })
-    setInput('')
-  }
-  
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement> | React.ChangeEvent<HTMLTextAreaElement>) => {
-    setInput(e.target.value)
+  const handleSplashComplete = () => {
+    setShowSplash(false)
+    setSplashSeen(true)
   }
 
   return (
     <>
       <AnimatePresence>
         {showSplash && (
-          <SplashScreen onComplete={() => setShowSplash(false)} />
+          <SplashScreen onComplete={handleSplashComplete} />
         )}
       </AnimatePresence>
       
       {!showSplash && (
         <DashboardLayout>
-          <div className="flex flex-1 overflow-hidden">
-            {/* Main Chat Content */}
-            <div className="flex-1 flex flex-col relative bg-white/30 backdrop-blur-sm z-10 w-full max-w-full">
-              <ChatHeader />
-              <ChatList messages={messages} />
-              <ChatInput 
-                input={input} 
-                handleInputChange={handleInputChange} 
-                handleSubmit={handleSubmit}
-                isLoading={isLoading}
-              />
-            </div>
-
-            {/* Right Sidebar */}
-            <ChatSidebar />
-          </div>
+           <div className="flex flex-1 overflow-hidden relative">
+              <AnimatePresence mode="popLayout" initial={false}>
+                  {viewMode === 'dashboard' ? (
+                      <motion.div 
+                        key="dashboard"
+                        initial={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, scale: 0.95, filter: 'blur(10px)' }}
+                        transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                        className="flex-1 overflow-hidden flex absolute inset-0 z-10"
+                      >
+                          <MissionBoard />
+                      </motion.div>
+                  ) : (
+                      <motion.div 
+                        key="mission-control"
+                        initial={{ opacity: 0, scale: 1.1, filter: 'blur(10px)' }}
+                        animate={{ opacity: 1, scale: 1, filter: 'blur(0px)' }}
+                        exit={{ opacity: 0, scale: 1.1, filter: 'blur(10px)' }}
+                        transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
+                        className="flex-1 overflow-hidden flex h-full absolute inset-0 z-20 bg-white/50 backdrop-blur-xl"
+                      >
+                          <MissionControl />
+                      </motion.div>
+                  )}
+              </AnimatePresence>
+           </div>
         </DashboardLayout>
       )}
     </>

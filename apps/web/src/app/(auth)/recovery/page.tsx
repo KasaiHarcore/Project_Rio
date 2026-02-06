@@ -3,7 +3,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { KeyRound, ArrowLeft } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { PageTransition } from '@/components/layout/page-transition'
 
 export default function RecoveryPage() {
   return (
@@ -11,10 +11,7 @@ export default function RecoveryPage() {
       {/* Background Ambience */}
       <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 h-[500px] w-[500px] rounded-full bg-blue-400/10 blur-[120px]"></div>
 
-      <motion.div 
-         initial={{ opacity: 0, scale: 0.9 }}
-         animate={{ opacity: 1, scale: 1 }}
-         transition={{ duration: 0.4 }}
+      <PageTransition 
          className="w-full max-w-md bg-white border border-blue-100 rounded-[2.5rem] p-10 shadow-2xl relative overflow-hidden z-10"
       >
         
@@ -47,7 +44,11 @@ export default function RecoveryPage() {
           <span className="text-[9px] font-mono text-blue-400">SECURE_RECOVERY_MODE</span>
           <span className="text-[9px] font-mono text-blue-400">V2.0.6</span>
         </div>
-      </motion.div>
+        <div className="mt-10 border-t border-blue-50 pt-4 flex justify-between items-center opacity-30">
+          <span className="text-[9px] font-mono text-blue-400">SECURE_RECOVERY_MODE</span>
+          <span className="text-[9px] font-mono text-blue-400">V2.0.6</span>
+        </div>
+      </PageTransition>
     </div>
   )
 }

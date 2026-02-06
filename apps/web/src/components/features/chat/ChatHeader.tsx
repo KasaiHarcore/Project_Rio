@@ -1,55 +1,28 @@
 import React from 'react'
-import { MoreVertical, RefreshCw, Activity, Clock, ShieldCheck } from 'lucide-react'
 
 export function ChatHeader() {
   return (
-    <header className="h-16 border-b border-blue-100 bg-white/50 backdrop-blur-md flex items-center justify-between px-8 transition-all">
-      <div className="flex items-center">
-        <div className="flex items-center bg-white/80 border border-blue-50 px-3 py-1.5 rounded-full shadow-sm">
-          <div className="relative flex h-2 w-2 mr-3">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-green-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-green-500"></span>
-          </div>
-          <h2 className="text-xs font-black text-slate-800 uppercase tracking-tighter">
-            Active Sync: <span className="text-blue-500">Aris_v2</span>
-          </h2>
+    <header className="relative flex h-16 items-center justify-between border-b border-blue-100 bg-white/40 px-8 backdrop-blur-md flex-shrink-0">
+      <div className="absolute bottom-0 left-0 h-[1px] w-full bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-50"></div>
+
+      <div className="flex items-center gap-6">
+        <div className="flex items-center rounded-lg border border-blue-100 bg-white/60 px-4 py-1.5 shadow-sm">
+          <div className="mr-3 h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]"></div>
+          <span className="font-mono text-[10px] font-bold text-slate-600 uppercase">System: <span className="text-emerald-600">Stable</span></span>
         </div>
-        
-        <div className="hidden md:flex ml-8 items-center space-x-0">
-          <div className="px-4 border-l border-blue-100/50">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] leading-tight">Latency</p>
-            <p className="text-[11px] font-mono font-bold text-blue-500 tracking-tighter">
-              24<span className="text-[8px] ml-0.5 opacity-70">MS</span>
-            </p>
-          </div>
-        
-          <div className="px-4 border-l border-blue-100/50">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] leading-tight">Uptime</p>
-            <p className="text-[11px] font-mono font-bold text-slate-700 tracking-tighter">04:22:12</p>
-          </div>
-        
-          <div className="px-4 border-l border-blue-100/50 border-r">
-            <p className="text-[8px] font-black text-slate-400 uppercase tracking-[0.2em] leading-tight">Health</p>
-            <div className="flex items-center space-x-2">
-              <span className="text-[11px] font-mono font-bold text-green-500 tracking-tighter">
-                100<span className="text-[8px] ml-0.5 opacity-70">%</span>
-              </span>
-              <div className="w-8 h-1 bg-slate-100 rounded-full overflow-hidden hidden lg:block">
-                <div className="h-full bg-green-500 w-full"></div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <div className="h-4 w-[1px] bg-slate-300/50"></div>
+        <span className="font-mono text-[10px] text-slate-400">LATENCY: 24ms</span>
       </div>
 
-      <div className="flex items-center space-x-2">
-        <div className="h-6 w-[1px] bg-blue-100"></div>
-        <button className="p-2.5 text-slate-400 hover:text-blue-500 hover:bg-white rounded-xl transition-all border border-transparent hover:border-blue-100">
-          <MoreVertical className="h-5 w-5" />
+      <div className="flex items-center gap-3">
+        <button className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-white hover:text-blue-500">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
         </button>
-        <div className="h-6 w-[1px] bg-blue-100"></div>
-        <button className="p-2.5 text-slate-400 hover:text-blue-500 hover:bg-white rounded-xl transition-all border border-transparent hover:border-blue-100">
-            <RefreshCw className="h-5 w-5" />
+        <button className="flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 transition-all hover:bg-white hover:text-blue-500">
+          <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+          </svg>
         </button>
       </div>
     </header>

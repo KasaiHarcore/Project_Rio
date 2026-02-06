@@ -1,136 +1,151 @@
 "use client"
 
 import * as React from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, usePathname } from "next/navigation"
 import { 
-  Command, 
-  Plus, 
-  Database, 
-  Layers, 
-  Clock, 
-  ChevronLeft,
-  Settings,
-  LogOut
+    Command, 
+    LogOut, 
+    LayoutDashboard, 
+    MessageSquare, 
+    Map, 
+    Database, 
+    Book, 
+    FileText, 
+    Cpu, 
+    Settings,
+    Clock,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { SettingsModal } from "./settings-modal"
+import { useUIStore } from "@/store/ui-store"
+
+import { LevelBadgeSidebar } from "./LevelBadgeSidebar"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLElement> {}
 
 export function Sidebar({ className, ...props }: SidebarProps) {
   const router = useRouter()
-  // const { activeView, setActiveView } = useUIStore() 
-  const activeView = 'chat'; // Placeholder
+  const pathname = usePathname()
+  const [isSettingsOpen, setIsSettingsOpen] = React.useState(false)
+  const startMission = useUIStore((state) => state.startMission)
+  const setViewMode = useUIStore((state) => state.setViewMode)
+  const sidebarOpen = useUIStore((state) => state.sidebarOpen)
+
+  const handleHomeClick = () => {
+    setViewMode('dashboard')
+    if (pathname !== '/') router.push('/')
+  }
 
   const handleLogout = () => {
-    // Expire the auth cookie
     document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
     router.push('/login')
   }
 
+  const navSections = [
+    {
+        title: "MAIN",
+        items: [
+            { id: 'dashboard', label: 'Office', icon: <LayoutDashboard size={20} />, action: handleHomeClick, active: pathname === '/' },
+            { id: 'operation', href: '/operation', label: 'Operation', icon: <MessageSquare size={20} />, active: pathname === '/operation' },
+            { id: 'mission', href: '/mission', label: 'Mission', icon: <Map size={20} />, active: pathname === '/mission' },
+        ]
+    },
+    {
+        title: "ARCHIVE",
+        items: [
+            { href: '/history', label: 'History', icon: <Clock size={20} />, active: pathname.startsWith('/history') },
+            { href: '/knowledge', label: 'Knowledge', icon: <Database size={20} />, active: pathname.startsWith('/knowledge') },
+            { href: '/artifacts', label: 'Artifacts', icon: <FileText size={20} />, active: pathname.startsWith('/artifacts') },
+            { id: 'manual', href: '/docs', label: 'Manual', icon: <Book size={20} />, active: pathname.startsWith('/docs') },
+        ]
+    },
+    {
+        title: "SYSTEM",
+        items: [
+            { href: '/logs', label: 'Logs', icon: <Cpu size={20} />, active: pathname.startsWith('/logs') },
+            { id: 'settings', label: 'Settings', icon: <Settings size={20} />, action: () => setIsSettingsOpen(true) },
+        ]
+    }
+  ]
+
+  if (!sidebarOpen) return null
+
   return (
-    <aside 
-      className={cn(
-        "w-20 lg:w-72 bg-white/40 backdrop-blur-2xl border-r border-blue-100/50 flex flex-col py-6 transition-all duration-500 relative group/sidebar z-20", 
-        className
-      )} 
-      {...props}
-    >
-      {/* Header */}
-      <div className="px-6 mb-8 flex items-center">
-        <div className="w-10 h-10 bg-blue-500 rounded-xl flex items-center justify-center shadow-lg shadow-blue-200 flex-shrink-0">
-          <Command className="h-6 w-6 text-white" />
-        </div>
-        <div className="ml-4 hidden lg:block">
-          <p className="font-black text-lg leading-none tracking-tighter text-slate-800">
-            SCHALE <span className="text-blue-500 font-mono text-[10px] bg-blue-50 px-1 rounded">OS_v2.0</span>
-          </p>
-          <p className="text-[9px] font-bold text-slate-400 uppercase tracking-[0.3em] mt-1">
-            General Operations
-          </p>
-        </div>
-      </div>
-
-      {/* Main Actions */}
-      <div className="px-4 space-y-1 mb-8">
-        <button className="w-full flex items-center p-3 bg-blue-500 text-white rounded-2xl shadow-lg shadow-blue-100 font-bold text-sm group hover:scale-[1.02] transition-all">
-          <Plus className="h-5 w-5 flex-shrink-0" />
-          <span className="ml-3 truncate hidden lg:block">New Operation</span>
-        </button>
-        
-        <nav className="pt-4 space-y-1">
-          <button 
-            className={cn(
-              "w-full flex items-center p-3 rounded-xl transition-all font-semibold text-sm",
-              activeView === 'knowledge' 
-                ? "bg-blue-50 text-blue-600" 
-                : "text-slate-500 hover:bg-blue-50 hover:text-blue-600"
-            )}
-           // onClick={() => setActiveView('knowledge')}
-          >
-            <Database className="h-5 w-5" />
-            <span className="ml-3 hidden lg:block">Knowledge Base</span>
-          </button>
+    <>
+      <aside 
+        className={cn(
+          "group/sidebar relative z-20 flex w-[280px] flex-col border-r border-blue-100 bg-white/70 backdrop-blur-xl transition-all duration-300 shadow-[4px_0_24px_rgba(0,0,0,0.02)] hidden lg:flex", 
+          className
+        )} 
+        {...props}
+      >
+        {/* Header / Logo Area */}
+        <div className="flex flex-col items-center justify-center border-b border-blue-100/50 px-6 py-8 gap-4">
+          <LevelBadgeSidebar />
           
-          <button 
-             className={cn(
-              "w-full flex items-center p-3 rounded-xl transition-all font-semibold text-sm",
-              activeView === 'artifacts' 
-                ? "bg-blue-50 text-blue-600" 
-                : "text-slate-500 hover:bg-blue-50 hover:text-blue-600"
-            )}
-            // onClick={() => setActiveView('artifacts')}
-          >
-            <Layers className="h-5 w-5" />
-            <span className="ml-3 hidden lg:block">Artifacts</span>
-          </button>
-        </nav>
-      </div>
+          {/* Logo Text Hidden or smaller since Level is Main Focus now */}
+          <div className="text-center mt-2 group-hover:opacity-100 transition-opacity">
+             <h1 className="font-black text-slate-700 tracking-widest text-lg">SCHALE</h1>
+             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-[0.2em] -mt-1">Federal Investigation</p>
+          </div>
+        </div>
 
-      {/* Operational History */}
-      <div className="flex-1 px-4 overflow-y-auto">
-        <div className="flex items-center justify-between px-2 mb-4">
-          <span className="text-[10px] font-black text-blue-400 uppercase tracking-widest hidden lg:block">
-            Operational History
-          </span>
-          <button className="text-slate-300 hover:text-blue-500">
-            <Clock className="h-4 w-4" />
-          </button>
+        {/* Navigation */}
+        <div id="sidebar-scroll-container" className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
+            {navSections.map((section, idx) => (
+                <div key={idx}>
+                    <h3 className="px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 pl-6 border-l-2 border-transparent">
+                        {section.title}
+                    </h3>
+                    <div className="space-y-1">
+                        {section.items.map((item: any) => (
+                            <button
+                                key={item.label}
+                                id={item.id}
+                                onClick={() => {
+                                    if (item.action) item.action()
+                                    else if (item.href) router.push(item.href)
+                                }}
+                                className={cn(
+                                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden",
+                                    item.active 
+                                        ? "bg-blue-50 text-[#1289F4] font-bold shadow-sm ring-1 ring-blue-100" 
+                                        : "text-slate-500 hover:bg-white hover:text-slate-700 hover:shadow-sm"
+                                )}
+                            >
+                                <div className={cn(
+                                    "p-2 rounded-lg transition-colors",
+                                    item.active ? "bg-white text-[#1289F4]" : "bg-slate-100 text-slate-400 group-hover:bg-blue-50 group-hover:text-[#1289F4]"
+                                )}>
+                                    {item.icon}
+                                </div>
+                                <span className="text-sm tracking-wide">{item.label}</span>
+                                
+                                {item.active && (
+                                    <div className="absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 bg-[#1289F4] rounded-r-full" />
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+            ))}
         </div>
-        
-        <div className="space-y-2 max-h-64 overflow-y-auto pr-2 custom-scrollbar">
-          {/* Mock History Item */}
-          <button className="w-full group flex flex-col p-3 bg-white border border-blue-100 rounded-xl shadow-sm hover:border-blue-400 transition-all text-left relative overflow-hidden">
-             <div className="absolute top-0 right-0 p-1">
-                <div className="w-1 h-1 bg-blue-400 rounded-full animate-pulse"></div>
-             </div>
-             <span className="text-[10px] font-black text-slate-800 truncate block">
-               Neural Link Alpha
-             </span>
-             <span className="text-[8px] font-mono text-slate-400 uppercase tracking-tighter mt-1">
-               Last Sync: 2m ago
-             </span>
-          </button>
-        </div>
-      </div>
 
-      {/* User / Footer */}
-      <div className="mt-auto p-4 border-t border-blue-50 relative">
-        <div className="flex items-center p-2 rounded-xl hover:bg-blue-50 transition-colors cursor-pointer group">
-            <div className="h-8 w-8 rounded-full bg-slate-200 flex items-center justify-center text-xs font-bold text-slate-500">
-                S
-            </div>
-            <div className="ml-3 hidden lg:block">
-                <p className="text-xs font-bold text-slate-700">Sensei</p>
-                <p className="text-[9px] text-slate-400">Online</p>
-            </div>
-            <div className="ml-auto flex items-center space-x-1">
-                <Settings className="h-4 w-4 text-slate-400 hover:text-blue-500 hidden lg:block" />
-                <button onClick={handleLogout} title="Sign Out">
-                    <LogOut className="h-4 w-4 text-slate-400 hover:text-red-500 hidden lg:block" />
-                </button>
-            </div>
+        {/* User Footer */}
+        <div className="p-4 border-t border-blue-100/50 bg-white/40">
+            <button 
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl text-slate-400 hover:bg-rose-50 hover:text-rose-500 hover:shadow-sm transition-all group"
+            >
+                <div className="p-2 rounded-lg bg-slate-100 text-slate-400 group-hover:bg-white group-hover:text-rose-500 transition-colors">
+                    <LogOut size={18} />
+                </div>
+                <span className="text-sm font-bold">Disconnect</span>
+            </button>
         </div>
-      </div>
-    </aside>
+      </aside>
+
+      <SettingsModal isOpen={isSettingsOpen} onClose={() => setIsSettingsOpen(false)} />
+    </>
   )
 }

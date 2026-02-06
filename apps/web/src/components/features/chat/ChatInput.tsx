@@ -1,7 +1,6 @@
 "use client"
 
 import React, { useRef } from 'react'
-import { Send, Paperclip } from 'lucide-react'
 import { ChatRequestOptions } from 'ai'
 
 interface ChatInputProps {
@@ -15,45 +14,40 @@ export function ChatInput({ input, handleInputChange, handleSubmit, isLoading }:
   const inputRef = useRef<HTMLInputElement>(null)
 
   return (
-    <footer className="p-6 bg-transparent">
-      <div className="max-w-4xl mx-auto relative">
-        <div className="absolute -top-4 -left-4 w-8 h-8 border-t-2 border-l-2 border-blue-200 rounded-tl-xl pointer-events-none"></div>
-        <div className="absolute -top-4 -right-4 w-8 h-8 border-t-2 border-r-2 border-blue-200 rounded-tr-xl pointer-events-none"></div>
-        
+    <footer className="relative p-6 lg:p-10 flex-shrink-0">
+      <div className="relative z-20 mx-auto max-w-4xl">
         <form 
           onSubmit={handleSubmit}
-          className="bg-white border-2 border-blue-100 rounded-[2rem] p-2 flex items-center shadow-2xl shadow-blue-100/50 focus-within:border-blue-400 transition-all backdrop-blur-lg"
+          className="flex items-center rounded-[2rem] border-2 border-blue-100 bg-white/90 p-2 shadow-[0_0_40px_rgba(59,130,246,0.1)] backdrop-blur-xl transition-all duration-300 focus-within:scale-[1.01] focus-within:border-blue-400 focus-within:shadow-[0_0_40px_rgba(59,130,246,0.2)]"
         >
-          <button type="button" className="p-3 text-slate-300 hover:text-blue-500 transition-colors">
-            <Paperclip className="h-6 w-6" />
+          <button type="button" className="rounded-2xl p-4 text-slate-400 transition-all hover:bg-blue-50 hover:text-blue-500">
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
           </button>
-          
+
+          <div className="mx-2 h-8 w-[1px] bg-slate-200"></div>
+
           <input 
-            ref={inputRef}
             type="text" 
+            placeholder="Enter tactical command..." 
             value={input}
             onChange={handleInputChange}
             disabled={isLoading}
-            placeholder="Designate next directive..." 
-            className="flex-1 bg-transparent px-4 outline-none text-sm font-bold text-slate-700 placeholder:text-slate-300 disabled:opacity-50" 
+            ref={inputRef}
+            className="flex-1 bg-transparent px-4 text-sm font-bold tracking-wide text-slate-700 outline-none placeholder:text-slate-300" 
           />
-          
+
           <button 
-            type="submit"
-            disabled={isLoading || !input.trim()} 
-            className="bg-blue-500 p-3 rounded-[1.5rem] text-white shadow-lg shadow-blue-200 hover:bg-blue-600 hover:scale-105 transition-all disabled:opacity-50 disabled:grayscale disabled:hover:scale-100"
+             type="submit"
+             disabled={isLoading || !input.trim()}
+             className="group rounded-[1.5rem] bg-blue-500 p-4 text-white shadow-lg shadow-blue-200 transition-all hover:bg-blue-600 hover:shadow-blue-400 active:scale-95 disabled:opacity-50 disabled:grayscale"
           >
-            <Send className="h-5 w-5" />
+            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
           </button>
         </form>
-        
-        <div className="mt-4 flex justify-between px-6">
-            <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-              Thread_ID: <span className="text-blue-400">SC-2026-X1</span>
-            </p>
-            <p className="text-[9px] font-mono text-slate-400 uppercase tracking-widest">
-              Encryption: <span className="text-green-500">AES-256_ACTIVE</span>
-            </p>
+
+        <div className="mt-3 flex justify-between px-6">
+          <span className="font-mono text-[9px] tracking-widest text-slate-400 uppercase">Secure Connection <span className="text-blue-400">TLS_1.3</span></span>
+          <span className="font-mono text-[9px] tracking-widest text-slate-400 uppercase">Schale_ID: <span className="text-slate-600">8892-XJ</span></span>
         </div>
       </div>
     </footer>

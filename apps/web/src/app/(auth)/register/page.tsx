@@ -4,7 +4,7 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Loader2 } from 'lucide-react'
-import { motion } from 'framer-motion'
+import { PageTransition } from "@/components/layout/page-transition"
 
 export default function RegisterPage() {
   const router = useRouter()
@@ -29,10 +29,7 @@ export default function RegisterPage() {
       <div className="absolute -top-10 -left-10 h-64 w-64 rounded-full bg-blue-400/20 blur-[100px] animate-pulse"></div>
       <div className="absolute -bottom-10 -right-10 h-80 w-80 rounded-full bg-blue-300/20 blur-[100px] animate-pulse delay-1000"></div>
 
-      <motion.div 
-         initial={{ opacity: 0, y: 20 }}
-         animate={{ opacity: 1, y: 0 }}
-         transition={{ duration: 0.5 }}
+      <PageTransition 
          className="w-full max-w-md bg-white border border-blue-100 rounded-[2.5rem] shadow-2xl p-10 relative overflow-hidden z-10"
       >
         
@@ -63,7 +60,7 @@ export default function RegisterPage() {
             </div>
           </div>
           <div>
-            <label className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] ml-2">Re-type Password</label>
+            <label className="text-[10px] font-black text-blue-500 uppercase tracking-[0.2em] ml-2">Re-typed Password</label>
             <input type="password" placeholder="••••••••" className="w-full px-5 py-4 bg-white border border-blue-100 rounded-2xl focus:ring-4 focus:ring-blue-100 focus:border-blue-400 transition-all outline-none text-slate-700 placeholder:text-slate-300" />
           </div>
 
@@ -75,7 +72,7 @@ export default function RegisterPage() {
         <p className="text-center mt-8 text-xs font-bold text-slate-400 uppercase tracking-tight">
           Already have an ID? <Link href="/login" className="text-blue-500 hover:underline">Log In</Link>
         </p>
-      </motion.div>
+      </PageTransition>
     </div>
   )
 }

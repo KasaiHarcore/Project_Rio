@@ -179,8 +179,9 @@ export default function OnboardingPage() {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     {[
                       { id: 'technical', label: 'Technical Analyst', desc: 'Focused on code, logic, and data structures.', icon: Code },
-                      { id: 'creative', label: 'Creative Assistant', desc: 'Specialized in design, ideation and writing.', icon: PenTool },
-                      { id: 'research', label: 'Research Partner', desc: 'Optimized for data synthesis and fact-checking.', icon: BookOpen },
+                      { id: 'research', label: 'Research Assistant', desc: 'Deep dives into documents and information.', icon: BookOpen },
+                      { id: 'assistant', label: 'Helpful Assistant', desc: 'Provides general assistance and support.', icon: PenTool },
+                      { id: 'generalist', label: 'Generalist', desc: 'Versatile across various tasks and topics.', icon: Zap },
                     ].map((spec) => (
                       <button 
                         key={spec.id}
@@ -215,7 +216,6 @@ export default function OnboardingPage() {
                     {[
                       { id: 'cloud', label: 'Cloud Storage', sub: 'Drive / Dropbox', icon: Cloud },
                       { id: 'repo', label: 'Repositories', sub: 'GitHub / GitLab', icon: Github },
-                      { id: 'local', label: 'Local Archives', sub: 'Documents / PDFs', icon: HardDrive },
                     ].map((source) => (
                       <button 
                         key={source.id}
@@ -237,6 +237,19 @@ export default function OnboardingPage() {
                       </button>
                     ))}
                  </div>
+                 
+                 <button className="group flex w-full items-center justify-between rounded-2xl border-2 border-blue-50 bg-white/70 p-6 text-left transition-all hover:border-blue-300 hover:shadow-lg hover:shadow-blue-100/50 hover:scale-[1.02]">
+                    <div className="flex items-center">
+                    <div className="mr-4 flex h-10 w-10 items-center justify-center rounded-lg bg-blue-100">
+                        <Cloud className="h-5 w-5 text-blue-500" />
+                    </div>
+                    <div>
+                        <p className="text-sm font-bold text-slate-800">Manual Neural Upload</p>
+                        <p className="text-[10px] font-bold tracking-tight text-slate-400 uppercase">PDF, TXT, CSV</p>
+                    </div>
+                    </div>
+                    <span className="text-[10px] font-black text-blue-500 group-hover:underline">BROWSE FILES</span>
+                </button>
               </motion.div>
             )}
 
@@ -271,7 +284,6 @@ export default function OnboardingPage() {
                       <option>Analytical</option>
                       <option>Warm</option>
                       <option>Professional</option>
-                      <option>Tsundere</option>
                     </select>
                   </div>
                 </div>
@@ -279,7 +291,7 @@ export default function OnboardingPage() {
                 <div>
                   <label className="block text-[11px] font-black text-blue-500 uppercase tracking-widest mb-3 ml-2">Prime Directives</label>
                   <textarea 
-                    rows={4}
+                    rows={2}
                     value={formData.directives}
                     onChange={(e) => setFormData({...formData, directives: e.target.value})}
                     placeholder="Ex: Provide code in Python only..." 
@@ -328,6 +340,7 @@ export default function OnboardingPage() {
         </div>
 
         <div className="mt-12 flex justify-between items-center relative z-10">
+
           <button 
             onClick={handleBack} 
             className={`text-xs font-black text-slate-300 uppercase tracking-widest hover:text-slate-500 ${(step === 1 || step === 4) ? 'invisible' : ''}`}
@@ -335,15 +348,41 @@ export default function OnboardingPage() {
             Back
           </button>
           
-          <button 
-            onClick={handleNext}
-            className="px-10 py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-200 transition-all flex items-center group"
-          >
-            {step === 3 ? 'Initialize' : step === 4 ? 'Enter Workspace' : 'Next Phase'}
-            {step === 4 ? <Zap className="ml-2 h-4 w-4 fill-white" /> : <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />}
-          </button>
+          <div className="flex items-center space-x-6">
+            {step === 2 && (
+                <button 
+                  onClick={handleNext} 
+                  className="text-[10px] font-black text-slate-300 uppercase tracking-[0.2em] hover:text-blue-400 transition-colors"
+                >
+                    Skip for now
+                </button>
+            )}
+            <button 
+              onClick={handleNext}
+              className="px-10 py-4 bg-blue-500 hover:bg-blue-600 text-white font-black rounded-2xl shadow-xl shadow-blue-200 transition-all flex items-center group active:scale-95"
+            >
+              {step === 1 ? 'Confirm Identity' : step === 2 ? 'Sync Data' : step === 3 ? 'Finalize Build' : 'Enter Workspace'}
+              {step === 4 ? <Zap className="ml-2 h-4 w-4 fill-white" /> : <ArrowRight className="ml-2 h-4 w-4 group-hover:translate-x-1 transition-transform" />}
+            </button>
+          </div>
         </div>
 
+        {/* Footers */}
+        {step === 1 && (
+            <div className="mt-12 text-[10px] font-mono text-blue-300 uppercase tracking-[0.4em] opacity-60 text-center">
+                System Status: Ready // Authentication: Verified
+            </div>
+        )}
+        {step === 2 && (
+             <div className="mt-12 text-[10px] font-mono text-blue-300 uppercase tracking-[0.4em] opacity-60 text-center">
+                Memory: Syncing // Awaiting_Data
+            </div>
+        )}
+        {step === 3 && (
+             <div className="mt-12 text-[10px] font-mono text-blue-300 uppercase tracking-[0.4em] opacity-60 text-center">
+                Good day to you, Sensei! // 先生、こんにちは！
+            </div>
+        )}
       </div>
     </div>
   );
