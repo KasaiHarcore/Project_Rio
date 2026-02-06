@@ -6,7 +6,7 @@ import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, Plus, Search, Video, Phone, MoreVertical, Archive, Trash2, Pin, CheckCheck, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { MissionControl } from "@/components/features/mission/MissionControl"
-import { useUIStore } from '@/store/ui-store'
+import { useTheme } from '@/components/providers/theme-provider'
 
 // Mock Data for "Operations" (Chats)
 const MOCK_OPERATIONS = [
@@ -17,27 +17,28 @@ const MOCK_OPERATIONS = [
 
 export default function OperationPage() {
     const [selectedOpId, setSelectedOpId] = useState<string | null>(null)
-    const activeCharacterId = useUIStore(s => s.activeCharacterId)
-    const isPlana = activeCharacterId === 'plana'
+    const { theme } = useTheme()
+    const isNight = theme === 'dark'
+    const isPlana = isNight
 
     return (
         <DashboardLayout>
             <div className="flex h-full w-full overflow-hidden">
                 {/* Left Panel: Operation List (MomoTalk Style) */}
                 <aside className={cn(
-                    "w-full md:w-[320px] lg:w-[380px] flex flex-col border-r bg-white/60 backdrop-blur-xl z-20 transition-all absolute md:relative h-full",
+                    "w-full md:w-[320px] lg:w-[380px] flex flex-col border-r backdrop-blur-xl z-20 transition-all absolute md:relative h-full",
                      selectedOpId ? "hidden md:flex" : "flex",
-                     isPlana ? "border-white/10 bg-[#2d253a]/90" : "border-blue-100"
+                     isPlana ? "border-rose-900/20 bg-[#0d1117]" : "border-blue-100 bg-white/60"
                 )}>
                     {/* Header */}
-                    <div className="p-4 border-b border-blue-100/50 flex flex-col gap-4">
+                    <div className={cn("p-4 border-b flex flex-col gap-4", isPlana ? "border-rose-900/20" : "border-blue-100/50")}>
                         <div className="flex items-center justify-between">
-                             <h1 className={cn("text-xl font-black tracking-widest", isPlana ? "text-white" : "text-slate-700")}>
+                             <h1 className={cn("text-xl font-black tracking-widest", isPlana ? "text-slate-100" : "text-slate-700")}>
                                 OPERATIONS
                              </h1>
                              <button className={cn(
                                 "p-2 rounded-full transition-colors",
-                                isPlana ? "bg-rose-500 hover:bg-rose-600 text-white" : "bg-[#1289F4] hover:bg-blue-600 text-white"
+                                isPlana ? "bg-rose-600 hover:bg-rose-700 text-white shadow-lg shadow-rose-900/20" : "bg-[#1289F4] hover:bg-blue-600 text-white"
                              )}>
                                 <Plus size={20} />
                              </button>
@@ -51,7 +52,7 @@ export default function OperationPage() {
                                 className={cn(
                                     "w-full pl-9 pr-4 py-2 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 transition-all",
                                     isPlana 
-                                        ? "bg-slate-800 text-white placeholder:text-slate-500 focus:ring-rose-500" 
+                                        ? "bg-[#010409] border border-rose-900/30 text-slate-200 placeholder:text-slate-600 focus:ring-rose-500" 
                                         : "bg-slate-100 text-slate-700 placeholder:text-slate-400 focus:ring-[#1289F4]"
                                 )}
                             />
@@ -65,22 +66,23 @@ export default function OperationPage() {
                                 key={op.id}
                                 onClick={() => setSelectedOpId(op.id)}
                                 className={cn(
-                                    "group relative p-3 rounded-xl cursor-pointer transition-all hover:bg-black/5 flex items-center gap-3",
-                                    selectedOpId === op.id && (isPlana ? "bg-white/10" : "bg-white shadow-sm"),
-                                    isPlana && "hover:bg-white/10"
+                                    "group relative p-3 rounded-xl cursor-pointer transition-all flex items-center gap-3",
+                                    selectedOpId === op.id 
+                                        ? (isPlana ? "bg-rose-900/10 border border-rose-900/20" : "bg-white shadow-sm")
+                                        : (isPlana ? "hover:bg-rose-900/5 border border-transparent" : "hover:bg-black/5"),
                                 )}
                             >
                                 {/* Avatar */}
                                 <div className="relative">
                                     <div className={cn(
                                         "w-12 h-12 rounded-full flex items-center justify-center text-lg font-bold text-white shadow-sm",
-                                        isPlana ? "bg-gradient-to-br from-rose-400 to-rose-600" : "bg-gradient-to-br from-blue-400 to-blue-600"
+                                        isPlana ? "bg-gradient-to-br from-rose-500 to-red-700" : "bg-gradient-to-br from-blue-400 to-blue-600"
                                     )}>
                                         {op.title.substring(0, 2).toUpperCase()}
                                     </div>
                                     <span className={cn(
                                         "absolute bottom-0 right-0 w-3 h-3 border-2 rounded-full",
-                                        isPlana ? "border-[#2d253a]" : "border-white",
+                                        isPlana ? "border-[#0d1117]" : "border-white",
                                         op.status === 'online' ? "bg-green-500" : "bg-slate-400"
                                     )} />
                                 </div>
@@ -93,7 +95,7 @@ export default function OperationPage() {
                                         </h3>
                                         <span className="text-[10px] font-bold text-slate-400">{op.time}</span>
                                     </div>
-                                    <p className={cn("text-xs truncate font-medium", isPlana ? "text-slate-400" : "text-slate-500")}>
+                                    <p className={cn("text-xs truncate font-medium", isPlana ? "text-slate-500" : "text-slate-500")}>
                                         {op.lastMsg}
                                     </p>
                                 </div>
@@ -109,7 +111,10 @@ export default function OperationPage() {
                     </div>
 
                     {/* Footer Stats similar to MomoTalk */}
-                    <div className="p-3 bg-slate-50 border-t border-slate-100 flex justify-between items-center text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    <div className={cn(
+                        "p-3 border-t flex justify-between items-center text-[10px] font-bold uppercase tracking-wider",
+                        isPlana ? "bg-[#010409] border-rose-900/20 text-slate-600" : "bg-slate-50 border-slate-100 text-slate-400"
+                    )}>
                          <span>3 Operations Active</span>
                          <span>Ver 2.0</span>
                     </div>
@@ -117,14 +122,15 @@ export default function OperationPage() {
 
                 {/* Right Panel: Active Chat Area */}
                 <main className={cn(
-                    "flex-1 relative flex flex-col bg-white/40",
-                     !selectedOpId ? "hidden md:flex" : "flex"
+                    "flex-1 relative flex flex-col transition-colors",
+                     !selectedOpId ? "hidden md:flex" : "flex",
+                     isPlana ? "bg-[#0d1117]/50" : "bg-white/40"
                 )}>
                     {selectedOpId ? (
                         <MissionControl />
                     ) : (
                         <div className="flex-1 flex flex-col items-center justify-center text-slate-400">
-                             <div className="w-32 h-32 rounded-full bg-slate-100 flex items-center justify-center mb-6">
+                             <div className={cn("w-32 h-32 rounded-full flex items-center justify-center mb-6", isPlana ? "bg-white/5" : "bg-slate-100")}>
                                 <MessageSquare size={48} className="opacity-20" />
                              </div>
                              <p className="font-bold tracking-widest text-sm">SELECT AN OPERATION</p>

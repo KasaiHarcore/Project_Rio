@@ -10,12 +10,16 @@ import type { ChatRequestOptions, UIMessage } from 'ai'
 import { useUIStore } from '@/store/ui-store'
 import { motion } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
+import { useTheme } from '@/components/providers/theme-provider'
+import { cn } from '@/lib/utils'
 
 export function MissionControl() {
   const [input, setInput] = useState('')
   const chatKey = useUIStore((state) => state.chatKey)
   const activeMissionId = useUIStore((state) => state.activeMissionId)
   const endMission = useUIStore((state) => state.endMission)
+  const { theme } = useTheme()
+  const isPlana = theme === 'dark'
 
   // Use mission ID for chat persistence if available
   const { messages, sendMessage, status } = useChat<UIMessage>({ 
@@ -40,25 +44,25 @@ export function MissionControl() {
     <div className="flex flex-1 overflow-hidden h-full relative">
       {/* Return Button (absolute positioned for specific layout integration) */}
       <div className="absolute top-4 left-4 z-50 lg:hidden">
-          <button onClick={endMission} className="p-2 bg-white rounded-full shadow-md">
-            <ArrowLeft className="w-5 h-5 text-slate-600" />
+          <button onClick={endMission} className={cn("p-2 rounded-full shadow-md", isPlana ? "bg-[#161b22] text-slate-200" : "bg-white text-slate-600")}>
+            <ArrowLeft className="w-5 h-5" />
           </button>
       </div>
 
       {/* Main Chat Content */}
-      <div className="flex-1 flex flex-col relative z-10 w-full max-w-full bg-white/30 backdrop-blur-sm">
-        <div className="flex items-center px-6 py-2 border-b border-blue-100 bg-white/50 backdrop-blur-md">
+      <div className={cn("flex-1 flex flex-col relative z-10 w-full max-w-full backdrop-blur-sm", isPlana ? "bg-[#0d1117]/30" : "bg-white/30")}>
+        <div className={cn("flex items-center px-6 py-2 border-b backdrop-blur-md", isPlana ? "bg-[#161b22]/50 border-rose-900/20" : "bg-white/50 border-blue-100")}>
             <button 
                 onClick={endMission}
-                className="mr-4 p-2 hover:bg-slate-100 rounded-lg transition-colors group"
+                className={cn("mr-4 p-2 rounded-lg transition-colors group", isPlana ? "hover:bg-rose-900/20" : "hover:bg-slate-100")}
                 title="Return to Office"
             >
-                <ArrowLeft className="w-5 h-5 text-slate-400 group-hover:text-blue-500" />
+                <ArrowLeft className={cn("w-5 h-5 group-hover:text-blue-500", isPlana ? "text-slate-500 group-hover:text-rose-500" : "text-slate-400")} />
             </button>
             <div>
-                 <h2 className="text-sm font-bold text-slate-700">MISSION: {activeMissionId ? activeMissionId.toUpperCase() : 'NEW_OPERATION'}</h2>
-                 <p className="text-[10px] text-emerald-500 font-mono flex items-center gap-1">
-                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                 <h2 className={cn("text-sm font-bold", isPlana ? "text-slate-200" : "text-slate-700")}>MISSION: {activeMissionId ? activeMissionId.toUpperCase() : 'NEW_OPERATION'}</h2>
+                 <p className={cn("text-[10px] font-mono flex items-center gap-1", isPlana ? "text-rose-500" : "text-emerald-500")}>
+                    <span className={cn("w-1.5 h-1.5 rounded-full animate-pulse", isPlana ? "bg-rose-500" : "bg-emerald-500")}></span>
                     LINK_ESTABLISHED
                  </p>
             </div>

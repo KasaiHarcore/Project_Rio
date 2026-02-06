@@ -4,6 +4,9 @@ import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { Upload, FileText, Search, Trash2, Eye, FolderOpen } from 'lucide-react'
+import { cn } from "@/lib/utils"
+import { useTheme } from '@/components/providers/theme-provider'
+import { getCycleConfig } from '@/lib/cycle-config'
 
 interface Document {
   id: string
@@ -22,6 +25,9 @@ const mockDocuments: Document[] = [
 ]
 
 export default function KnowledgePage() {
+  const { theme } = useTheme()
+  const isNight = theme === 'dark'
+
   const [documents, setDocuments] = useState<Document[]>(mockDocuments)
   const [searchQuery, setSearchQuery] = useState('')
   const [isDragging, setIsDragging] = useState(false)
@@ -36,19 +42,28 @@ export default function KnowledgePage() {
 
   return (
     <DashboardLayout>
-      <PageTransition className="flex-1 flex flex-col overflow-hidden">
+      <PageTransition className={cn("flex-1 flex flex-col overflow-hidden", isNight ? "bg-[#0f111a]" : "bg-[#F4F9FF]")}>
         {/* Header */}
-        <header className="relative flex h-16 items-center justify-between border-b border-blue-100 bg-white/40 px-8 backdrop-blur-md flex-shrink-0">
-          <div className="absolute bottom-0 left-0 h-[1px] w-full bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-50"></div>
+        <header className={cn(
+            "relative flex h-16 items-center justify-between border-b px-8 backdrop-blur-md flex-shrink-0",
+             isNight ? "border-rose-900/40 bg-[#0d1117]/50" : "border-blue-100 bg-white/40"
+        )}>
+          <div className={cn(
+              "absolute bottom-0 left-0 h-[1px] w-full opacity-50 bg-gradient-to-r from-transparent to-transparent",
+              isNight ? "via-rose-500/50" : "via-blue-300"
+          )}></div>
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-blue-500 to-blue-600 shadow-lg shadow-blue-500/20">
+              <div className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-xl shadow-lg",
+                  isNight ? "bg-gradient-to-br from-rose-500 to-rose-600 shadow-rose-500/20" : "bg-gradient-to-br from-blue-500 to-blue-600 shadow-blue-500/20"
+              )}>
                 <FolderOpen className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-black text-slate-800">Knowledge Base</h1>
-                <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Document Repository</p>
+                <h1 className={cn("text-lg font-black", isNight ? "text-slate-100" : "text-slate-800")}>Knowledge Base</h1>
+                <p className={cn("text-[10px] font-bold tracking-wider uppercase", isNight ? "text-slate-500" : "text-slate-400")}>Document Repository</p>
               </div>
             </div>
           </div>
@@ -61,7 +76,12 @@ export default function KnowledgePage() {
                 placeholder="Search documents..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-10 pr-4 py-2 rounded-xl border border-blue-100 bg-white/60 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 w-64"
+                className={cn(
+                    "pl-10 pr-4 py-2 rounded-xl border text-sm outline-none transition-all w-64",
+                    isNight 
+                      ? "bg-[#0d1117]/60 border-rose-900/40 text-rose-100 placeholder:text-rose-900/50 focus:border-rose-700 focus:ring-2 focus:ring-rose-900/20"
+                      : "bg-white/60 border-blue-100 text-slate-700 placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+                )}
               />
             </div>
           </div>
@@ -74,18 +94,27 @@ export default function KnowledgePage() {
             onDragOver={(e) => { e.preventDefault(); setIsDragging(true) }}
             onDragLeave={() => setIsDragging(false)}
             onDrop={(e) => { e.preventDefault(); setIsDragging(false) }}
-            className={`relative mb-8 rounded-2xl border-2 border-dashed p-8 text-center transition-all ${
-              isDragging 
-                ? 'border-blue-400 bg-blue-50/50' 
-                : 'border-blue-200 bg-white/50 hover:border-blue-300 hover:bg-white/70'
-            }`}
+            className={cn(
+                "relative mb-8 rounded-2xl border-2 border-dashed p-8 text-center transition-all",
+                isDragging 
+                    ? (isNight ? 'border-rose-500 bg-rose-900/20' : 'border-blue-400 bg-blue-50/50')
+                    : (isNight ? 'border-rose-900/30 bg-[#0d1117]/40 hover:border-rose-700 hover:bg-[#0d1117]/60' : 'border-blue-200 bg-white/50 hover:border-blue-300 hover:bg-white/70')
+            )}
           >
-            <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-br from-blue-100 to-blue-50">
-              <Upload className="h-8 w-8 text-blue-500" />
+            <div className={cn(
+                "mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-2xl",
+                isNight ? "bg-gradient-to-br from-rose-900/40 to-rose-900/10" : "bg-gradient-to-br from-blue-100 to-blue-50"
+            )}>
+              <Upload className={cn("h-8 w-8", isNight ? "text-rose-500" : "text-blue-500")} />
             </div>
-            <h3 className="text-lg font-bold text-slate-700 mb-2">Upload Documents</h3>
+            <h3 className={cn("text-lg font-bold mb-2", isNight ? "text-slate-100" : "text-slate-700")}>Upload Documents</h3>
             <p className="text-sm text-slate-500 mb-4">Drag and drop files here, or click to browse</p>
-            <button className="inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-500 px-6 py-3 text-sm font-bold text-white shadow-lg shadow-blue-200 transition-all hover:scale-[1.02] active:scale-95">
+            <button className={cn(
+                "inline-flex items-center gap-2 rounded-xl px-6 py-3 text-sm font-bold text-white shadow-lg transition-all hover:scale-[1.02] active:scale-95",
+                isNight 
+                    ? "bg-gradient-to-r from-rose-600 to-red-500 shadow-rose-900/20" 
+                    : "bg-gradient-to-r from-blue-600 to-blue-500 shadow-blue-200"
+            )}>
               <Upload className="h-4 w-4" />
               Select Files
             </button>
@@ -96,7 +125,7 @@ export default function KnowledgePage() {
 
           {/* Documents Grid */}
           <div className="mb-4 flex items-center justify-between">
-            <h2 className="text-[10px] font-black tracking-[0.3em] text-blue-400 uppercase">
+            <h2 className={cn("text-[10px] font-black tracking-[0.3em] uppercase", isNight ? "text-rose-400" : "text-blue-400")}>
               Your Documents ({filteredDocs.length})
             </h2>
           </div>
@@ -111,7 +140,12 @@ export default function KnowledgePage() {
               {filteredDocs.map((doc) => (
                 <div
                   key={doc.id}
-                  className="group relative rounded-2xl border border-blue-50 bg-white/70 p-5 shadow-sm backdrop-blur-sm transition-all hover:border-blue-200 hover:shadow-md"
+                  className={cn(
+                      "group relative rounded-2xl border p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md",
+                      isNight 
+                          ? "bg-[#0d1117]/40 border-rose-900/20 hover:border-rose-700 hover:bg-[#0d1117]/80" 
+                          : "bg-white/70 border-blue-50 hover:border-blue-200"
+                  )}
                 >
                   {/* Status indicator */}
                   <div className="absolute top-4 right-4">
@@ -127,11 +161,14 @@ export default function KnowledgePage() {
                   </div>
 
                   <div className="flex items-start gap-4">
-                    <div className="rounded-xl bg-blue-50 p-3 text-blue-500 transition-transform group-hover:scale-110">
+                    <div className={cn(
+                        "rounded-xl p-3 transition-transform group-hover:scale-110",
+                        isNight ? "bg-rose-900/20 text-rose-500" : "bg-blue-50 text-blue-500"
+                    )}>
                       <FileText className="h-6 w-6" />
                     </div>
                     <div className="flex-1 min-w-0">
-                      <h3 className="font-bold text-slate-700 truncate pr-4">{doc.name}</h3>
+                      <h3 className={cn("font-bold truncate pr-4", isNight ? "text-slate-200" : "text-slate-700")}>{doc.name}</h3>
                       <p className="mt-1 text-[10px] font-bold tracking-wider text-slate-400 uppercase">
                         {doc.type} • {doc.size}
                       </p>
@@ -143,7 +180,12 @@ export default function KnowledgePage() {
 
                   {/* Actions */}
                   <div className="mt-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                    <button className="flex-1 flex items-center justify-center gap-1.5 rounded-lg border border-blue-100 bg-blue-50 py-2 text-[10px] font-bold tracking-wider text-blue-600 uppercase transition-colors hover:bg-blue-100">
+                    <button className={cn(
+                        "flex-1 flex items-center justify-center gap-1.5 rounded-lg border py-2 text-[10px] font-bold tracking-wider uppercase transition-colors",
+                         isNight 
+                            ? "border-rose-900/50 bg-rose-900/20 text-rose-300 hover:bg-rose-900/40" 
+                            : "border-blue-100 bg-blue-50 text-blue-600 hover:bg-blue-100"
+                    )}>
                       <Eye className="h-3 w-3" />
                       View
                     </button>

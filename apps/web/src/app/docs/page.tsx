@@ -6,6 +6,8 @@ import { PageTransition } from "@/components/layout/page-transition"
 import { Search, Book, FileText, ChevronRight, Shield, Zap, Code, Terminal, ExternalLink, Bookmark } from 'lucide-react'
 import { cn } from "@/lib/utils"
 import { motion, AnimatePresence } from "framer-motion"
+import { useTheme } from '@/components/providers/theme-provider'
+import { getCycleConfig } from '@/lib/cycle-config'
 
 // Mock Documentation Structure
 type DocCategory = 'guide' | 'api' | 'system'
@@ -17,6 +19,7 @@ interface DocArticle {
   readTime: string
   content: React.ReactNode
 }
+
 
 const docs: DocArticle[] = [
   {
@@ -97,23 +100,36 @@ export default function DocsPage() {
   const [activeDoc, setActiveDoc] = useState<string>(docs[0].id)
   const [searchQuery, setSearchQuery] = useState('')
   
+  const { theme } = useTheme()
+  const isNight = theme === 'dark'
+  const config = getCycleConfig(theme)
+  
   const currentDoc = docs.find(d => d.id === activeDoc) || docs[0]
 
   return (
     <DashboardLayout>
-      <PageTransition className="flex-1 flex flex-col overflow-hidden bg-[#F4F9FF]">
+      <PageTransition className={cn("flex-1 flex flex-col overflow-hidden", isNight ? "bg-[#0f111a]" : "bg-[#F4F9FF]")}>
         {/* Header */}
-        <header className="relative flex h-16 items-center justify-between border-b border-blue-100 bg-white/40 px-8 backdrop-blur-md flex-shrink-0">
-          <div className="absolute bottom-0 left-0 h-[1px] w-full bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-50"></div>
+        <header className={cn(
+            "relative flex h-16 items-center justify-between border-b px-8 backdrop-blur-md flex-shrink-0",
+             isNight ? "border-rose-900/40 bg-[#0d1117]/50" : "border-blue-100 bg-white/40"
+        )}>
+          <div className={cn(
+              "absolute bottom-0 left-0 h-[1px] w-full opacity-50 bg-gradient-to-r from-transparent to-transparent",
+              isNight ? "via-rose-500/50" : "via-blue-300"
+          )}></div>
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-indigo-600 shadow-lg shadow-indigo-500/20">
+              <div className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-xl shadow-lg",
+                  isNight ? "bg-gradient-to-br from-rose-500 to-rose-600 shadow-rose-500/20" : "bg-gradient-to-br from-indigo-500 to-indigo-600 shadow-indigo-500/20"
+              )}>
                 <Book className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-black text-slate-800">Operational Manual</h1>
-                <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Standard Procedures</p>
+                <h1 className={cn("text-lg font-black", isNight ? "text-slate-100" : "text-slate-800")}>Operational Manual</h1>
+                <p className={cn("text-[10px] font-bold tracking-wider uppercase", isNight ? "text-slate-500" : "text-slate-400")}>Standard Procedures</p>
               </div>
             </div>
           </div>
@@ -125,7 +141,12 @@ export default function DocsPage() {
               placeholder="Search protocols..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 rounded-xl border border-blue-100 bg-white/60 text-sm text-slate-700 placeholder:text-slate-400 outline-none focus:border-blue-300 focus:ring-2 focus:ring-blue-100 transition-all"
+              className={cn(
+                  "w-full pl-10 pr-4 py-2 rounded-xl border text-sm outline-none transition-all",
+                  isNight 
+                    ? "bg-[#0d1117]/60 border-rose-900/40 text-rose-100 placeholder:text-rose-900/50 focus:border-rose-700 focus:ring-2 focus:ring-rose-900/20"
+                    : "bg-white/60 border-blue-100 text-slate-700 placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
+              )}
             />
           </div>
         </header>
@@ -134,10 +155,13 @@ export default function DocsPage() {
         <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
             
             {/* Sidebar Navigation */}
-            <aside className="w-full md:w-64 lg:w-72 border-r border-blue-100 bg-white/50 backdrop-blur-sm overflow-y-auto p-4 flex-shrink-0">
+            <aside className={cn(
+                "w-full md:w-64 lg:w-72 border-r backdrop-blur-sm overflow-y-auto p-4 flex-shrink-0 transition-colors",
+                isNight ? "border-rose-900/30 bg-[#0d1117]/30" : "border-blue-100 bg-white/50"
+            )}>
                 
                 <div className="mb-6">
-                    <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-3 px-2">Knowledge Domains</p>
+                    <p className={cn("text-[10px] font-black uppercase tracking-widest mb-3 px-2", isNight ? "text-rose-900/70" : "text-slate-400")}>Knowledge Domains</p>
                     <div className="space-y-1">
                         {docs.map(doc => (
                             <button
@@ -146,8 +170,12 @@ export default function DocsPage() {
                                 className={cn(
                                     "w-full text-left flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
                                     activeDoc === doc.id 
-                                        ? "bg-white text-blue-600 shadow-sm ring-1 ring-blue-100" 
-                                        : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                                        ? isNight 
+                                            ? "bg-rose-500/10 text-rose-400 shadow-sm ring-1 ring-rose-900/40" 
+                                            : "bg-white text-blue-600 shadow-sm ring-1 ring-blue-100" 
+                                        : isNight
+                                            ? "text-slate-400 hover:bg-rose-900/20 hover:text-rose-300"
+                                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
                                 )}
                             >
                                 <span className="flex items-center gap-2">
@@ -157,14 +185,17 @@ export default function DocsPage() {
                                     {doc.title}
                                 </span>
                                 {activeDoc === doc.id && (
-                                    <motion.div layoutId="active-indicator" className="h-1.5 w-1.5 rounded-full bg-blue-500" />
+                                    <motion.div layoutId="active-indicator" className={cn("h-1.5 w-1.5 rounded-full", isNight ? "bg-rose-500" : "bg-blue-500")} />
                                 )}
                             </button>
                         ))}
                     </div>
                 </div>
 
-                <div className="mt-8 rounded-xl bg-gradient-to-br from-indigo-500 to-blue-600 p-5 text-white shadow-lg shadow-blue-200 mx-2">
+                <div className={cn(
+                    "mt-8 rounded-xl p-5 text-white shadow-lg mx-2",
+                    isNight ? "bg-gradient-to-br from-rose-900 to-red-950 shadow-rose-900/20" : "bg-gradient-to-br from-indigo-500 to-blue-600 shadow-blue-200"
+                )}>
                     <h4 className="font-bold flex items-center gap-2 mb-2">
                         <Zap className="h-4 w-4" /> Pro Tip
                     </h4>
@@ -177,7 +208,10 @@ export default function DocsPage() {
             {/* Main Reading Area */}
             <main className="flex-1 overflow-y-auto p-6 lg:p-12 relative">
                 {/* Background Decoration */}
-                <div className="absolute top-0 right-0 w-64 h-64 bg-blue-400/5 rounded-full blur-3xl pointer-events-none -z-10" />
+                <div className={cn(
+                    "absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none -z-10 transition-colors",
+                    isNight ? "bg-rose-900/10" : "bg-blue-400/5"
+                )} />
                 
                 <AnimatePresence mode="wait">
                     <motion.div
@@ -189,22 +223,22 @@ export default function DocsPage() {
                         className="max-w-3xl mx-auto"
                     >
                         {/* Article Header */}
-                        <div className="mb-8 border-b border-blue-100 pb-8">
+                        <div className={cn("mb-8 border-b pb-8", isNight ? "border-rose-900/30" : "border-blue-100")}>
                             <div className="flex items-center gap-2 mb-4">
                                 <span className={cn(
                                     "px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider border",
-                                    currentDoc.category === 'guide' ? "bg-blue-50 text-blue-600 border-blue-100" :
-                                    currentDoc.category === 'api' ? "bg-purple-50 text-purple-600 border-purple-100" :
-                                    "bg-slate-50 text-slate-600 border-slate-200"
+                                    currentDoc.category === 'guide' ? (isNight ? "bg-blue-900/20 text-blue-300 border-blue-800/50" : "bg-blue-50 text-blue-600 border-blue-100") :
+                                    currentDoc.category === 'api' ? (isNight ? "bg-purple-900/20 text-purple-300 border-purple-800/50" : "bg-purple-50 text-purple-600 border-purple-100") :
+                                    (isNight ? "bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-100 text-slate-600 border-slate-200")
                                 )}>
                                     {currentDoc.category}
                                 </span>
-                                <span className="text-xs font-medium text-slate-400 flex items-center gap-1">
+                                <span className={cn("text-xs font-medium flex items-center gap-1", isNight ? "text-slate-500" : "text-slate-400")}>
                                     <Bookmark className="h-3 w-3" />
                                     Read time: {currentDoc.readTime}
                                 </span>
                             </div>
-                            <h1 className="text-3xl font-black text-slate-800 tracking-tight mb-2">
+                            <h1 className={cn("text-3xl font-black tracking-tight mb-2", isNight ? "text-slate-100" : "text-slate-800")}>
                                 {currentDoc.title}
                             </h1>
                             <div className="flex items-center gap-2 text-sm text-slate-500">

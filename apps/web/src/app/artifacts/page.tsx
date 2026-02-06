@@ -4,6 +4,9 @@ import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { FileCode, FileText, Image, Download, Eye, Trash2, Clock, Sparkles } from 'lucide-react'
+import { cn } from "@/lib/utils"
+import { useTheme } from '@/components/providers/theme-provider'
+import { getCycleConfig } from '@/lib/cycle-config'
 
 interface Artifact {
   id: string
@@ -67,6 +70,9 @@ const typeColors = {
 }
 
 export default function ArtifactsPage() {
+  const { theme } = useTheme()
+  const isNight = theme === 'dark'
+  
   const [artifacts, setArtifacts] = useState<Artifact[]>(mockArtifacts)
   const [filter, setFilter] = useState<'all' | 'code' | 'document' | 'image' | 'data'>('all')
 
@@ -80,19 +86,28 @@ export default function ArtifactsPage() {
 
   return (
     <DashboardLayout>
-      <PageTransition className="flex-1 flex flex-col overflow-hidden">
+      <PageTransition className={cn("flex-1 flex flex-col overflow-hidden", isNight ? "bg-[#0f111a]" : "bg-[#F4F9FF]")}>
         {/* Header */}
-        <header className="relative flex h-16 items-center justify-between border-b border-blue-100 bg-white/40 px-8 backdrop-blur-md flex-shrink-0">
-          <div className="absolute bottom-0 left-0 h-[1px] w-full bg-gradient-to-r from-transparent via-blue-300 to-transparent opacity-50"></div>
+        <header className={cn(
+            "relative flex h-16 items-center justify-between border-b px-8 backdrop-blur-md flex-shrink-0",
+             isNight ? "border-rose-900/40 bg-[#0d1117]/50" : "border-blue-100 bg-white/40"
+        )}>
+          <div className={cn(
+              "absolute bottom-0 left-0 h-[1px] w-full opacity-50 bg-gradient-to-r from-transparent to-transparent",
+              isNight ? "via-rose-500/50" : "via-blue-300"
+          )}></div>
           
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gradient-to-br from-purple-500 to-purple-600 shadow-lg shadow-purple-500/20">
+              <div className={cn(
+                  "flex h-10 w-10 items-center justify-center rounded-xl shadow-lg",
+                  isNight ? "bg-gradient-to-br from-purple-800 to-purple-900 shadow-purple-900/20" : "bg-gradient-to-br from-purple-500 to-purple-600 shadow-purple-500/20"
+              )}>
                 <Sparkles className="h-5 w-5 text-white" />
               </div>
               <div>
-                <h1 className="text-lg font-black text-slate-800">Artifacts</h1>
-                <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">Generated Content</p>
+                <h1 className={cn("text-lg font-black", isNight ? "text-slate-100" : "text-slate-800")}>Artifacts</h1>
+                <p className={cn("text-[10px] font-bold tracking-wider uppercase", isNight ? "text-slate-500" : "text-slate-400")}>Generated Content</p>
               </div>
             </div>
           </div>
@@ -103,11 +118,12 @@ export default function ArtifactsPage() {
               <button
                 key={type}
                 onClick={() => setFilter(type)}
-                className={`px-4 py-2 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all ${
-                  filter === type
-                    ? 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-200'
-                    : 'border border-blue-100 bg-white/60 text-slate-500 hover:bg-white hover:text-blue-600'
-                }`}
+                className={cn(
+                    "px-4 py-2 rounded-xl text-[10px] font-bold tracking-wider uppercase transition-all",
+                    filter === type
+                        ? (isNight ? "bg-gradient-to-r from-rose-600 to-red-500 text-white shadow-lg shadow-rose-900/20" : 'bg-gradient-to-r from-blue-600 to-blue-500 text-white shadow-lg shadow-blue-200')
+                        : (isNight ? "border border-rose-900/30 bg-[#0d1117]/60 text-slate-500 hover:bg-[#0d1117] hover:text-rose-400" : 'border border-blue-100 bg-white/60 text-slate-500 hover:bg-white hover:text-blue-600')
+                )}
               >
                 {type}
               </button>
@@ -120,14 +136,14 @@ export default function ArtifactsPage() {
           {/* Stats */}
           <div className="mb-8 grid gap-4 md:grid-cols-4">
             {[
-              { label: 'Total Artifacts', value: artifacts.length, color: 'from-blue-400 to-blue-600' },
-              { label: 'Code Files', value: artifacts.filter(a => a.type === 'code').length, color: 'from-emerald-400 to-emerald-600' },
-              { label: 'Documents', value: artifacts.filter(a => a.type === 'document').length, color: 'from-purple-400 to-purple-600' },
-              { label: 'This Week', value: artifacts.length, color: 'from-amber-400 to-amber-600' },
+              { label: 'Total Artifacts', value: artifacts.length, color: isNight ? 'from-blue-500 to-blue-700' : 'from-blue-400 to-blue-600' },
+              { label: 'Code Files', value: artifacts.filter(a => a.type === 'code').length, color: isNight ? 'from-emerald-500 to-emerald-700' : 'from-emerald-400 to-emerald-600' },
+              { label: 'Documents', value: artifacts.filter(a => a.type === 'document').length, color: isNight ? 'from-purple-500 to-purple-700' : 'from-purple-400 to-purple-600' },
+              { label: 'This Week', value: artifacts.length, color: isNight ? 'from-amber-500 to-amber-700' : 'from-amber-400 to-amber-600' },
             ].map((stat, i) => (
-              <div key={i} className="relative overflow-hidden rounded-2xl border border-blue-100 bg-white/70 p-5 shadow-sm">
+              <div key={i} className={cn("relative overflow-hidden rounded-2xl border p-5 shadow-sm", isNight ? "bg-[#0d1117]/40 border-rose-900/30" : "bg-white/70 border-blue-100")}>
                 <div className={`absolute top-0 left-0 h-1 w-full bg-gradient-to-r ${stat.color}`}></div>
-                <p className="text-2xl font-black text-slate-700">{stat.value}</p>
+                <p className={cn("text-2xl font-black", isNight ? "text-slate-200" : "text-slate-700")}>{stat.value}</p>
                 <p className="text-[10px] font-bold tracking-wider text-slate-400 uppercase">{stat.label}</p>
               </div>
             ))}
@@ -135,7 +151,7 @@ export default function ArtifactsPage() {
 
           {/* Artifacts List */}
           <div className="mb-4">
-            <h2 className="text-[10px] font-black tracking-[0.3em] text-blue-400 uppercase">
+            <h2 className={cn("text-[10px] font-black tracking-[0.3em] uppercase", isNight ? "text-rose-400" : "text-blue-400")}>
               Recent Artifacts ({filteredArtifacts.length})
             </h2>
           </div>
@@ -149,30 +165,42 @@ export default function ArtifactsPage() {
             <div className="space-y-4">
               {filteredArtifacts.map((artifact) => {
                 const Icon = typeIcons[artifact.type]
+                const nightColors = {
+                    code: 'bg-emerald-900/20 text-emerald-400',
+                    document: 'bg-blue-900/20 text-blue-400',
+                    image: 'bg-purple-900/20 text-purple-400',
+                    data: 'bg-amber-900/20 text-amber-400',
+                }
+                
                 return (
                   <div
                     key={artifact.id}
-                    className="group relative rounded-2xl border border-blue-50 bg-white/70 p-5 shadow-sm backdrop-blur-sm transition-all hover:border-blue-200 hover:shadow-md"
+                    className={cn(
+                        "group relative rounded-2xl border p-5 shadow-sm backdrop-blur-sm transition-all hover:shadow-md",
+                        isNight 
+                            ? "bg-[#0d1117]/40 border-rose-900/20 hover:border-rose-700 hover:bg-[#0d1117]/80" 
+                            : "bg-white/70 border-blue-50 hover:border-blue-200"
+                    )}
                   >
                     <div className="flex items-start gap-4">
                       {/* Icon */}
-                      <div className={`rounded-xl p-3 transition-transform group-hover:scale-110 ${typeColors[artifact.type]}`}>
+                      <div className={cn("rounded-xl p-3 transition-transform group-hover:scale-110", isNight ? nightColors[artifact.type] : typeColors[artifact.type])}>
                         <Icon className="h-6 w-6" />
                       </div>
 
                       {/* Info */}
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-3 mb-1">
-                          <h3 className="font-bold text-slate-700">{artifact.name}</h3>
+                          <h3 className={cn("font-bold", isNight ? "text-slate-200" : "text-slate-700")}>{artifact.name}</h3>
                           {artifact.language && (
-                            <span className="rounded bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500 uppercase">
+                            <span className={cn("rounded px-2 py-0.5 text-[9px] font-bold uppercase", isNight ? "bg-slate-800 text-slate-400" : "bg-slate-100 text-slate-500")}>
                               {artifact.language}
                             </span>
                           )}
                         </div>
                         
                         {/* Preview */}
-                        <pre className="mt-2 rounded-xl bg-slate-50 p-3 text-xs text-slate-600 font-mono overflow-hidden max-h-20">
+                        <pre className={cn("mt-2 rounded-xl p-3 text-xs font-mono overflow-hidden max-h-20", isNight ? "bg-[#010409] text-slate-400 border border-slate-800" : "bg-slate-50 text-slate-600")}>
                           {artifact.preview}
                         </pre>
 
@@ -188,15 +216,15 @@ export default function ArtifactsPage() {
 
                       {/* Actions */}
                       <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="flex items-center justify-center rounded-lg border border-blue-100 bg-blue-50 p-2.5 text-blue-500 transition-colors hover:bg-blue-100">
+                        <button className={cn("flex items-center justify-center rounded-lg border p-2.5 transition-colors", isNight ? "border-blue-900/50 bg-blue-900/20 text-blue-400 hover:bg-blue-900/40" : "border-blue-100 bg-blue-50 text-blue-500 hover:bg-blue-100")}>
                           <Eye className="h-4 w-4" />
                         </button>
-                        <button className="flex items-center justify-center rounded-lg border border-emerald-100 bg-emerald-50 p-2.5 text-emerald-500 transition-colors hover:bg-emerald-100">
+                        <button className={cn("flex items-center justify-center rounded-lg border p-2.5 transition-colors", isNight ? "border-emerald-900/50 bg-emerald-900/20 text-emerald-400 hover:bg-emerald-900/40" : "border-emerald-100 bg-emerald-50 text-emerald-500 hover:bg-emerald-100")}>
                           <Download className="h-4 w-4" />
                         </button>
                         <button 
                           onClick={() => handleDelete(artifact.id)}
-                          className="flex items-center justify-center rounded-lg border border-red-100 bg-red-50 p-2.5 text-red-500 transition-colors hover:bg-red-100"
+                          className={cn("flex items-center justify-center rounded-lg border p-2.5 transition-colors", isNight ? "border-red-900/50 bg-red-900/20 text-red-400 hover:bg-red-900/40" : "border-red-100 bg-red-50 text-red-500 hover:bg-red-100")}
                         >
                           <Trash2 className="h-4 w-4" />
                         </button>

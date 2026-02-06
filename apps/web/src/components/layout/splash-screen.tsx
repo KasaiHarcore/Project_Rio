@@ -10,13 +10,14 @@ import { cn } from '@/lib/utils'
 // ==========================================
 const ANIMATION_CONFIG = {
     // Colors based on Blue Archive / Sci-Fi Anime UI (Schale Light Mode)
+    // Now using CSS variables from globals.css for consistency
     COLORS: {
-        BG_MAIN: '#f3f7f9',    // Schale Office Background (Light Grey/Blue)
-        BG_ACCENT: '#ffffff',  // Pure white for layering
-        PRIMARY: '#1289F4',    // Brand Blue
-        SECONDARY: '#FF6B9D',  // Pink accent
-        TEXT_MAIN: '#454C5D',  // Dark Slate
-        TEXT_SUB: '#64748b'    // Medium Slate
+        BG_MAIN: 'var(--background)',    // #f3f7f9
+        BG_ACCENT: 'var(--card)',        // #ffffff
+        PRIMARY: 'var(--primary)',       // #00AEEF
+        SECONDARY: 'var(--destructive)', // #FF4D4F or #FF6F91
+        TEXT_MAIN: 'var(--foreground)',  // #2d3748
+        TEXT_SUB: 'var(--muted-foreground)' // #64748b
     }
 }
 
@@ -102,7 +103,7 @@ function TechBackground() {
         <div 
             className="absolute inset-0 opacity-20"
             style={{ 
-                backgroundImage: 'linear-gradient(rgba(18, 137, 244, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(18, 137, 244, 0.4) 1px, transparent 1px)', 
+                backgroundImage: 'linear-gradient(rgba(0, 174, 239, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 174, 239, 0.4) 1px, transparent 1px)', 
                 backgroundSize: '60px 60px',
                 transform: 'perspective(500px) rotateX(60deg) translateY(-100px) scale(2)',
                 transformOrigin: 'top center'
@@ -163,7 +164,7 @@ function MainLoader({ progress, isReady }: { progress: number, isReady: boolean 
                 animate={{ rotate: 360 }}
                 transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
             >
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-[#1289F4] rounded-full shadow-[0_0_10px_#1289F4]" />
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary rounded-full shadow-[0_0_10px_var(--primary)]" />
             </motion.div>
 
             {/* Inner Counter-Rotating Hexagon Ring */}

@@ -13,6 +13,8 @@ const sourceCodePro = Source_Code_Pro({
   subsets: ["latin"],
 });
 
+import { ThemeProvider } from "@/components/providers/theme-provider";
+
 export const metadata: Metadata = {
   title: "Arona | SCHALE Office",
   description: "Federal Investigation Club S.C.H.A.L.E",
@@ -26,9 +28,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${nunito.variable} ${sourceCodePro.variable} antialiased bg-[#f3f7f9] text-slate-700`}
+        className={`${nunito.variable} ${sourceCodePro.variable} antialiased h-screen w-screen overflow-hidden bg-background text-foreground`}
       >
-        {children}
+        <ThemeProvider>
+          {children}
+        </ThemeProvider>
       </body>
     </html>
   );
