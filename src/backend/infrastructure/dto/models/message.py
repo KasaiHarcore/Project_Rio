@@ -75,13 +75,7 @@ class Message(Base):
         "Thread",
         back_populates="messages"
     )
-    
-    tool_usages: Mapped[List["ToolUsage"]] = relationship(
-        "ToolUsage",
-        back_populates="message",
-        cascade="all, delete-orphan"
-    )
-    
+
     __table_args__ = (
         # Composite index for querying message history by thread and time
         Index("ix_message_thread_created", "thread_id", "created_at"),

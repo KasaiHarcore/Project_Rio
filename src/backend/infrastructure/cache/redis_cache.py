@@ -1,10 +1,10 @@
-"""Redis utilities: LLM cache (exact/semantic) + working-memory state store.
+"""Redis utilities: LangChain LLM cache + working-memory state store.
 
 Notes:
-- Semantic cache requires Redis Stack (RediSearch module). If unavailable, we
-  automatically fall back to exact cache.
+- We intentionally use the default RedisCache (exact cache). Semantic caching
+	can cause incorrect cache hits and make the agent appear "stuck".
 - This module is intentionally lazy: it does not require Redis to be reachable
-  at import time.
+	at import time.
 """
 
 from __future__ import annotations
@@ -16,11 +16,10 @@ from typing import Any, Dict, Optional
 import redis
 
 from langchain_core.globals import set_llm_cache
-from langchain_redis import RedisSemanticCache
-from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_redis import RedisCache
 from langchain_core.messages import messages_from_dict, messages_to_dict
 
-from backend.core.settings import get_redis_config, get_vectordb_config
+from backend.core.settings import get_redis_config
 from backend.utils.log import log_debug, log_info, log_success, log_warning
 
 
@@ -31,7 +30,6 @@ class RedisTool:
 		self._config = get_redis_config()
 		self._pool: Optional[redis.ConnectionPool] = None
 		self._client: Optional[redis.Redis] = None
-		self._embeddings: Optional[HuggingFaceEmbeddings] = None
 
 	def _build_pool(self) -> redis.ConnectionPool:
 		cfg = self._config
@@ -87,32 +85,8 @@ class RedisTool:
 			creds = f"{cfg.username}@"
 		return f"{scheme}://{creds}{cfg.host}:{cfg.port}/{cfg.db}"
 
-	def _has_redisearch(self) -> bool:
-		"""Detect RediSearch module availability (needed for semantic cache)."""
-		try:
-			modules = self.client().module_list()
-			names = {str(m.get(b"name") or m.get("name") or "").lower() for m in modules}
-			return any("search" in n or "ft" == n for n in names)
-		except Exception:
-			# Some managed Redis deployments disallow MODULE LIST.
-			return False
-
-	def _get_embeddings(self) -> HuggingFaceEmbeddings:
-		if self._embeddings is None:
-			vec_cfg = get_vectordb_config()
-			model_name = vec_cfg.embedding_model
-			import os
-			device = os.getenv("EMBEDDING_DEVICE")
-			log_info(f"Loading embedding model for Redis semantic cache: {model_name}")
-			model_kwargs = {"device": device} if device else {}
-			self._embeddings = HuggingFaceEmbeddings(
-				model_name=model_name,
-				model_kwargs=model_kwargs,
-			)
-		return self._embeddings
-
 	def enable_llm_cache(self) -> None:
-		"""Enable LangChain LLM caching using Redis (semantic preferred)."""
+		"""Enable LangChain LLM caching using RedisCache (exact cache)."""
 		cfg = self._config
 		if not cfg.enable_llm_cache:
 			log_info("Redis LLM cache disabled by configuration")
@@ -122,26 +96,15 @@ class RedisTool:
 			log_warning("Redis unavailable; skipping LLM cache setup")
 			return
 
-		cache_type = (cfg.llm_cache_type or "semantic").lower()
-		if cache_type == "semantic":
-			if not self._has_redisearch():
-				log_warning(
-					"Redis semantic cache requires Redis Stack / RediSearch; falling back to exact RedisCache"
-				)
-				cache_type = "exact"
-
 		try:
-			if cache_type == "semantic":
-				cache = RedisSemanticCache(
-					redis_url=self._redis_url(),
-					embeddings=self._get_embeddings(),
-				)
-				set_llm_cache(cache)
-				log_success("Enabled Redis semantic cache")
-			else:
-				cache = RedisCache(self.client(), ttl=int(cfg.llm_cache_ttl_seconds))
-				set_llm_cache(cache)
-				log_success(f"Enabled Redis exact cache (ttl={cfg.llm_cache_ttl_seconds}s)")
+			prefix = f"{(cfg.key_prefix or 'ai-agent').strip(':')}:llm"
+			cache = RedisCache(
+				redis_url=self._redis_url(),
+				ttl=int(cfg.llm_cache_ttl_seconds),
+				prefix=prefix,
+			)
+			set_llm_cache(cache)
+			log_success(f"Enabled Redis LLM cache via RedisCache (ttl={cfg.llm_cache_ttl_seconds}s)")
 		except Exception as e:
 			log_warning(f"Failed to enable Redis LLM cache: {e}")
 

@@ -70,13 +70,6 @@ class Thread(Base, TimestampMixin):
         order_by="Message.created_at"
     )
 
-    runs: Mapped[List["Run"]] = relationship(
-        "Run",
-        back_populates="thread",
-        cascade="all, delete-orphan",
-        order_by="Run.started_at",
-    )
-
     __table_args__ = (
         Index("ix_thread_user_updated", "user_id", "updated_at"),
     )

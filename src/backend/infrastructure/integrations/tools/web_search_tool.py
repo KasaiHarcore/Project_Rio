@@ -10,8 +10,6 @@ from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 from backend.utils.log import log_success, log_error, log_info, log_warning
 from backend.infrastructure.cache import cache_service
-from backend.infrastructure.dto.models.tool_usage import ToolStatus
-from backend.application.services.tool_usage_service import log_tool_usage
 
 class WebSearchTool:
     DEFAULT_MAX_RESULTS = 5
@@ -296,17 +294,6 @@ class WebSearchTool:
             
             log_success(f"Search completed: {len(formatted.get('results', []))} results found")
             
-            # Log tool usage to database
-            try:
-                log_tool_usage(
-                    tool_name="web_search",
-                    status=ToolStatus.SUCCESS,
-                    input_data={"query": query, "max_results": max_results, "topic": topic},
-                    output_preview=str(formatted.get("results", []))[:500],
-                )
-            except Exception:
-                pass
-            
             return formatted
 
         except ValueError as e:
@@ -315,28 +302,8 @@ class WebSearchTool:
                 log_warning(f"Search limit reached for '{query}'")
             else:
                 log_error(f"Search failed for '{query}': {e}")
-            # Log failed tool usage
-            try:
-                log_tool_usage(
-                    tool_name="web_search",
-                    status=ToolStatus.FAILED,
-                    input_data={"query": query},
-                    error_message=error_msg[:500],
-                )
-            except Exception:
-                pass
         except Exception as e:
             log_error(f"Search failed for '{query}': {e}")
-            # Log failed tool usage
-            try:
-                log_tool_usage(
-                    tool_name="web_search",
-                    status=ToolStatus.FAILED,
-                    input_data={"query": query},
-                    error_message=str(e)[:500],
-                )
-            except Exception:
-                pass
 
         return {
             "query": query,

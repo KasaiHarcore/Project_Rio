@@ -24,12 +24,8 @@ from backend.infrastructure.dto.models import (
     user,
     thread,
     message,
-    run,
     user_profile,
-    tool_usage,
     audit_log,
-    agent_memory,
-    thread_summary,
 )
 
 # Alembic Config object

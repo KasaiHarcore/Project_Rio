@@ -12,9 +12,9 @@ from qdrant_client import QdrantClient, models
 
 
 from backend.utils.log import log_info, log_success, log_error, log_warning
-from backend.infrastructure.integrations.rag.ingestion_service import IngestionService
-from backend.infrastructure.integrations.rag.retrieval_service import RetrievalService
-from backend.infrastructure.integrations.rag.rerank_service import RerankService
+from backend.infrastructure.integrations.rag.ingestion import IngestionService
+from backend.infrastructure.integrations.rag.retrieval import RetrievalService
+from backend.infrastructure.integrations.rag.rerank import RerankService
 from backend.core.settings import get_vectordb_config
 
 class VectorDBTool:

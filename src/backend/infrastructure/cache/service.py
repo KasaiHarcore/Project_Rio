@@ -12,7 +12,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from backend.infrastructure.cache.schemas import (
-	CachedRetrievalResult,
+	CachedRetrievalResult, 
 	CachedWebResult,
 	HotMessage,
 	Role,
@@ -22,7 +22,7 @@ from backend.infrastructure.cache.schemas import (
 )
 from backend.infrastructure.cache.utils import make_cache_key
 from backend.core.settings import get_redis_config
-from backend.infrastructure.integrations.tools.redis_tool import redis_tool
+from backend.infrastructure.cache.redis_cache import redis_tool
 from backend.utils.log import log_debug, log_info, log_warning
 
 

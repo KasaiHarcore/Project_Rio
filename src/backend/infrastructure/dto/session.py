@@ -87,12 +87,8 @@ def get_engine():
                         user,
                         thread,
                         message,
-                        run,
                         user_profile,
-                        tool_usage,
                         audit_log,
-                        agent_memory,
-                        thread_summary,
                     )
                     Base.metadata.create_all(bind=_engine)
                     log_success("Database schema initialized")
@@ -204,12 +200,8 @@ def init_db() -> None:
         user,
         thread,
         message,
-        run,
         user_profile,
-        tool_usage,
         audit_log,
-        agent_memory,
-        thread_summary,
     )
     
     engine = get_engine()
@@ -229,12 +221,8 @@ def drop_db() -> None:
         user,
         thread,
         message,
-        run,
         user_profile,
-        tool_usage,
         audit_log,
-        agent_memory,
-        thread_summary,
     )
     
     engine = get_engine()

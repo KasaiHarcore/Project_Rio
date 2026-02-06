@@ -46,14 +46,6 @@ from backend.infrastructure.dto.schemas.message import (
     MessageInDB,
 )
 
-# Tool usage schemas
-from backend.infrastructure.dto.schemas.tool_usage import (
-    ToolUsageBase,
-    ToolUsageCreate,
-    ToolUsageUpdate,
-    ToolUsageInDB,
-)
-
 # Audit log schemas
 from backend.infrastructure.dto.schemas.audit_log import (
     AuditLogBase,
@@ -79,9 +71,6 @@ from backend.infrastructure.dto.schemas.response import (
     ChatResponse,
 )
 
-# Memory schemas
-from backend.infrastructure.dto.schemas.memory import MemoryType
-
 # Admin schemas
 from backend.infrastructure.dto.schemas.admin import (
     AdminUserView,
@@ -90,8 +79,6 @@ from backend.infrastructure.dto.schemas.admin import (
     AdminThreadList,
     AdminMessageView,
     AdminMessageList,
-    AdminToolUsageView,
-    AdminToolUsageList,
     AdminToolUsageStats,
     AdminAuditLogView,
     AdminAuditLogList,
@@ -119,11 +106,6 @@ __all__ = [
     "MessageCreate",
     "MessageUpdate",
     "MessageInDB",
-    # Tool Usage
-    "ToolUsageBase",
-    "ToolUsageCreate",
-    "ToolUsageUpdate",
-    "ToolUsageInDB",
     # Audit Log
     "AuditLogBase",
     "AuditLogCreate",
@@ -140,8 +122,6 @@ __all__ = [
     "ErrorResponse",
     "ChatStats",
     "ChatResponse",
-    # Memory
-    "MemoryType",
     # Admin
     "AdminUserView",
     "AdminUserList",
@@ -149,8 +129,6 @@ __all__ = [
     "AdminThreadList",
     "AdminMessageView",
     "AdminMessageList",
-    "AdminToolUsageView",
-    "AdminToolUsageList",
     "AdminToolUsageStats",
     "AdminAuditLogView",
     "AdminAuditLogList",

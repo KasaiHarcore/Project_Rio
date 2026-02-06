@@ -33,21 +33,8 @@ from backend.infrastructure.dto.models import (
     ThreadStatus,
     Message,
     MessageRole,
-    Run,
-    RunStatus,
     UserProfile,
-    ToolUsage,
-    ToolStatus,
     AuditLog,
-    AgentMemory,
-    MemoryType,
-    ThreadSummary,
-)
-
-# Re-export repositories for convenience
-from backend.infrastructure.dto.repositories import (
-    RunRepository,
-    ToolUsageRepository,
 )
 
 __all__ = [
@@ -69,16 +56,6 @@ __all__ = [
     "ThreadStatus",
     "Message",
     "MessageRole",
-    "Run",
-    "RunStatus",
     "UserProfile",
-    "ToolUsage",
-    "ToolStatus",
     "AuditLog",
-    "AgentMemory",
-    "MemoryType",
-    "ThreadSummary",
-    # Repositories
-    "RunRepository",
-    "ToolUsageRepository",
 ]

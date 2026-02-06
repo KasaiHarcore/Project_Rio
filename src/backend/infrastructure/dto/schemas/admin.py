@@ -3,15 +3,14 @@
 View Schemas:
     - AdminUserView: User with statistics
     - AdminThreadView: Thread with message count
-    - AdminMessageView: Message with tool usage count
-    - AdminToolUsageView: Tool call details
+    - AdminMessageView: Message details
     - AdminAuditLogView: Audit log with username
 
 List Schemas:
     - Admin*List: Paginated lists with total, page, has_next
 
 Stats Schemas:
-    - AdminToolUsageStats: Tool usage aggregates
+    - AdminToolUsageStats: Tool usage aggregates (from LangGraph state)
     - AdminSystemStats: Overall system metrics
 
 Action Schemas:
@@ -26,7 +25,6 @@ from pydantic import BaseModel, Field, ConfigDict
 from backend.infrastructure.dto.models.user import UserRole
 from backend.infrastructure.dto.models.thread import ThreadStatus
 from backend.infrastructure.dto.models.message import MessageRole
-from backend.infrastructure.dto.models.tool_usage import ToolStatus
 
 class AdminUserView(BaseModel):
     """Admin view of user with full details and statistics."""
@@ -93,9 +91,6 @@ class AdminMessageView(BaseModel):
     content: str
     role: MessageRole
     created_at: datetime
-    
-    # Statistics
-    tool_usage_count: int = Field(0, description="Number of tools used")
 
 
 class AdminMessageList(BaseModel):
@@ -107,37 +102,16 @@ class AdminMessageList(BaseModel):
     page_size: int
     has_next: bool
 
-class AdminToolUsageView(BaseModel):
-    """Admin view of tool usage with details."""
-    
-    model_config = ConfigDict(from_attributes=True)
-    
-    id: UUID
-    message_id: UUID
-    tool_name: str
-    status: ToolStatus
-    error_message: Optional[str]
-    created_at: datetime
-
-
-class AdminToolUsageList(BaseModel):
-    """Paginated list of tool usage for analytics."""
-    
-    tool_usages: List[AdminToolUsageView]
-    total: int
-    page: int
-    page_size: int
-    has_next: bool
-
 
 class AdminToolUsageStats(BaseModel):
-    """Aggregated statistics for tool usage."""
+    """Aggregated statistics for tool usage (derived from LangGraph state)."""
     
     total_calls: int
     success_count: int
     failed_count: int
-    by_tool: Dict[str, int] = Field(..., description="Call count per tool name")
-    avg_calls_per_day: float
+    by_tool: Dict[str, int] = Field(default_factory=dict, description="Call count per tool name")
+    avg_calls_per_day: float = 0.0
+
 
 class AdminAuditLogView(BaseModel):
     """Admin view of audit log with full details."""
@@ -169,18 +143,12 @@ class AdminSystemStats(BaseModel):
     total_users: int
     total_threads: int
     total_messages: int
-    total_tool_calls: int
     
     active_users_today: int
     active_threads: int
     
     avg_messages_per_thread: float
     avg_threads_per_user: float
-    
-    most_used_tools: List[Dict[str, Any]] = Field(
-        ..., 
-        description="Top 5 most used tools with counts"
-    )
     
     last_updated: datetime = Field(default_factory=datetime.utcnow)
 
