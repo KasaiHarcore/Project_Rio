@@ -28,6 +28,10 @@ from backend.application.workflows.workers.sql_worker import (
     SQLWorker,
     create_sql_worker,
 )
+from backend.application.workflows.workers.memory_worker import (
+    MemoryWorker,
+    create_memory_worker,
+)
 
 __all__ = [
     # Base
@@ -37,9 +41,11 @@ __all__ = [
     "RetrievalWorker",
     "WebSearchWorker",
     "SQLWorker",
+    "MemoryWorker",
     # Factory functions
     "create_planning_worker",
     "create_retrieval_worker",
     "create_web_search_worker",
     "create_sql_worker",
+    "create_memory_worker",
 ]

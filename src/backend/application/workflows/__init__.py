@@ -46,6 +46,14 @@ from backend.application.workflows.checkpointer import (
     get_checkpointer,
     build_config_payload,
 )
+from backend.application.workflows.memory_store import (
+    memory_store_context,
+    get_memory_store,
+    store_memory,
+    search_memories,
+    format_memories_for_prompt,
+    MemoryNamespace,
+)
 from backend.application.workflows.workers import (
     PlanningWorker,
     RetrievalWorker,
@@ -82,10 +90,17 @@ __all__ = [
     "SupervisorDecision",
     "HumanInterruptType",
     "reset_execution_state",
-    # Checkpointing
+    # Checkpointing (short-term memory)
     "checkpoint_context",
     "get_checkpointer",
     "build_config_payload",
+    # Memory Store (long-term memory)
+    "memory_store_context",
+    "get_memory_store",
+    "store_memory",
+    "search_memories",
+    "format_memories_for_prompt",
+    "MemoryNamespace",
     # Workers
     "PlanningWorker",
     "RetrievalWorker",

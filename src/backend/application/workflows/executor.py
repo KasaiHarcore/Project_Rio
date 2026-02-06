@@ -29,14 +29,8 @@ from backend.core.settings import (
     TOOL_PREVIEW_LENGTH,
     STREAM_TOKEN_BATCH_SIZE,
 )
-from backend.infrastructure.dto.models.run import RunStatus
 from backend.infrastructure.integrations.llm import form
-from backend.application.services.run_service import run_service
-from backend.application.services.tool_usage_service import (
-    clear_tool_logging_context,
-    set_tool_logging_context,
-)
-from backend.infrastructure.integrations.tools.redis_tool import redis_tool
+from backend.infrastructure.cache.redis_cache import redis_tool
 from backend.infrastructure.telemetry.langsmith import (
     end_run_error,
     end_run_success,
@@ -51,6 +45,7 @@ from backend.application.workflows.checkpointer import (
     list_checkpoints as _list_checkpoints,
     load_checkpoint as _load_checkpoint,
 )
+from backend.application.workflows.memory_store import memory_store_context
 from backend.application.workflows.graph import build_workflow_graph
 from backend.application.workflows.state import (
     AgentState,
@@ -113,14 +108,6 @@ def run_workflow(
     run_id = uuid4().hex
     checkpoint_ns = checkpoint_ns or config.state_scope
     
-    # Start run tracking
-    run_service.start_run(
-        run_id=run_id,
-        thread_id=thread_id,
-        mode=config.mode,
-        model_name=getattr(form.SELECTED_MODEL, "name", None),
-    )
-    set_tool_logging_context(thread_id=thread_id, run_id=run_id)
     log_trace_link_hint(run_id)
     
     log_info(f"Starting workflow: run_id={run_id}, thread_id={thread_id}, mode={config.mode}")
@@ -176,9 +163,9 @@ def run_workflow(
                 metadata={"run_id": run_id, "user_role": config.user_role},
             )
             
-            # Execute with checkpointing
+            # Execute with checkpointing (short-term) and memory store (long-term)
             current_stage = "execute"
-            with checkpoint_context() as checkpointer:
+            with checkpoint_context() as checkpointer, memory_store_context() as store:
                 # Check if there's an existing completed checkpoint that would block execution
                 if not checkpoint_id:  # Only clear if not explicitly resuming
                     try:
@@ -257,10 +244,11 @@ def run_workflow(
                     except Exception as e:
                         log_warning(f"Failed to check/clear checkpoint: {e}")
                 
-                # Build the graph
+                # Build the graph with checkpointer (short-term) and store (long-term)
                 graph = build_workflow_graph(
                     config=config,
                     checkpointer=checkpointer,
+                    store=store,
                 )
                 
                 # Execute the workflow
@@ -310,7 +298,6 @@ def run_workflow(
                     log_warning(f"Failed to save state to Redis: {e}")
             
             # Finalize
-            run_service.finish_run(run_id=run_id, status=RunStatus.SUCCEEDED)
             stats = form.SELECTED_MODEL.get_overall_exec_stats()
             
             end_run_success(
@@ -336,7 +323,6 @@ def run_workflow(
             }
     
     except Exception as e:
-        run_service.finish_run(run_id=run_id, status=RunStatus.FAILED, error=str(e))
         end_run_error(
             run=root_run,
             error=e,
@@ -351,9 +337,6 @@ def run_workflow(
             "thread_id": thread_id,
             "status": "failed",
         }
-    
-    finally:
-        clear_tool_logging_context()
 
 
 def stream_workflow(
@@ -399,15 +382,6 @@ def stream_workflow(
     if not thread_id:
         raise ValueError("thread_id is required for streaming workflow")
     
-    # Start run tracking
-    run_service.start_run(
-        run_id=run_id,
-        thread_id=thread_id,
-        mode=config.mode,
-        model_name=getattr(form.SELECTED_MODEL, "name", None),
-    )
-    set_tool_logging_context(thread_id=thread_id, run_id=run_id)
-    
     log_info(f"Starting streaming workflow: run_id={run_id}, question={question[:100]}")
     
     # Emit run_started event (frontend expects this name)
@@ -447,9 +421,9 @@ def stream_workflow(
                 metadata={"run_id": run_id, "user_role": config.user_role},
             )
             
-            # Execute with checkpointing
+            # Execute with checkpointing (short-term) and memory store (long-term)
             current_stage = "execute"
-            with checkpoint_context() as checkpointer:
+            with checkpoint_context() as checkpointer, memory_store_context() as store:
                 # Check if there's an existing completed checkpoint that would block execution
                 # LangGraph doesn't re-run a graph if it's already at END state
                 # So we need to clear the checkpoint for fresh execution
@@ -533,9 +507,11 @@ def stream_workflow(
                     except Exception as e:
                         log_warning(f"Failed to check/clear checkpoint: {e}")
                 
+                # Build the graph with checkpointer (short-term) and store (long-term)
                 graph = build_workflow_graph(
                     config=config,
                     checkpointer=checkpointer,
+                    store=store,
                 )
                 
                 start_time = time.time()
@@ -646,7 +622,6 @@ def stream_workflow(
                     pass
             
             # Finalize
-            run_service.finish_run(run_id=run_id, status=RunStatus.SUCCEEDED)
             stats = form.SELECTED_MODEL.get_overall_exec_stats()
             
             end_run_success(
@@ -674,7 +649,6 @@ def stream_workflow(
             }
     
     except Exception as e:
-        run_service.finish_run(run_id=run_id, status=RunStatus.FAILED, error=str(e))
         end_run_error(
             run=root_run,
             error=e,
@@ -682,9 +656,6 @@ def stream_workflow(
         )
         log_error(f"Streaming workflow failed: {e}")
         yield {"type": "error", "error": str(e), "run_id": run_id}
-    
-    finally:
-        clear_tool_logging_context()
 
 
 # =============================================================================
@@ -790,3 +761,142 @@ def resume_from_checkpoint(
         checkpoint_id=checkpoint_id,
         checkpoint_ns=checkpoint_ns,
     )
+
+
+def resume_sql_approval(
+    *,
+    thread_id: str,
+    config: AgentConfig,
+    approval_response: Dict[str, Any],
+    checkpoint_ns: str = "",
+) -> Dict[str, Any]:
+    """
+    Resume workflow after SQL operation approval.
+    
+    This function is used to continue workflow execution after a user
+    has approved, modified, or rejected a SQL operation.
+    
+    Args:
+        thread_id: Thread to resume
+        config: Agent configuration
+        approval_response: User's approval response containing:
+            - status: 'approved', 'modified', 'rejected', 'cancelled'
+            - modified_sql: Optional edited SQL (if status is 'modified')
+            - reason: Optional reason for rejection
+        checkpoint_ns: Namespace
+    
+    Returns:
+        Execution result with SQL operation outcome
+    """
+    from backend.infrastructure.dto.schemas.sql_approval import SQLApprovalStatus
+    
+    log_info(f"Resuming SQL approval for thread: {thread_id}")
+    
+    checkpoint_ns = checkpoint_ns or config.state_scope
+    
+    # Load the current checkpoint to get pending approval
+    checkpoint_data = _load_checkpoint(
+        thread_id=thread_id,
+        checkpoint_ns=checkpoint_ns,
+    )
+    
+    if not checkpoint_data:
+        return {
+            "error": "No checkpoint found for SQL approval resume",
+            "status": "failed",
+        }
+    
+    # Validate the approval response
+    status = approval_response.get("status", "rejected")
+    valid_statuses = {"approved", "modified", "rejected", "cancelled", "expired"}
+    if status not in valid_statuses:
+        return {
+            "error": f"Invalid approval status: {status}. Must be one of {valid_statuses}",
+            "status": "failed",
+        }
+    
+    # Build the human response to inject into state
+    human_response_entry = {
+        "type": "sql_approval",
+        "status": status,
+        "modified_sql": approval_response.get("modified_sql"),
+        "reason": approval_response.get("reason"),
+        "responded_at": datetime.utcnow().isoformat(),
+        "user_id": approval_response.get("user_id"),
+    }
+    
+    # Get checkpoint ID
+    checkpoint_id = None
+    if isinstance(checkpoint_data, dict):
+        checkpoint = checkpoint_data.get("checkpoint", {})
+        checkpoint_id = checkpoint.get("id") or checkpoint_data.get("id")
+    
+    log_info(f"SQL approval resume: status={status}, checkpoint_id={checkpoint_id}")
+    
+    # Build config for resuming
+    config_payload = build_config_payload(
+        thread_id=thread_id,
+        checkpoint_id=checkpoint_id,
+        checkpoint_ns=checkpoint_ns,
+    )
+    
+    run_id = uuid4().hex
+    
+    try:
+        with checkpoint_context() as checkpointer, memory_store_context() as store:
+            graph = build_workflow_graph(
+                config=config,
+                checkpointer=checkpointer,
+                store=store,
+            )
+            
+            # Resume with the human response
+            # The graph will inject the human_responses into state
+            resume_state = {
+                "human_responses": [human_response_entry],
+                "pending_human_interrupt": None,  # Clear the interrupt
+                "status": ExecutionStatus.RUNNING,
+            }
+            
+            # If rejected/cancelled, clear the pending approval
+            if status in {"rejected", "cancelled"}:
+                resume_state["pending_sql_approval"] = None
+            
+            start_time = time.time()
+            final_state = graph.invoke(
+                resume_state,
+                config=config_payload,
+                durability="sync",
+            )
+            
+            answer = extract_answer_from_state(final_state)
+            worker_results = final_state.get("worker_results") or []
+            phase_timings = final_state.get("timing") or {}
+            phase_timings["total_ms"] = int((time.time() - start_time) * 1000)
+            
+            # Get the last SQL result
+            sql_result = None
+            for r in reversed(worker_results):
+                if r.worker_type == WorkerType.SQL:
+                    sql_result = r.to_dict()
+                    break
+            
+            return {
+                "answer": answer,
+                "run_id": run_id,
+                "thread_id": thread_id,
+                "sql_result": sql_result,
+                "approval_status": status,
+                "timing": phase_timings,
+                "status": "success",
+            }
+    
+    except Exception as e:
+        log_error(f"SQL approval resume failed: {e}")
+        return {
+            "error": str(e),
+            "run_id": run_id,
+            "thread_id": thread_id,
+            "approval_status": status,
+            "status": "failed",
+        }

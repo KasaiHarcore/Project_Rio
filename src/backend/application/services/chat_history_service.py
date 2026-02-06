@@ -1,4 +1,8 @@
-"""Chat history service for SQL-backed message persistence."""
+"""Chat history service for SQL-backed message persistence.
+
+Handles thread and message persistence to PostgreSQL.
+Agent memory is handled by LangGraph's PostgresStore (see memory_store.py).
+"""
 
 from __future__ import annotations
 
@@ -14,8 +18,6 @@ from sqlalchemy import inspect
 from backend.infrastructure.dto.session import get_db_context, get_engine
 from backend.infrastructure.dto.models.thread import Thread, ThreadStatus
 from backend.infrastructure.dto.models.message import Message, MessageRole
-from backend.infrastructure.dto.models.agent_memory import AgentMemory, MemoryType
-from backend.infrastructure.dto.models.thread_summary import ThreadSummary
 from backend.utils.log import log_debug, log_info, log_warning, log_error
 from backend.infrastructure.integrations.llm import form
 from backend.infrastructure.dto.schemas.query import ChatMessageRecord
@@ -63,94 +65,6 @@ class ChatHistoryService:
             return None
         thread = session.query(Thread).filter(Thread.id == thread_uuid, Thread.user_id == user_id).first()
         return thread
-
-    # --- Memory Service Logic Merged Here ---
-
-    def add_agent_memory(
-        self,
-        *,
-        session: Optional[Session] = None,
-        user_id: UUID | str,
-        thread_id: UUID | str,
-        run_id: Optional[str],
-        memory_type: MemoryType,
-        content: str,
-        embedding: Optional[list[float]] = None,
-    ) -> None:
-        if not content or not memory_type:
-            return
-
-        user_uuid = _parse_uuid(user_id)
-        thread_uuid = _parse_uuid(thread_id)
-        if not user_uuid or not thread_uuid:
-            return
-
-        def _write(sess: Session) -> None:
-            memory = AgentMemory(
-                user_id=user_uuid,
-                thread_id=thread_uuid,
-                run_id=run_id,
-                memory_type=memory_type,
-                content=content,
-                embedding=embedding,
-            )
-            sess.add(memory)
-
-        try:
-            if session is not None:
-                _write(session)
-            else:
-                with get_db_context() as db:
-                    _write(db)
-        except Exception as e:
-            log_debug(f"Agent memory write skipped: {e}")
-
-    def upsert_thread_summary(
-        self,
-        *,
-        session: Optional[Session] = None,
-        thread_id: UUID | str,
-        summary: str,
-    ) -> None:
-        if not summary:
-            return
-
-        thread_uuid = _parse_uuid(thread_id)
-        if not thread_uuid:
-            return
-
-        def _write(sess: Session) -> None:
-            existing = sess.query(ThreadSummary).filter(ThreadSummary.thread_id == thread_uuid).first()
-            if existing:
-                existing.summary = summary
-                existing.updated_at = datetime.utcnow()
-            else:
-                sess.add(ThreadSummary(thread_id=thread_uuid, summary=summary))
-
-        try:
-            if session is not None:
-                _write(session)
-            else:
-                with get_db_context() as db:
-                    _write(db)
-        except Exception as e:
-            log_debug(f"Thread summary write skipped: {e}")
-
-    def get_thread_summary(self, *, thread_id: UUID | str) -> Optional[str]:
-        thread_uuid = _parse_uuid(thread_id)
-        if not thread_uuid:
-            return None
-
-        try:
-            with get_db_context() as db:
-                record = db.query(ThreadSummary).filter(ThreadSummary.thread_id == thread_uuid).first()
-                if record and record.summary:
-                    return record.summary
-        except Exception as e:
-            log_debug(f"Thread summary read skipped: {e}")
-        return None
-
-    # --- End Memory Logic ---
 
     def ensure_thread(self, user_id: UUID, thread_id: Optional[str], title: Optional[str]) -> str:
         """Ensure a thread exists and return its ID."""
@@ -218,16 +132,6 @@ class ChatHistoryService:
                         run_id=run_id,
                     )
                     session.add(message)
-
-                    if role in (MessageRole.USER, MessageRole.ASSISTANT):
-                        self.add_agent_memory(
-                            session=session,
-                            user_id=user_id,
-                            thread_id=thread_uuid,
-                            run_id=run_id,
-                            memory_type=MemoryType.LONG_TERM,
-                            content=content,
-                        )
 
                     # Write-through to Redis hot window (best-effort).
                     try:
@@ -395,25 +299,8 @@ class ChatHistoryService:
         summary_text = self._summarize_messages(selected)
         if not summary_text:
             return
-        self.upsert_thread_summary(
-            session=session,
-            thread_id=thread_id,
-            summary=summary_text,
-        )
-        try:
-            thread = session.query(Thread).filter(Thread.id == thread_id).first()
-            if thread and thread.user_id:
-                self.add_agent_memory(
-                    session=session,
-                    user_id=thread.user_id,
-                    thread_id=thread_id,
-                    run_id=None,
-                    memory_type=MemoryType.SUMMARY,
-                    content=summary_text,
-                )
-        except Exception:
-            pass
-        # Cache warm summary immediately (best-effort).
+        
+        # Cache warm summary (Redis).
         try:
             cache_service.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
         except Exception:

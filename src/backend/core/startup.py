@@ -27,7 +27,7 @@ from backend.utils.log import (
 )
 import backend.infrastructure.dto.models  # noqa: F401 - imports for side effects (model registration)
 from backend.infrastructure.integrations.tools.qdrant_tool import vector_db_tool
-from backend.infrastructure.integrations.tools.redis_tool import redis_tool
+from backend.infrastructure.cache.redis_cache import redis_tool
 
 
 def create_database_tables() -> None:

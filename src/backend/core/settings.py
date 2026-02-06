@@ -204,7 +204,6 @@ class RedisConfig:
 
 	# LLM cache
 	enable_llm_cache: bool = True
-	llm_cache_type: Literal["exact", "semantic"] = "semantic"
 	llm_cache_ttl_seconds: int = 86400
 
 	def __post_init__(self):
@@ -236,10 +235,6 @@ class RedisConfig:
 			raise ValueError("redis web_cache_ttl_seconds must be > 0")
 		if self.llm_cache_ttl_seconds <= 0:
 			raise ValueError("redis llm_cache_ttl_seconds must be > 0")
-		cache_type = (self.llm_cache_type or "semantic").lower()
-		if cache_type not in {"exact", "semantic"}:
-			cache_type = "semantic"
-		self.llm_cache_type = cache_type  # type: ignore[assignment]
   
 	@classmethod
 	def from_env(cls) -> "RedisConfig":
@@ -265,11 +260,6 @@ class RedisConfig:
 			retrieval_cache_ttl_seconds=_env_int("REDIS_RETRIEVAL_CACHE_TTL", "1800"),
 			web_cache_ttl_seconds=_env_int("REDIS_WEB_CACHE_TTL", "900"),
 			enable_llm_cache=_env_bool("REDIS_ENABLE_LLM_CACHE", "True"),
-			llm_cache_type=(
-				_env_str("REDIS_LLM_CACHE_TYPE", "semantic").strip().lower()
-				if _env_str("REDIS_LLM_CACHE_TYPE")
-				else "semantic"
-			),
 			llm_cache_ttl_seconds=_env_int("REDIS_LLM_CACHE_TTL", "86400"),
 		)
 

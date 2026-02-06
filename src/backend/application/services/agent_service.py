@@ -102,6 +102,7 @@ class AgentService:
         thread_id: Optional[str] = None,
         checkpoint_id: Optional[str] = None,
         checkpoint_ns: Optional[str] = None,
+        user_id: Optional[str] = None,
     ) -> Iterator[Dict[str, Any]]:
         """
         Stream a query and yield events from the multi-agent workflow.
@@ -135,5 +136,6 @@ class AgentService:
             thread_id=thread_id,
             checkpoint_id=checkpoint_id,
             checkpoint_ns=checkpoint_ns,
+            user_id=user_id,
         ):
             yield event

@@ -29,17 +29,13 @@ from langgraph.graph.message import add_messages
 
 from backend.core.settings import DEFAULT_MAX_ITERATIONS
 
-
-# =============================================================================
-# Enums and Constants
-# =============================================================================
-
 class WorkerType(str, Enum):
     """Types of specialized workers available."""
     PLANNING = "planning"
     RETRIEVAL = "retrieval"
     WEB_SEARCH = "web_search"
     SQL = "sql"
+    MEMORY = "memory"
 
 
 class SupervisorAction(str, Enum):
@@ -178,11 +174,6 @@ class ExecutionPlan:
             "complexity": self.complexity,
         }
 
-
-# =============================================================================
-# Main Agent State (TypedDict for LangGraph)
-# =============================================================================
-
 class AgentState(TypedDict, total=False):
     """
     Shared state for the multi-agent workflow.
@@ -266,6 +257,11 @@ class AgentState(TypedDict, total=False):
     pending_human_interrupt: Optional[HumanInterrupt]
     human_responses: List[Dict[str, Any]]
     
+    # SQL Approval Workflow (HITL for SQL operations)
+    pending_sql_approval: Optional[Dict[str, Any]]  # Serialized PendingSQLApproval
+    sql_approval_history: List[Dict[str, Any]]  # Serialized SQLApprovalHistory list
+    sql_schema_context: Optional[str]  # Cached schema context for LLM
+    
     # Error Handling
     error: Optional[str]
     retry_count: int
@@ -274,10 +270,6 @@ class AgentState(TypedDict, total=False):
     metadata: Dict[str, Any]
     timing: Dict[str, int]
 
-
-# =============================================================================
-# State Factory Functions
-# =============================================================================
 
 def create_initial_state(
     *,
@@ -336,6 +328,10 @@ def create_initial_state(
         retry_count=0,
         metadata=metadata or {},
         timing={},
+        # SQL Approval fields
+        pending_sql_approval=None,
+        sql_approval_history=[],
+        sql_schema_context=None,
     )
 
 
@@ -391,6 +387,10 @@ def reset_execution_state(
         retry_count=0,
         metadata=metadata or {},
         timing={},
+        # SQL Approval fields - preserve history but clear pending
+        pending_sql_approval=None,
+        sql_approval_history=state.get("sql_approval_history", []),
+        sql_schema_context=state.get("sql_schema_context"),  # Keep cached schema
     )
 
 

@@ -60,7 +60,15 @@ SUPERVISOR_SYSTEM_PROMPT = """You are the Supervisor — an intelligent coordina
 1. **PLANNING** — designs multi-step execution plans for genuinely complex, multi-part queries.
 2. **RETRIEVAL** — searches internal knowledge bases / documents / RAG store.
 3. **WEB_SEARCH** — searches the internet for current information.
-4. **SQL** — queries the application database. **ADMIN ONLY** - only delegate to SQL if user_role is admin.
+4. **SQL** — queries the application database with intelligent safety controls:
+   - **READ operations** (SELECT): Executed automatically for quick data retrieval
+   - **WRITE operations** (INSERT/UPDATE/DELETE): Require user approval via Human-in-the-Loop
+   - The SQL worker has schema awareness and classifies operations by danger level
+   - **ADMIN ONLY** - only delegate to SQL if user_role is admin
+5. **MEMORY** — manages long-term user memory:
+   - **STORE**: When user says "remember that...", "note that...", "keep in mind..."
+   - **RECALL**: When user asks "what do you know about me?", "what have you remembered?"
+   - **FORGET**: When user says "forget that...", "delete the memory about..."
 
 ## CRITICAL: Respecting User Mode Selection
 The user has explicitly selected a MODE (rag/web/sql/chat). This is their INTENTIONAL CHOICE:
@@ -70,9 +78,8 @@ The user has explicitly selected a MODE (rag/web/sql/chat). This is their INTENT
 - **chat mode**: Auto mode - use your judgment.
 
 ONLY respond directly (without delegating) when the message is:
-- A simple greeting ("Hi", "Hello")
-- A thanks message ("Thanks", "Thank you")
-- A meta-question about the conversation itself ("What did you just do?")
+- A simple messages
+- A meta-question about the conversation itself
 - An explicit request to stop
 
 For ANY factual question, research request, or substantive inquiry: DELEGATE according to the mode.
@@ -122,16 +129,23 @@ ROUTING_PROMPT = """Analyze this interaction and decide what to do.
 - **sql**: User explicitly wants database queries. DELEGATE to SQL **ONLY IF user_role is admin**. If user_role is 'user', RESPOND with an error message that SQL mode is restricted to admins.
 - **chat**: Auto mode - use your judgment, but still prefer delegation for factual/research questions.
 
+## MEMORY COMMANDS (Any mode)
+If the user asks to remember, recall, or forget something, DELEGATE to MEMORY worker:
+- "Remember that..." / "Note that..." / "Keep in mind..." → DELEGATE to MEMORY
+- "What do you know about me?" / "What have you remembered?" → DELEGATE to MEMORY
+- "Forget that..." / "Delete the memory..." → DELEGATE to MEMORY
+
 ## Your Task
 Think through:
-1. **Intent**: What does the user actually want? (greeting, task, factual question, meta-request?)
-2. **Is this purely conversational?**: Only "Hi", "Thanks", "Stop", etc. are purely conversational.
-3. **Respect the MODE**: If user selected a specific mode (web/rag/sql), delegate to that worker for any substantive question.
-4. **Have enough context?**: If workers already ran, is the gathered info sufficient?
+1. **Intent**: What does the user actually want? (greeting, task, factual question, memory command, meta-request?)
+2. **Is this a MEMORY command?**: Check for remember/recall/forget patterns FIRST.
+3. **Is this purely conversational?**: Only "Hi", "Thanks", "Stop", etc. are purely conversational.
+4. **Respect the MODE**: If user selected a specific mode (web/rag/sql), delegate to that worker for any substantive question.
+5. **Have enough context?**: If workers already ran, is the gathered info sufficient?
 
 ## Output Format
 ACTION: [DELEGATE|RESPOND|CLARIFY]
-WORKER: [PLANNING|RETRIEVAL|WEB_SEARCH|SQL|NONE]
+WORKER: [PLANNING|RETRIEVAL|WEB_SEARCH|SQL|MEMORY|NONE]
 CONFIDENCE: [0.0-1.0]
 REASONING: [Your thinking process - what intent you identified and why this action]
 """
@@ -202,7 +216,11 @@ class SupervisorAgent:
             self._llm = form.SELECTED_MODEL.llm
         return self._llm
     
-    def route(self, state: AgentState) -> SupervisorDecision:
+    def route(
+        self,
+        state: AgentState,
+        memories_context: str = "",
+    ) -> SupervisorDecision:
         """
         Make a routing decision based on current state.
         
@@ -215,11 +233,14 @@ class SupervisorAgent:
         
         Args:
             state: Current agent state
+            memories_context: Optional long-term memories retrieved from store
         
         Returns:
             SupervisorDecision with the action to take
         """
         log_info("Supervisor making routing decision")
+        if memories_context:
+            log_debug(f"Using long-term memories: {len(memories_context)} chars")
         
         # Check termination conditions (these are system limits, not routing logic)
         if is_execution_complete(state):
@@ -268,6 +289,15 @@ class SupervisorAgent:
         if context:
             context_summary = f"\n## Context gathered from workers:\n{context[:MAX_CONTEXT_LENGTH]}"
         
+        # Add long-term memories if available
+        if memories_context:
+            context_summary = f"\n{memories_context}\n{context_summary}"
+        
+        # Add SQL schema context if in SQL mode
+        sql_schema_info = ""
+        if mode == "sql":
+            sql_schema_info = self._get_sql_schema_summary(state)
+        
         # Let the LLM (the actual agent) decide
         routing_prompt = ROUTING_PROMPT.format(
             question=question,
@@ -276,7 +306,7 @@ class SupervisorAgent:
             iteration=iteration,
             max_iterations=max_iterations,
             workers_used=", ".join(workers_used) if workers_used else "None yet",
-            context_summary=context_summary,
+            context_summary=context_summary + sql_schema_info,
         )
         
         try:
@@ -392,8 +422,35 @@ class SupervisorAgent:
             "WEB_SEARCH": WorkerType.WEB_SEARCH,
             "WEB": WorkerType.WEB_SEARCH,
             "SQL": WorkerType.SQL,
+            "MEMORY": WorkerType.MEMORY,
         }
         return worker_map.get(value)
+    
+    def _get_sql_schema_summary(self, state: AgentState) -> str:
+        """
+        Get a brief SQL schema summary for supervisor context.
+        
+        This gives the supervisor awareness of available tables
+        so it can make better routing decisions for SQL mode.
+        
+        Args:
+            state: Current agent state
+            
+        Returns:
+            Schema summary string
+        """
+        # Check for cached schema context in state
+        cached = state.get("sql_schema_context")
+        if cached:
+            return f"\n\n## Available Database Tables:\n{cached}"
+        
+        try:
+            from backend.application.services.sql_schema_service import sql_schema_service
+            overview = sql_schema_service.get_schema_overview()
+            return f"\n\n## Available Database Tables:\n{overview}"
+        except Exception as e:
+            log_warning(f"Could not get SQL schema for supervisor: {e}")
+            return ""
     
     def generate_response(self, state: AgentState) -> str:
         """
