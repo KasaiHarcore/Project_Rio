@@ -102,11 +102,16 @@ def render_chat_interface() -> None:
                     # LangGraph checkpointing maps checkpoints to SQL threads, so
                     # we must have a stable thread_id before starting the workflow.
                     thread_id = st.session_state.get("current_thread_id") or ensure_thread_id()
+                    # Get user_id for memory system
+                    current_user_id = None
+                    if st.session_state.get("current_user"):
+                        current_user_id = st.session_state.current_user.get("id")
                     stream_iter = AgentService.stream_query(
                         prompt,
                         config,
                         history=history,
                         thread_id=thread_id,
+                        user_id=current_user_id,
                     )
                     for event in stream_iter:
                         if st.session_state.active_stream_id != stream_id:

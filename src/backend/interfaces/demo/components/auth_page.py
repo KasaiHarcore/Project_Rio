@@ -44,7 +44,7 @@ def render_login_page():
                 else:
                     with st.spinner("Authenticating..."):
                         with get_session() as session:
-                            success, user_data, error = AuthService.login(session, username, password)
+                            success, user_data, tokens, error = AuthService.login(session, username, password)
 
                         if success:
                             # Store user info in session state
@@ -57,6 +57,11 @@ def render_login_page():
                                 "email": user_data.email,
                                 "role": user_data.role.value,
                                 "created_at": user_data.created_at.isoformat()
+                            }
+                            # Store tokens for authenticated API calls
+                            st.session_state.tokens = {
+                                "access_token": tokens.access_token,
+                                "refresh_token": tokens.refresh_token,
                             }
                             st.success(f"Welcome back, {user_data.username}!")
                             st.balloons()
