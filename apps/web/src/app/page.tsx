@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageTransition } from "@/components/layout/page-transition"
 import { MissionBoard } from "@/components/features/dashboard/MissionBoard"
 import { MissionControl } from "@/components/features/mission/MissionControl"
 import { SplashScreen } from "@/components/layout/splash-screen"
@@ -29,7 +30,7 @@ export default function Page() {
       
       {!showSplash && (
         <DashboardLayout>
-           <div className="flex flex-1 overflow-hidden relative">
+           <PageTransition className="flex flex-1 overflow-hidden relative">
               <AnimatePresence mode="popLayout" initial={false}>
                   {viewMode === 'dashboard' ? (
                       <motion.div 
@@ -55,7 +56,7 @@ export default function Page() {
                       </motion.div>
                   )}
               </AnimatePresence>
-           </div>
+           </PageTransition>
         </DashboardLayout>
       )}
     </>

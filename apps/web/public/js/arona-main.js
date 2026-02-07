@@ -1,6 +1,7 @@
 let canvas, textbox, gl, shader, batcher, assetManager, skeletonRenderer;
 let mvp;
 let isRunning = false; // Control flag for engine loop
+let DEBUG_HITBOX = false; // Enable hitbox visualization
 
 let lastFrameTime;
 let spineDataA, spineDataBG;
@@ -19,15 +20,16 @@ const BG_NIGHT = 'arona_workpage_nighttime';
 const BINARY_PATH_BG_NIGHT = '/spine/arona/arona_workpage_nighttime.skel';
 const ATLAS_PATH_BG_NIGHT = '/spine/arona/arona_workpage_nighttime.atlas';
 
-const LOADOUT = { isday: true, isorganized: true, start: 0, start2: 0, introAudio: null, startAudio: null, interactAudio: null, ux: 30, uy: 35 };
+const TEXTBOX_ANCHOR = { x: 1440, y: 1200 };
+
+const LOADOUT = { isday: true, isorganized: true, start: 0, start2: 0, introAudio: null, startAudio: null, interactAudio: null, ux: 50, uy: 50 };
 
 let customScale = 1;
-let targetFps = 30;
+let targetFps = 60;
 let bgmfile = '';
 let bgmvolume = 0;
 let bgm;
 let voiceAudio = null;
-let oldAudio = false;
 
 let alerted = false;
 let globalPause = false;
@@ -35,7 +37,7 @@ let globalPause = false;
 let introAnimation, spoilerChar;
 let forcedTime = -1;
 let acceptingClick;
-let characterOffset = { x: -720, y: 0 };
+let characterOffset = { x: 0, y: 0 };
 let introLoop;
 let introTrack, sideTrack;
 let currentVoiceline = 1;
@@ -48,7 +50,6 @@ let TPoint, TEye;
 let flipped = false;
 let displayDialog = true;
 let enableIdleLines = false;
-
 let transpose = 1;
 
 // All voicelines are manually timed for duration. This may not be the most optimized solution, but works for all intents and purposes.
@@ -122,6 +123,12 @@ const INTERACT_AUDIO_A = {
 	talk: [ 'Arona/Arona_Work_Talk_1', [ 'Arona/Arona_Default_TTS', 'Arona/Arona_Work_Talk_2' ], 'Arona/Arona_Work_Talk_3', 'Arona/Arona_Work_Talk_4', 'Arona/Arona_Work_Talk_5', 'Arona/Arona_Work_Talk_6', 'Arona/Arona_Work_Talk_7_1' ],
 	talk_dialog: [ "Manage tasks you need to complete from here!", [ "Sensei! Pick a task. I'll back you up!", "Sensei! Pick a task. I'll back you up!" ], "Here's everything on your docket. Adults have it rough, huh?", "There's lots of work to do, but I know you can do it!", "Take care of your health too. It's gotta take priority!", "Oh...that's a lot of work.", "You got this, Sensei!" ],
 	expression: [ '00', [ '25', '25' ], '13', '12', '18', '29', '25' ]
+};
+
+const SPECIAL_AUDIO_A = {
+	talk: [ [ "Arona/Arona_Surprise" ], ['Arona/Arona_Frustration'] ],
+	talk_dialog: [["Y-You shouldn't touch Arona there, Sensei!" ], [ "W-What are you doing with my skirt!?" ] ],
+    expression: [ [ "18", "18" ] , [ "18", "18" ] ],
 };
 
 const INTRO_AUDIO_P = [
@@ -200,8 +207,10 @@ const INTERACT_AUDIO_P = {
 };
 
 const HITBOX = {
-	headpat: { xMin: 1320, xMax: 1630, yMin: 615, yMax: 755 },
-	voiceline: { xMin: 1300, xMax: 1550, yMin: 970, yMax: 1450 }
+	headpat: { xMin: 1330, xMax: 1620, yMin: 615, yMax: 755 },
+	face: { xMin: 1360, xMax: 1580, yMin: 770, yMax: 930 },
+	chest: { xMin: 1375, xMax: 1565, yMin: 1020, yMax: 1200 },
+	skirt: { xMin: 1250, xMax: 1700, yMin: 1250, yMax: 1650 }
 };
 
 const HEADPAT_CLAMP = 30;
@@ -294,8 +303,15 @@ function unpet() {
 	if (TPoint.x < PPointX) TPoint.x += HEADPAT_STEP;
 }
 
+function updateTextboxPosition() {
+    if (!textbox) return;
+    // Always force anchor position regardless of voice data to keep "centered around model"
+    textbox.style.left = tInvert(TEXTBOX_ANCHOR.x, 'x') + 'px';
+    textbox.style.top = tInvert(TEXTBOX_ANCHOR.y, 'y') + 'px';
+}
+
 function playLine(voiceData, endFunc, spine) {
-	let audioDir = oldAudio ? 'oldAudio' : 'audio';
+	let audioDir = 'audio';
 	// FIX: Update base path for Next.js public folder structure
 	const basePath = '/spine/arona';
 	let parentTrack;
@@ -329,14 +345,9 @@ function playLine(voiceData, endFunc, spine) {
             setTimeout(cleanup, 1000); 
         });
 
-		if (voiceData.dPositions && LOADOUT.isorganized) {
-			textbox.style.left = tInvert(voiceData.dPositions[voiceData.dSequence].x, 'x') + 'px';
-			textbox.style.top = tInvert(voiceData.dPositions[voiceData.dSequence].y, 'y') + 'px';
-		}
-		else {
-			textbox.style.left = LOADOUT.ux + '%';
-			textbox.style.top = LOADOUT.uy + '%';
-		}
+        // FORCE ANCHOR POSITION
+        updateTextboxPosition();
+
 		textbox.innerHTML = voiceData.dialog;
 		if (displayDialog) textbox.style.opacity = 1;
 
@@ -363,14 +374,9 @@ function playLine(voiceData, endFunc, spine) {
 			}
 			track.volume = volume;
 			if (!prevtrack) {
-				if (voiceData.dPositions && LOADOUT.isorganized) {
-					textbox.style.left = tInvert(voiceData.dPositions[voiceData.dSequence[i - 1]].x, 'x') + 'px';
-					textbox.style.top = tInvert(voiceData.dPositions[voiceData.dSequence[i - 1]].y, 'y') + 'px';
-				}
-				else {
-					textbox.style.left = LOADOUT.ux + '%';
-					textbox.style.top = LOADOUT.uy + '%';
-				}
+                // FORCE ANCHOR POSITION
+                updateTextboxPosition();
+
 				if (voiceData.expression && voiceData.expression[i - 1] && spine) spine.state.setAnimation(1, voiceData.expression[i - 1], true);
 				track.play();
 				textbox.innerHTML = voiceData.dialog[i - 1];
@@ -380,14 +386,10 @@ function playLine(voiceData, endFunc, spine) {
 			else {
 				prevtrack.addEventListener('ended', function() {
 					if (voiceData.expression && voiceData.expression[i - 1] && spine) spine.state.setAnimation(1, voiceData.expression[i - 1], true);
-					if (voiceData.dPositions && LOADOUT.isorganized) {
-						textbox.style.left = tInvert(voiceData.dPositions[voiceData.dSequence[i - 1]].x, 'x') + 'px';
-						textbox.style.top = tInvert(voiceData.dPositions[voiceData.dSequence[i - 1]].y, 'y') + 'px';
-					}
-					else {
-						textbox.style.left = LOADOUT.ux + '%';
-						textbox.style.top = LOADOUT.uy + '%';
-					}
+					
+                    // FORCE ANCHOR POSITION
+                    updateTextboxPosition();
+
 					track.play();
 					textbox.innerHTML = voiceData.dialog[i - 1];
 
@@ -498,9 +500,15 @@ function pressedMouse(x, y, overrideTrack = false) {
 		spineDataA.state.setAnimation(2, 'Pat_01_A', false);
 		mouseSelect = 1;
 	}
-	else if (!overrideTrack && mouseSelect <= 0 && tx > (HITBOX.voiceline.xMin + characterOffset.x) && tx < (HITBOX.voiceline.xMax + characterOffset.x) && ty > (HITBOX.voiceline.yMin - characterOffset.y) && ty < (HITBOX.voiceline.yMax - characterOffset.y) && mouseOptions.voicelines) {
+	else if (!overrideTrack && mouseSelect <= 0 && tx > (HITBOX.face.xMin + characterOffset.x) && tx < (HITBOX.face.xMax + characterOffset.x) && ty > (HITBOX.face.yMin - characterOffset.y) && ty < (HITBOX.face.yMax - characterOffset.y) && mouseOptions.voicelines) {
 		mouseSelect = 2;
 	}
+    else if (!overrideTrack && mouseSelect <= 0 && tx > (HITBOX.chest.xMin + characterOffset.x) && tx < (HITBOX.chest.xMax + characterOffset.x) && ty > (HITBOX.chest.yMin - characterOffset.y) && ty < (HITBOX.chest.yMax - characterOffset.y) && mouseOptions.voicelines) {
+        mouseSelect = 4;
+    }
+    else if (!overrideTrack && mouseSelect <= 0 && tx > (HITBOX.skirt.xMin + characterOffset.x) && tx < (HITBOX.skirt.xMax + characterOffset.x) && ty > (HITBOX.skirt.yMin - characterOffset.y) && ty < (HITBOX.skirt.yMax - characterOffset.y) && mouseOptions.voicelines) {
+        mouseSelect = 5;
+    }
 	else if (mouseOptions.mousetracking) {
 		if (trackerID == -1) {
 			trackerID = setInterval(trackMouse, 20);
@@ -562,6 +570,11 @@ function movedMouse(x, y, deltaX, deltaY) {
 			mouseSelect = -1;
 			acceptingClick = true;
 			break;
+        case 4: 
+        case 5:
+            mouseSelect = -1;
+            acceptingClick = true;
+            break;
 		case 3:
 			mousePos.x = x;
 			mousePos.y = y;
@@ -593,6 +606,26 @@ function releasedMouse(x, y) {
 				spineDataA
 			);
 			break;
+        case 4: // Chest
+            voiceAudio = playLine(
+                { filepath: SPECIAL_AUDIO_A.talk[0], dialog: SPECIAL_AUDIO_A.talk_dialog[0], expression: SPECIAL_AUDIO_A.expression[0] },
+                function() {
+                    spineDataA.state.setAnimation(1, '00', true);
+                    acceptingClick = true;
+                },
+                spineDataA
+            );
+            break;
+        case 5: // Skirt
+            voiceAudio = playLine(
+                { filepath: SPECIAL_AUDIO_A.talk[1], dialog: SPECIAL_AUDIO_A.talk_dialog[1], expression: SPECIAL_AUDIO_A.expression[1] },
+                function() {
+                    spineDataA.state.setAnimation(1, '00', true);
+                    acceptingClick = true;
+                },
+                spineDataA
+            );
+            break;
 		case 3:
 			if (trackerID != -1) {
 				clearInterval(trackerID);
@@ -689,6 +722,13 @@ function init() {
         assetManager.loadTextureAtlas(ATLAS_PATH_BG_NIGHT);
 
         requestAnimationFrame(load);
+        
+        // Add dynamic resize listener to keep elements synced
+        window.addEventListener('resize', () => {
+            resize();
+            updateTextboxPosition();
+        });
+
     } catch (e) {
         console.error("[ARONA] Init Error:", e);
     }
@@ -711,6 +751,7 @@ function loadoutSelect() {
 	LOADOUT.introAudio = LOADOUT.isday ? INTRO_AUDIO_A : INTRO_AUDIO_P;
 	LOADOUT.startAudio = LOADOUT.isday ? INTRO_STARTWORK_A : INTRO_STARTWORK_P;
 	LOADOUT.interactAudio = LOADOUT.isday ? INTERACT_AUDIO_A : INTERACT_AUDIO_P;
+	// LOADOUT.specialAudio = LOADOUT.isday ? SPECIAL_AUDIO_A : SPECIAL_AUDIO_P;
 }
 
 // CITATION: http://esotericsoftware.com/spine-api-reference#
@@ -956,6 +997,64 @@ function resize() {
 
 	mvp.ortho2d(centerX - width / 2, centerY - height / 2, width, height);
     if (gl) gl.viewport(0, 0, canvas.width, canvas.height);
+    
+    if (DEBUG_HITBOX) drawDebugHitboxes();
+}
+
+function drawDebugHitboxes() {
+    // Remove existing debug elements
+    const existing = document.querySelectorAll('.debug-hitbox');
+    existing.forEach(el => el.remove());
+
+    const colors = {
+        headpat: 'rgba(255, 0, 0, 0.3)',
+        face: 'rgba(0, 255, 0, 0.3)',
+        mouth: 'rgba(0, 255, 255, 0.3)',
+        chest: 'rgba(0, 0, 255, 0.3)',
+        skirt: 'rgba(255, 255, 0, 0.3)'
+    };
+
+    for (let key in HITBOX) {
+        const box = HITBOX[key];
+        const rect = document.createElement('div');
+        rect.className = 'debug-hitbox';
+        rect.style.position = 'absolute';
+        rect.style.border = '2px solid white';
+        rect.style.backgroundColor = colors[key] || 'rgba(255, 255, 255, 0.3)';
+        rect.style.pointerEvents = 'none'; // Click through
+        rect.style.zIndex = '9999';
+        
+        // Convert coords
+        // logical X (0-2880) -> Screen X
+        // tInvert(n, 'x')
+        const x1 = tInvert(box.xMin + characterOffset.x, 'x');
+        const x2 = tInvert(box.xMax + characterOffset.x, 'x');
+        const y1 = tInvert(box.yMin - characterOffset.y, 'y'); // y is inverted in some systems? Let's check tInvert logic.
+        // tInvert maps standard axis? 
+        // In pressedMouse: ty = t(y, 'y'). and checks ty > yMin && ty < yMax.
+        // So ty is consistent with yMin/yMax.
+        // tInvert is the inverse.
+        
+        const yTop = tInvert(box.yMin - characterOffset.y, 'y');
+        const yBottom = tInvert(box.yMax - characterOffset.y, 'y');
+
+        // Check orientation of tInvert (does 0 map to top or bottom?)
+        // Canvas usually 0 is top.
+        // If tInvert maps perfectly, then:
+        rect.style.left = Math.min(x1, x2) + 'px';
+        rect.style.top = Math.min(yTop, yBottom) + 'px';
+        rect.style.width = Math.abs(x2 - x1) + 'px';
+        rect.style.height = Math.abs(yBottom - yTop) + 'px';
+        
+        // Label
+        rect.innerText = key;
+        rect.style.color = 'white';
+        rect.style.fontSize = '12px';
+        rect.style.fontWeight = 'bold';
+        rect.style.textShadow = '1px 1px 0 #000';
+
+        document.body.appendChild(rect);
+    }
 }
 
 window.stopAronaEngine = function() {

@@ -104,7 +104,7 @@ export function TutorialOverlay() {
 
         // Poll for position updates during scroll (handling smooth scroll animation)
         updateRect()
-        const intervalId = setInterval(updateRect, 20)
+        const intervalId = setInterval(updateRect, 2000)
         const timeoutId = setTimeout(() => clearInterval(intervalId), 1000) // Stop polling after 1s
 
         // Listen for resize and scroll (capture phase for nested scrollers)

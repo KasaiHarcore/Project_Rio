@@ -2,6 +2,7 @@
 
 import React, { useEffect, useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageTransition } from "@/components/layout/page-transition"
 import Script from 'next/script'
 import { Play } from 'lucide-react'
 
@@ -42,17 +43,21 @@ export default function AronaPage() {
 
     return (
         <DashboardLayout>
-            <div className="relative w-full h-full flex flex-col overflow-hidden bg-black">
+            <PageTransition className="relative w-full h-full flex flex-col overflow-hidden bg-black">
                 {/* 
                     Legacy Script Container 
                     The script 'arona-main.js' expects specific IDs: 'canvas' and 'textbox'
                 */}
                 <div id="animation-container" className="relative w-full h-full">
                      <canvas id="canvas" className="w-full h-full block"></canvas>
+                     {/* 
+                        Use the legacy 'textbox' class to match arona-style.css 
+                        This ensures the look is exact to the Template 
+                     */}
                      <div 
                         id="textbox" 
-                        className="absolute z-50 pointer-events-none text-black bg-white/90 p-4 rounded-xl shadow-lg border border-white transition-all duration-500 opacity-0 text-center font-medium max-w-[300px]"
-                        style={{ width: '300px' }}
+                        className="textbox"
+                        style={{ display: 'block' }}
                      >
                      </div>
                 </div>
@@ -93,7 +98,7 @@ export default function AronaPage() {
                 
                 {/* Load CSS */}
                 <link rel="stylesheet" href="/css/arona-style.css" />
-            </div>
+            </PageTransition>
         </DashboardLayout>
     )
 }

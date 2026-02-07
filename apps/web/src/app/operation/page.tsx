@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageTransition } from "@/components/layout/page-transition"
 import { motion, AnimatePresence } from 'framer-motion'
 import { MessageSquare, Plus, Search, Video, Phone, MoreVertical, Archive, Trash2, Pin, CheckCheck, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -23,7 +24,7 @@ export default function OperationPage() {
 
     return (
         <DashboardLayout>
-            <div className="flex h-full w-full overflow-hidden">
+            <PageTransition className="flex h-full w-full overflow-hidden">
                 {/* Left Panel: Operation List (MomoTalk Style) */}
                 <aside className={cn(
                     "w-full md:w-[320px] lg:w-[380px] flex flex-col border-r backdrop-blur-xl z-20 transition-all absolute md:relative h-full",
@@ -137,7 +138,7 @@ export default function OperationPage() {
                         </div>
                     )}
                 </main>
-            </div>
+            </PageTransition>
         </DashboardLayout>
     )
 }

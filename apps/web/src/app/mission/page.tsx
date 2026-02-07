@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
+import { PageTransition } from "@/components/layout/page-transition"
 import { motion } from 'framer-motion'
 import { Calendar, CheckCircle2, ChevronRight, Filter, MoreHorizontal, Plus, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -29,7 +30,7 @@ export default function MissionPage() {
 
     return (
         <DashboardLayout>
-            <div className="flex-1 overflow-y-auto p-4 md:p-8">
+            <PageTransition className="flex-1 overflow-y-auto p-4 md:p-8">
                 <header className="mb-8 flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <div>
                         <h1 className={cn("text-3xl font-black tracking-tight mb-2", isPlana ? "text-slate-100" : "text-slate-800")}>
@@ -87,7 +88,7 @@ export default function MissionPage() {
                         <Plus size={20} /> ADD CUSTOM MISSION
                     </button>
                 </div>
-            </div>
+            </PageTransition>
         </DashboardLayout>
     )
 }
