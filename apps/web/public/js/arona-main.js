@@ -1,5 +1,5 @@
 let canvas, textbox, gl, shader, batcher, assetManager, skeletonRenderer;
-let mvp = new spine.webgl.Matrix4();
+let mvp;
 let isRunning = false; // Control flag for engine loop
 
 let lastFrameTime;
@@ -662,12 +662,15 @@ function init() {
         return;
     }
 
-    if (!spine || !spine.webgl) {
-        console.error("[ARONA] Spine WebGL Runtime not loaded properly.");
+    // Explicitly check window.spine to ensure global scope access
+    if (!window.spine || !window.spine.webgl) {
+        console.error("[ARONA] Spine WebGL Runtime not loaded properly. Ensure spine-webgl.js is loaded.");
         return;
     }
 
     try {
+        // Initialize mvp matrix here after spine is loaded
+        mvp = new spine.webgl.Matrix4();
         shader = spine.webgl.Shader.newTwoColoredTextured(gl);
         batcher = new spine.webgl.PolygonBatcher(gl);
         mvp.ortho2d(0, 0, canvas.width - 1, canvas.height - 1);
