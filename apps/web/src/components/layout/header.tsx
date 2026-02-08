@@ -1,79 +1,78 @@
 "use client"
 
 import React from 'react'
-import { motion } from 'framer-motion'
 import { Bell, Coins, Zap } from 'lucide-react'
 import { useUIStore } from '@/store/ui-store'
-import { cn } from '@/lib/utils'
 
 export function Header() {
-    const { userLevel, currentAp, maxAp, credits, activeCharacterId } = useUIStore()
-    const isPlana = activeCharacterId === 'plana'
+    const { userLevel, currentAp, maxAp, credits } = useUIStore()
 
     return (
         <header 
             id="schale-header"
-            className={cn(
-                "h-16 w-full flex items-center justify-between px-6 z-30 transition-colors duration-300",
-                "bg-gradient-to-b from-white/80 to-transparent",
-                isPlana && "from-[#1a1625]/80" 
-            )}
+            className="h-14 md:h-16 w-full flex items-center justify-between px-3 md:px-6 z-30 transition-colors duration-300 bg-gradient-to-b to-transparent"
+            style={{ '--tw-gradient-from': 'var(--header-gradient-from)' } as React.CSSProperties}
         >
             {/* Left: Page Context */}
             <div className="flex items-center gap-4">
-                <LevelBadge level={userLevel} isPlana={isPlana} />
+                <LevelBadge level={userLevel} />
                 <div className="flex flex-col">
-                    <span className={cn("text-xs font-bold uppercase tracking-widest", isPlana ? "text-slate-400" : "text-slate-500")}>
+                    <span className="text-xs font-bold uppercase tracking-widest text-[var(--header-subtitle)]">
                         Sensei
                     </span>
-                    <span className={cn("text-sm font-black tracking-wide", isPlana ? "text-white" : "text-slate-700")}>
+                    <span className="text-sm font-black tracking-wide text-[var(--header-name)]">
                         S.C.H.A.L.E Office
                     </span>
                 </div>
             </div>
 
             {/* Right: Resources & System Status */}
-            <div className="flex items-center gap-6">
+            <div className="flex items-center gap-3 md:gap-6">
                 
-                {/* AP / Stamina Bar */}
-                <ResourceDisplay 
-                    icon={<Zap size={16} className={isPlana ? "text-rose-400" : "text-yellow-500"} fill="currentColor" />}
-                    value={`${currentAp}/${maxAp}`}
-                    label="AP"
-                    isPlana={isPlana}
-                />
+                {/* AP / Stamina Bar - Hidden on small screens */}
+                <div className="hidden md:block">
+                    <ResourceDisplay 
+                        icon={<Zap size={16} className="text-[var(--header-ap-icon)]" fill="currentColor" />}
+                        value={`${currentAp}/${maxAp}`}
+                        label="AP"
+                    />
+                </div>
 
-                {/* Credits */}
-                <ResourceDisplay 
-                    icon={<Coins size={16} className={isPlana ? "text-slate-300" : "text-slate-500"} />}
-                    value={credits.toLocaleString()}
-                    label="CREDITS"
-                    isPlana={isPlana}
-                />
+                {/* Credits - Hidden on small screens */}
+                <div className="hidden md:block">
+                    <ResourceDisplay 
+                        icon={<Coins size={16} className="text-[var(--header-credits-icon)]" />}
+                        value={credits.toLocaleString()}
+                        label="CREDITS"
+                    />
+                </div>
+
+                {/* Compact mobile resource display */}
+                <div className="flex md:hidden items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-md text-xs font-bold bg-[var(--header-resource-bg)] border-[var(--header-resource-border)] text-[var(--header-resource-text)]">
+                    <Zap size={12} className="text-[var(--header-ap-icon)]" fill="currentColor" />
+                    <span className="font-mono">{currentAp}</span>
+                </div>
 
                 {/* Vertical Divider */}
-                <div className="h-6 w-[1px] bg-slate-200/50" />
+                <div className="h-6 w-[1px] bg-slate-200/50 hidden md:block" />
 
                 {/* Notifications */}
-                <button className={cn(
-                    "relative p-2 rounded-full transition-colors hover:bg-black/5",
-                    isPlana ? "text-slate-300 hover:bg-white/10" : "text-slate-600"
-                )}>
+                <button 
+                    className="relative p-2 rounded-full transition-colors text-[var(--header-bell-text)] hover:bg-[var(--header-bell-hover)]"
+                    aria-label="Notifications"
+                >
                     <Bell size={20} />
-                    <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" />
+                    <span className="absolute top-2 right-2 w-2 h-2 bg-red-500 rounded-full animate-pulse" aria-hidden="true" />
                 </button>
             </div>
         </header>
     )
 }
 
-function LevelBadge({ level, isPlana }: { level: number, isPlana: boolean }) {
+function LevelBadge({ level }: { level: number }) {
     return (
         <div id="level-badge" className="relative group cursor-pointer">
-            <div className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors border-[#1289F4] bg-white text-[#1289F4]",
-                isPlana && "border-rose-500 bg-[#2d253a] text-rose-500"
-            )}>
+            <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors border-[var(--header-level-border)] bg-[var(--header-level-bg)] text-[var(--header-level-text)]">
                 <span className="font-black font-mono text-lg">{level}</span>
             </div>
             {/* Exp Ring (SVG) */}
@@ -81,10 +80,10 @@ function LevelBadge({ level, isPlana }: { level: number, isPlana: boolean }) {
                  <circle
                      cx="28" cy="28" r="26"
                      fill="none"
-                     stroke={isPlana ? "#f43f5e" : "#1289F4"}
+                     stroke="var(--header-level-ring)"
                      strokeWidth="2"
                     strokeDasharray="163" 
-                    strokeDashoffset={40} // 75% full
+                    strokeDashoffset={40}
                     strokeLinecap="round"
                     className="opacity-80"
                  />
@@ -93,20 +92,14 @@ function LevelBadge({ level, isPlana }: { level: number, isPlana: boolean }) {
     )
 }
 
-function ResourceDisplay({ icon, value, label, isPlana }: { icon: React.ReactNode, value: string, label: string, isPlana: boolean }) {
+function ResourceDisplay({ icon, value, label }: { icon: React.ReactNode, value: string, label: string }) {
     return (
-        <div className={cn(
-            "flex items-center h-9 px-4 rounded-full border bg-white/60 backdrop-blur-md shadow-sm gap-3 min-w-[140px]",
-            isPlana ? "bg-[#2d253a]/80 border-white/10 text-slate-200" : "border-[#1289F4]/20 text-slate-700"
-        )}>
+        <div className="flex items-center h-9 px-4 rounded-full border backdrop-blur-md shadow-sm gap-3 min-w-[140px] bg-[var(--header-resource-bg)] border-[var(--header-resource-border)] text-[var(--header-resource-text)]">
             {icon}
             <div className="flex flex-col items-end flex-1 leading-none">
                  <span className="font-mono font-bold text-sm tracking-tighter">{value}</span>
             </div>
-            <div className={cn(
-                "w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white",
-                isPlana ? "bg-slate-600" : "bg-[#1289F4]"
-            )}>
+            <div className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white bg-[var(--header-resource-badge)]">
                 +
             </div>
         </div>

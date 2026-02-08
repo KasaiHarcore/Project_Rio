@@ -1,21 +1,29 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useState, useRef, useCallback } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { motion } from 'framer-motion'
-import { Calendar, CheckCircle2, ChevronRight, Filter, MoreHorizontal, Plus, Trophy } from 'lucide-react'
+import { motion, AnimatePresence, Reorder } from 'framer-motion'
+import { Calendar, CheckCircle2, ChevronRight, Filter, GripVertical, MoreHorizontal, Plus, Trophy } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useUIStore } from '@/store/ui-store'
 import { useTheme } from '@/components/providers/theme-provider'
+import { toast } from '@/hooks/use-toast'
 
-const DAILY_TASKS = [
+interface Task {
+    id: number
+    title: string
+    reward: string
+    completed: boolean
+}
+
+const INITIAL_DAILY_TASKS: Task[] = [
     { id: 1, title: 'Complete 1 RAG query', reward: '50 Credits', completed: true },
     { id: 2, title: 'Read 2 Documentation pages', reward: '30 AP', completed: false },
     { id: 3, title: 'Login before 12:00', reward: '10 Pyroxene', completed: true },
 ]
 
-const WEEKLY_TASKS = [
+const INITIAL_WEEKLY_TASKS: Task[] = [
     { id: 4, title: 'Finish SQL Module', reward: '500 Credits', completed: false },
     { id: 5, title: 'Create 3 Operations', reward: '100 AP', completed: false },
 ]
@@ -23,10 +31,14 @@ const WEEKLY_TASKS = [
 export default function MissionPage() {
     const { theme } = useTheme()
     const isNight = theme === 'dark'
-    // We can stick to theme for visual consistency, matching Sidebar/Dashboard
     const isPlana = isNight 
 
     const [activeTab, setActiveTab] = useState<'daily' | 'weekly'>('daily')
+    const [dailyTasks, setDailyTasks] = useState<Task[]>(INITIAL_DAILY_TASKS)
+    const [weeklyTasks, setWeeklyTasks] = useState<Task[]>(INITIAL_WEEKLY_TASKS)
+
+    const activeTasks = activeTab === 'daily' ? dailyTasks : weeklyTasks
+    const setActiveTasks = activeTab === 'daily' ? setDailyTasks : setWeeklyTasks
 
     return (
         <DashboardLayout>
@@ -72,11 +84,22 @@ export default function MissionPage() {
                     <Trophy className="absolute -bottom-6 -right-6 w-32 h-32 opacity-10 rotate-12" />
                 </div>
 
-                {/* Task List */}
-                <div className="space-y-4">
-                    {(activeTab === 'daily' ? DAILY_TASKS : WEEKLY_TASKS).map((task) => (
-                        <TaskCard key={task.id} task={task} isPlana={isPlana} />
+                {/* Task List — Drag-and-Drop Reorderable */}
+                <Reorder.Group
+                  axis="y"
+                  values={activeTasks}
+                  onReorder={setActiveTasks}
+                  className="space-y-4"
+                >
+                    {activeTasks.map((task) => (
+                        <DraggableTaskCard key={task.id} task={task} isPlana={isPlana} />
                     ))}
+                </Reorder.Group>
+
+                    {/* Hint */}
+                    <p className={cn("text-center text-[10px] font-bold uppercase tracking-wider mt-3 mb-4", isPlana ? "text-slate-600" : "text-slate-300")}>
+                        Drag tasks to reorder priority
+                    </p>
                     
                     {/* Add Task Button */}
                     <button className={cn(
@@ -87,7 +110,6 @@ export default function MissionPage() {
                     )}>
                         <Plus size={20} /> ADD CUSTOM MISSION
                     </button>
-                </div>
             </PageTransition>
         </DashboardLayout>
     )
@@ -109,18 +131,36 @@ function TabButton({ active, onClick, label, isPlana }: { active: boolean, onCli
     )
 }
 
-function TaskCard({ task, isPlana }: { task: any, isPlana: boolean }) {
+function DraggableTaskCard({ task, isPlana }: { task: Task, isPlana: boolean }) {
     return (
-        <motion.div 
+        <Reorder.Item 
+            value={task}
+            id={String(task.id)}
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95 }}
+            whileDrag={{
+                scale: 1.03,
+                boxShadow: isPlana
+                  ? "0 8px 32px rgba(225,29,72,0.25)"
+                  : "0 8px 32px rgba(18,137,244,0.2)",
+                cursor: "grabbing",
+            }}
             className={cn(
-                "group p-4 rounded-2xl flex items-center gap-4 transition-all hover:scale-[1.01]",
+                "group p-4 rounded-2xl flex items-center gap-4 transition-all",
                 isPlana 
                     ? "bg-[#0d1117]/60 border border-rose-900/20 hover:bg-[#0d1117] hover:border-rose-900/40" 
                     : "bg-white hover:shadow-md border border-slate-100"
             )}
         >
+             {/* Drag Handle */}
+             <div className={cn(
+                 "cursor-grab active:cursor-grabbing p-1 rounded-lg transition-colors opacity-40 hover:opacity-100",
+                 isPlana ? "text-rose-500 hover:bg-rose-900/20" : "text-slate-400 hover:bg-slate-100"
+             )}>
+                <GripVertical size={18} />
+             </div>
+
              {/* Status Icon */}
              <div className={cn(
                  "w-12 h-12 rounded-full flex items-center justify-center shrink-0 transition-colors",
@@ -157,6 +197,6 @@ function TaskCard({ task, isPlana }: { task: any, isPlana: boolean }) {
                     Claim
                  </button>
              )}
-        </motion.div>
+        </Reorder.Item>
     )
 }

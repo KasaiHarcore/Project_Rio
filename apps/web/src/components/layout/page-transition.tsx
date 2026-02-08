@@ -1,6 +1,19 @@
 "use client"
 
-import { motion } from "framer-motion"
+import { usePathname } from "next/navigation"
+import { motion, AnimatePresence } from "framer-motion"
+
+const pageVariants = {
+  initial: { opacity: 0, y: 12, filter: "blur(4px)" },
+  animate: { opacity: 1, y: 0, filter: "blur(0px)" },
+  exit: { opacity: 0, y: -8, filter: "blur(2px)" },
+}
+
+const pageTransition = {
+  type: "tween" as const,
+  ease: "easeOut" as const,
+  duration: 0.25,
+}
 
 interface PageTransitionProps {
   children: React.ReactNode
@@ -8,15 +21,21 @@ interface PageTransitionProps {
 }
 
 export function PageTransition({ children, className }: PageTransitionProps) {
+  const pathname = usePathname()
+
   return (
-    <motion.div
-      initial={{ opacity: 0, y: 20, filter: 'blur(5px)' }}
-      animate={{ opacity: 1, y: 0, filter: 'blur(0px)' }}
-      exit={{ opacity: 0, y: -20, filter: 'blur(5px)' }}
-      transition={{ duration: 0.3, ease: "easeOut" }}
-      className={className}
-    >
-      {children}
-    </motion.div>
+    <AnimatePresence mode="wait" initial={false}>
+      <motion.div
+        key={pathname}
+        variants={pageVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        transition={pageTransition}
+        className={className || "flex-1 flex flex-col overflow-hidden"}
+      >
+        {children}
+      </motion.div>
+    </AnimatePresence>
   )
 }

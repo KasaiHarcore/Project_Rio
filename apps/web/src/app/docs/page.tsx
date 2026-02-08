@@ -17,7 +17,7 @@ interface DocArticle {
   title: string
   category: DocCategory
   readTime: string
-  content: React.ReactNode
+  content: (isNight: boolean) => React.ReactNode
 }
 
 
@@ -27,16 +27,16 @@ const docs: DocArticle[] = [
     title: 'System Orientation',
     category: 'guide',
     readTime: '2 min',
-    content: (
+    content: (isNight) => (
       <div className="space-y-4">
-        <div className="rounded-xl bg-blue-50 border border-blue-100 p-4 text-sm text-blue-800">
+        <div className={cn("rounded-xl border p-4 text-sm", isNight ? "bg-rose-900/20 border-rose-800/40 text-rose-200" : "bg-blue-50 border-blue-100 text-blue-800")}>
           <strong>Mission Statement:</strong> The Schale Agent System is designed to assist Sensei in managing daily operations, strategic analysis, and student data processing.
         </div>
-        <p className="text-slate-600">
+        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
           Welcome to the <strong>Schale Operating System (OS_VER.3)</strong>. This platform integrates advanced Neural Network processing with a secure, highly intuitive interface for tactical command.
         </p>
-        <h3 className="text-lg font-bold text-slate-800 mt-6">Core Capabilities</h3>
-        <ul className="list-disc pl-5 space-y-2 text-slate-600">
+        <h3 className={cn("text-lg font-bold mt-6", isNight ? "text-slate-100" : "text-slate-800")}>Core Capabilities</h3>
+        <ul className={cn("list-disc pl-5 space-y-2", isNight ? "text-slate-300" : "text-slate-600")}>
           <li><strong>Natural Language Processing:</strong> Direct neural link for conversational querying.</li>
           <li><strong>RAG Architecture:</strong> Retrieval-Augmented Generation for accessing archived knowledge bases.</li>
           <li><strong>Artifact Generation:</strong> Automatic creation of code snippets, study plans, and tactical diagrams.</li>
@@ -49,19 +49,19 @@ const docs: DocArticle[] = [
     title: 'Neural Link Configuration',
     category: 'api',
     readTime: '5 min',
-    content: (
+    content: (isNight) => (
       <div className="space-y-4">
-        <p className="text-slate-600">
+        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
           To establish a stable connection with external computation nodes (LLMs), valid security tokens are required.
         </p>
-        <div className="relative rounded-xl bg-slate-900 p-4 font-mono text-xs text-blue-300 overflow-hidden group">
+        <div className={cn("relative rounded-xl p-4 font-mono text-xs overflow-hidden group", isNight ? "bg-black/40 text-rose-300 border border-rose-900/30" : "bg-slate-900 text-blue-300")}>
             <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
                 <button className="text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white icon-copy">Copy</button>
             </div>
-            <span className="text-purple-400">export</span> SCHALE_API_KEY=<span className="text-green-400">"sk_live_..."</span><br/>
-            <span className="text-purple-400">export</span> ARONA_ENDPOINT=<span className="text-green-400">"https://api.schale.gg/v1"</span>
+            <span className={cn(isNight ? "text-rose-400" : "text-purple-400")}>export</span> SCHALE_API_KEY=<span className="text-green-400">"sk_live_..."</span><br/>
+            <span className={cn(isNight ? "text-rose-400" : "text-purple-400")}>export</span> ARONA_ENDPOINT=<span className="text-green-400">"https://api.schale.gg/v1"</span>
         </div>
-        <p className="text-xs text-slate-400 italic">
+        <p className={cn("text-xs italic", isNight ? "text-slate-500" : "text-slate-400")}>
           WARNING: Do not share your private keys with unauthorized personnel or students from Gehenna Academy.
         </p>
       </div>
@@ -72,23 +72,23 @@ const docs: DocArticle[] = [
     title: 'Emergency Protocols',
     category: 'system',
     readTime: '3 min',
-    content: (
+    content: (isNight) => (
       <div className="space-y-4">
-        <p className="text-slate-600">
+        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
           In the event of a system crash or unexpected behavior (AI Hallucinations), follow these steps immediately.
         </p>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-           <div className="border border-red-100 bg-red-50/50 rounded-xl p-4">
-              <h4 className="font-bold text-red-600 flex items-center gap-2 mb-2">
+           <div className={cn("border rounded-xl p-4", isNight ? "border-red-900/40 bg-red-900/20" : "border-red-100 bg-red-50/50")}>
+              <h4 className={cn("font-bold flex items-center gap-2 mb-2", isNight ? "text-red-400" : "text-red-600")}>
                  <Shield className="h-4 w-4" /> Containment
               </h4>
-              <p className="text-xs text-red-800">Immediately disconnect the active session via the "Abort" button in the Mission Control panel.</p>
+              <p className={cn("text-xs", isNight ? "text-red-300/80" : "text-red-800")}>Immediately disconnect the active session via the "Abort" button in the Mission Control panel.</p>
            </div>
-           <div className="border border-amber-100 bg-amber-50/50 rounded-xl p-4">
-              <h4 className="font-bold text-amber-600 flex items-center gap-2 mb-2">
+           <div className={cn("border rounded-xl p-4", isNight ? "border-amber-900/40 bg-amber-900/20" : "border-amber-100 bg-amber-50/50")}>
+              <h4 className={cn("font-bold flex items-center gap-2 mb-2", isNight ? "text-amber-400" : "text-amber-600")}>
                  <Zap className="h-4 w-4" /> System Reset
               </h4>
-              <p className="text-xs text-amber-800">Clear local cache and re-authenticate. Artifacts are safely stored in the cloud.</p>
+              <p className={cn("text-xs", isNight ? "text-amber-300/80" : "text-amber-800")}>Clear local cache and re-authenticate. Artifacts are safely stored in the cloud.</p>
            </div>
         </div>
       </div>
@@ -251,18 +251,28 @@ export default function DocsPage() {
                         </div>
 
                         {/* Article Content */}
-                        <div className="prose prose-slate prose-sm md:prose-base max-w-none">
-                            {currentDoc.content}
+                        <div className={cn("prose prose-sm md:prose-base max-w-none", isNight ? "prose-invert" : "prose-slate")}>
+                            {currentDoc.content(isNight)}
                         </div>
 
                         {/* Feedback Section */}
-                        <div className="mt-12 pt-8 border-t border-blue-50 flex items-center justify-between">
-                            <p className="text-sm text-slate-500 font-medium">Was this protocol helpful?</p>
+                        <div className={cn("mt-12 pt-8 border-t flex items-center justify-between", isNight ? "border-rose-900/30" : "border-blue-50")}>
+                            <p className={cn("text-sm font-medium", isNight ? "text-slate-400" : "text-slate-500")}>Was this protocol helpful?</p>
                             <div className="flex gap-2">
-                                <button className="px-4 py-2 rounded-lg border border-blue-100 bg-white hover:bg-blue-50 hover:border-blue-200 text-sm font-bold text-slate-600 transition-all">
+                                <button className={cn(
+                                    "px-4 py-2 rounded-lg border text-sm font-bold transition-all",
+                                    isNight 
+                                        ? "border-rose-900/40 bg-[#0d1117]/60 text-slate-300 hover:bg-rose-900/20 hover:border-rose-700" 
+                                        : "border-blue-100 bg-white text-slate-600 hover:bg-blue-50 hover:border-blue-200"
+                                )}>
                                     Yes, confirmed
                                 </button>
-                                <button className="px-4 py-2 rounded-lg border border-blue-100 bg-white hover:bg-red-50 hover:border-red-200 text-sm font-bold text-slate-600 transition-all">
+                                <button className={cn(
+                                    "px-4 py-2 rounded-lg border text-sm font-bold transition-all",
+                                    isNight 
+                                        ? "border-rose-900/40 bg-[#0d1117]/60 text-slate-300 hover:bg-red-900/20 hover:border-red-800" 
+                                        : "border-blue-100 bg-white text-slate-600 hover:bg-red-50 hover:border-red-200"
+                                )}>
                                     No, vague
                                 </button>
                             </div>

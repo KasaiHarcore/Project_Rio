@@ -4,22 +4,60 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { agentConfig } from '@/lib/agent-config'
 import { cn } from '@/lib/utils'
+import { useTheme } from '@/components/providers/theme-provider'
+import { useUIStore } from '@/store/ui-store'
 
 // ==========================================
 // CONFIGURATION
 // ==========================================
-const ANIMATION_CONFIG = {
-    // Colors based on Blue Archive / Sci-Fi Anime UI (Schale Light Mode)
-    // Now using CSS variables from globals.css for consistency
-    COLORS: {
-        BG_MAIN: 'var(--background)',    // #f3f7f9
-        BG_ACCENT: 'var(--card)',        // #ffffff
-        PRIMARY: 'var(--primary)',       // #00AEEF
-        SECONDARY: 'var(--destructive)', // #FF4D4F or #FF6F91
-        TEXT_MAIN: 'var(--foreground)',  // #2d3748
-        TEXT_SUB: 'var(--muted-foreground)' // #64748b
-    }
-}
+
+// Theme-aware splash config
+const SPLASH_THEMES = {
+  arona: {
+    bg: '#f3f7f9',
+    bgGradient: 'from-white via-[#f3f7f9] to-[#e2e8f0]',
+    vignette: '#f3f7f9',
+    gridColor: 'rgba(0, 174, 239, 0.4)',
+    hexBorder: 'border-sky-400/30',
+    hexBg: 'bg-sky-100/10',
+    primary: '#1289F4',
+    primaryGlow: 'rgba(18,137,244,0.4)',
+    ringBorder: 'border-slate-300',
+    dashBorder: 'border-slate-300/80',
+    textMain: '#454C5D',
+    textSub: 'text-slate-400',
+    textFooter: 'text-slate-400',
+    btnBg: 'bg-white/60',
+    btnHoverBg: 'group-hover:bg-white',
+    btnBorder: 'border-[#1289F4]/30',
+    btnHoverBorder: 'group-hover:border-[#1289F4]',
+    loadingImg: '/images/arona_load.png',
+    successImg: '/images/arona_load.png',
+  },
+  plana: {
+    bg: '#0f111a',
+    bgGradient: 'from-[#1a1625] via-[#0f111a] to-[#0a0c14]',
+    vignette: '#0f111a',
+    gridColor: 'rgba(244, 63, 94, 0.3)',
+    hexBorder: 'border-rose-500/20',
+    hexBg: 'bg-rose-900/10',
+    primary: '#f43f5e',
+    primaryGlow: 'rgba(244,63,94,0.4)',
+    ringBorder: 'border-rose-900/50',
+    dashBorder: 'border-rose-900/30',
+    textMain: '#e2e8f0',
+    textSub: 'text-slate-500',
+    textFooter: 'text-slate-600',
+    btnBg: 'bg-[#0d1117]/60',
+    btnHoverBg: 'group-hover:bg-[#0d1117]',
+    btnBorder: 'border-rose-500/30',
+    btnHoverBorder: 'group-hover:border-rose-500',
+    loadingImg: '/images/plana_load.png',
+    successImg: '/images/plana_load.png',
+  },
+} as const
+
+type SplashTheme = typeof SPLASH_THEMES[keyof typeof SPLASH_THEMES]
 
 interface SplashScreenProps {
   onComplete?: () => void
@@ -29,6 +67,10 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
   const [progress, setProgress] = useState(0)
   const [isReady, setIsReady] = useState(false)
   const [isExiting, setIsExiting] = useState(false)
+  
+  const { theme } = useTheme()
+  const activeCharacterId = useUIStore((state) => state.activeCharacterId)
+  const t = activeCharacterId === 'plana' || theme === 'dark' ? SPLASH_THEMES.plana : SPLASH_THEMES.arona
 
   // Simulated Loading Sequence
   useEffect(() => {
@@ -59,20 +101,25 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
     <AnimatePresence>
       {!isExiting && (
         <motion.div 
-            className="fixed inset-0 z-50 overflow-hidden font-sans cursor-pointer select-none bg-[#f3f7f9]"
+            className="fixed inset-0 z-50 overflow-hidden font-sans cursor-pointer select-none"
+            style={{ backgroundColor: t.bg }}
+            role="button"
+            tabIndex={0}
+            aria-label="Click or press Enter to start"
             onClick={handleStart}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleStart(); } }}
             exit={{ opacity: 0, scale: 1.05, filter: "blur(20px)" }}
             transition={{ duration: 0.8, ease: "easeInOut" }}
         >
-            <TechBackground />
+            <TechBackground t={t} />
             
             <div className="relative z-20 flex flex-col items-center justify-center w-full h-full pb-10">
-                <MainLoader progress={progress} isReady={isReady} />
-                <StatusText isReady={isReady} />
-                <StartPrompt isReady={isReady} />
+                <MainLoader progress={progress} isReady={isReady} t={t} />
+                <StatusText isReady={isReady} t={t} />
+                <StartPrompt isReady={isReady} t={t} />
             </div>
 
-            <SystemFooter />
+            <SystemFooter t={t} />
         </motion.div>
       )}
     </AnimatePresence>
@@ -83,27 +130,27 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
 // SUB-COMPONENTS
 // ==========================================
 
-function TechBackground() {
+function TechBackground({ t }: { t: SplashTheme }) {
   // Generate hexagonal grid
   const hexagons = useMemo(() => Array.from({ length: 20 }, (_, i) => i), [])
 
   return (
     <>
         {/* Light Gradient Background */}
-        <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-white via-[#f3f7f9] to-[#e2e8f0]" />
+        <div className={cn("absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))]", t.bgGradient)} />
 
-        {/* Floating Particles/Hexagons (Blue Tint) */}
+        {/* Floating Particles/Hexagons */}
         <div className="absolute inset-0 overflow-hidden opacity-50">
             {hexagons.map((i) => (
-                <FloatingHexagon key={i} index={i} />
+                <FloatingHexagon key={i} index={i} t={t} />
             ))}
         </div>
 
-        {/* Animated Grid Floor (Light Blue) */}
+        {/* Animated Grid Floor */}
         <div 
             className="absolute inset-0 opacity-20"
             style={{ 
-                backgroundImage: 'linear-gradient(rgba(0, 174, 239, 0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(0, 174, 239, 0.4) 1px, transparent 1px)', 
+                backgroundImage: `linear-gradient(${t.gridColor} 1px, transparent 1px), linear-gradient(90deg, ${t.gridColor} 1px, transparent 1px)`, 
                 backgroundSize: '60px 60px',
                 transform: 'perspective(500px) rotateX(60deg) translateY(-100px) scale(2)',
                 transformOrigin: 'top center'
@@ -111,12 +158,12 @@ function TechBackground() {
         />
         
         {/* Soft Vignette */}
-        <div className="absolute inset-0 bg-[radial-gradient(transparent_0%,_#f3f7f9_100%)] opacity-80" />
+        <div className="absolute inset-0 opacity-80" style={{ background: `radial-gradient(transparent 0%, ${t.vignette} 100%)` }} />
     </>
   )
 }
 
-function FloatingHexagon({ index }: { index: number }) {
+function FloatingHexagon({ index, t }: { index: number, t: SplashTheme }) {
     // FIX: Hydration Mismatch
     // We must ensure the initial render on server matches the client.
     // Random values cause mismatches. We move random generation to useEffect (Client-only).
@@ -133,7 +180,7 @@ function FloatingHexagon({ index }: { index: number }) {
     
     return (
         <motion.div
-            className="absolute w-16 h-16 border border-sky-400/30 bg-sky-100/10"
+            className={cn("absolute w-16 h-16 border", t.hexBorder, t.hexBg)}
             style={{ 
                 left: `${pos.x}%`, 
                 top: `${pos.y}%`,
@@ -153,23 +200,23 @@ function FloatingHexagon({ index }: { index: number }) {
     )
 }
 
-function MainLoader({ progress, isReady }: { progress: number, isReady: boolean }) {
+function MainLoader({ progress, isReady, t }: { progress: number, isReady: boolean, t: SplashTheme }) {
     const clampedProgress = Math.min(100, progress)
     
     return (
         <div className="relative w-64 h-64 mb-10 flex items-center justify-center">
-            {/* Outer Rotating Ring (Subtle Blue Grey) */}
+            {/* Outer Rotating Ring */}
             <motion.div 
-                className="absolute inset-0 border-[1px] border-slate-300 rounded-full"
+                className={cn("absolute inset-0 border-[1px] rounded-full", t.ringBorder)}
                 animate={{ rotate: 360 }}
                 transition={{ duration: 20, repeat: Infinity, ease: "linear" }}
             >
-                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 bg-primary rounded-full shadow-[0_0_10px_var(--primary)]" />
+                <div className="absolute top-0 left-1/2 -translate-x-1/2 w-3 h-3 rounded-full" style={{ backgroundColor: t.primary, boxShadow: `0 0 10px ${t.primary}` }} />
             </motion.div>
 
             {/* Inner Counter-Rotating Hexagon Ring */}
             <motion.div 
-                className="absolute inset-6 border-[1px] border-dashed border-slate-300/80 rounded-full"
+                className={cn("absolute inset-6 border-[1px] border-dashed rounded-full", t.dashBorder)}
                 animate={{ rotate: -360 }}
                 transition={{ duration: 15, repeat: Infinity, ease: "linear" }}
             />
@@ -189,9 +236,10 @@ function MainLoader({ progress, isReady }: { progress: number, isReady: boolean 
                             className="flex items-center justify-center p-4"
                         >
                             <img 
-                                src="/images/splash_screen_success.png" 
+                                src={t.successImg}
                                 alt="System Ready" 
-                                className="w-48 h-48 object-contain drop-shadow-[0_0_10px_rgba(18,137,244,0.4)]"
+                                className="w-48 h-48 object-contain"
+                                style={{ filter: `drop-shadow(0 0 10px ${t.primaryGlow})` }}
                             />
                         </motion.div>
                     ) : (
@@ -203,11 +251,10 @@ function MainLoader({ progress, isReady }: { progress: number, isReady: boolean 
                             className="flex items-center justify-center p-4"
                          >
                             <img 
-                                src="/images/splash_screen_loading.png" 
+                                src={t.loadingImg}
                                 alt="Loading..." 
                                 className="w-48 h-48 object-contain opacity-80"
                             />
-                            {/* Optional: Keep small percentage below if desired, but user asked to change it TO the image. I'll remove the big numbers. */}
                          </motion.div>
                     )}
                  </motion.div>
@@ -218,19 +265,20 @@ function MainLoader({ progress, isReady }: { progress: number, isReady: boolean 
                  <circle
                      cx="128" cy="128" r="120"
                      fill="none"
-                     stroke="#1289F4"
+                     stroke={t.primary}
                      strokeWidth="3"
-                    strokeDasharray="753" // Circumference ~ 2*PI*120
+                    strokeDasharray="753"
                     strokeDashoffset={753 - (753 * clampedProgress) / 100}
                     strokeLinecap="round"
-                    className="transition-all duration-300 ease-out opacity-90 drop-shadow-[0_0_4px_rgba(18,137,244,0.4)]"
+                    className="transition-all duration-300 ease-out opacity-90"
+                    style={{ filter: `drop-shadow(0 0 4px ${t.primaryGlow})` }}
                  />
              </svg>
         </div>
     )
 }
 
-function StatusText({ isReady }: { isReady: boolean }) {
+function StatusText({ isReady, t }: { isReady: boolean, t: SplashTheme }) {
     return (
         <div className="h-24 flex flex-col items-center justify-top overflow-hidden">
             <AnimatePresence mode="wait">
@@ -242,10 +290,10 @@ function StatusText({ isReady }: { isReady: boolean }) {
                         exit={{ opacity: 0, y: -10 }}
                         className="text-center"
                     >
-                        <h2 className="text-xl font-bold text-[#1289F4] tracking-[0.2em] font-mono">
+                        <h2 className="text-xl font-bold tracking-[0.2em] font-mono" style={{ color: t.primary }}>
                             CONNECTING TO SCHALE
                         </h2>
-                        <p className="text-sm text-slate-400 font-mono mt-2 font-bold uppercase">
+                        <p className={cn("text-sm font-mono mt-2 font-bold uppercase", t.textSub)}>
                              Initializing Sensei Neural Link...
                         </p>
                     </motion.div>
@@ -256,11 +304,11 @@ function StatusText({ isReady }: { isReady: boolean }) {
                         animate={{ opacity: 1, scale: 1 }}
                         className="text-center"
                     >
-                         <h2 className="text-3xl font-black text-[#454C5D] tracking-wider">
+                         <h2 className="text-3xl font-black tracking-wider" style={{ color: t.textMain }}>
                             AUTHENTICATION CLEAR
                          </h2>
-                         <div className="h-1 w-20 bg-[#1289F4] mx-auto my-3 rounded-full" />
-                         <p className="text-sm font-bold text-slate-500 tracking-widest uppercase">
+                         <div className="h-1 w-20 mx-auto my-3 rounded-full" style={{ backgroundColor: t.primary }} />
+                         <p className={cn("text-sm font-bold tracking-widest uppercase", t.textSub)}>
                             Welcome back, Sensei
                          </p>
                     </motion.div>
@@ -270,7 +318,7 @@ function StatusText({ isReady }: { isReady: boolean }) {
     )
 }
 
-function StartPrompt({ isReady }: { isReady: boolean }) {
+function StartPrompt({ isReady, t }: { isReady: boolean, t: SplashTheme }) {
     return (
         <div className="absolute bottom-32 h-16 w-full flex justify-center items-center">
             <AnimatePresence>
@@ -281,14 +329,17 @@ function StartPrompt({ isReady }: { isReady: boolean }) {
                         className="relative group cursor-pointer"
                     >
                         {/* Pulse Ring */}
-                        <div className="absolute inset-0 bg-[#1289F4]/20 rounded-full blur-xl animate-pulse" />
+                        <div className="absolute inset-0 rounded-full blur-xl animate-pulse" style={{ backgroundColor: `${t.primary}20` }} />
                         
-                        <div className="relative px-12 py-4 bg-white/60 backdrop-blur-md border border-[#1289F4]/30 rounded-full flex items-center gap-4 transition-all group-hover:bg-white group-hover:shadow-lg group-hover:scale-105 group-hover:border-[#1289F4]">
-                             <div className="w-2 h-2 bg-[#1289F4] rounded-full animate-ping" />
-                             <span className="text-lg font-black text-[#454C5D] tracking-[0.2em] group-hover:text-[#1289F4] transition-colors">
+                        <div className={cn(
+                            "relative px-12 py-4 backdrop-blur-md border rounded-full flex items-center gap-4 transition-all group-hover:shadow-lg group-hover:scale-105",
+                            t.btnBg, t.btnBorder, t.btnHoverBg, t.btnHoverBorder
+                        )}>
+                             <div className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: t.primary }} />
+                             <span className="text-lg font-black tracking-[0.2em] transition-colors" style={{ color: t.textMain }}>
                                 TOUCH TO START
                              </span>
-                             <div className="w-2 h-2 bg-[#1289F4] rounded-full animate-ping" />
+                             <div className="w-2 h-2 rounded-full animate-ping" style={{ backgroundColor: t.primary }} />
                         </div>
                     </motion.div>
                 )}
@@ -297,15 +348,13 @@ function StartPrompt({ isReady }: { isReady: boolean }) {
     )
 }
 
-function SystemFooter() {
+function SystemFooter({ t }: { t: SplashTheme }) {
     return (
         <div className="absolute bottom-8 w-full text-center opacity-60">
-            <div className="flex justify-center items-center gap-4 text-[10px] font-bold text-slate-400 uppercase tracking-widest font-mono">
+            <div className={cn("flex justify-center items-center gap-4 text-[10px] font-bold uppercase tracking-widest font-mono", t.textFooter)}>
                 <span>System: Online</span>
-                <span className="text-[#1289F4]">•</span>
-                <span>Ver 4.0.21</span>
-                <span className="text-[#1289F4]">•</span>
-                <span>UID: 8559002</span>
+                <span style={{ color: t.primary }}>•</span>
+                <span>S.C.H.A.L.E</span>
             </div>
         </div>
     )

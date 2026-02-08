@@ -199,8 +199,8 @@ export default function KnowledgePage() {
 
                   {/* Progress bar for processing */}
                   {doc.status === 'processing' && (
-                    <div className="absolute bottom-0 left-0 h-1 w-full overflow-hidden rounded-b-2xl bg-blue-100">
-                      <div className="h-full w-1/2 animate-pulse bg-gradient-to-r from-blue-400 to-blue-600"></div>
+                    <div className={cn("absolute bottom-0 left-0 h-1 w-full overflow-hidden rounded-b-2xl", isNight ? "bg-rose-900/30" : "bg-blue-100")}>
+                      <div className={cn("h-full w-1/2 animate-pulse bg-gradient-to-r", isNight ? "from-rose-500 to-rose-600" : "from-blue-400 to-blue-600")}></div>
                     </div>
                   )}
                 </div>

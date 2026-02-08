@@ -1,0 +1,356 @@
+.dark {
+  /* Plana / Night Mode Palette */
+  
+  /* Core Background - Plana's Domain (Deep Starry Night) */
+  --background: #0f111a; 
+  --foreground: #e6edf3;
+
+  /* Card / Panel Backgrounds - Dark Glass */
+  --card: #161b22;
+  --card-foreground: #e6edf3;
+
+  --popover: #161b22;
+  --popover-foreground: #e6edf3;
+
+  /* Primary Brand - Plana Red/Pink (Halo) */
+  --primary: #FF2A6D;
+  --primary-foreground: #ffffff;
+
+  /* Secondary - Dark interactions */
+  --secondary: #1f2937;
+  --secondary-foreground: #FF2A6D;
+
+  /* Muted */
+  --muted: #161b22;
+  --muted-foreground: #8b949e;
+
+  /* Accent */
+  --accent: #2d333b;
+  --accent-foreground: #FF2A6D;
+
+  /* Destructive */
+  --destructive: #7f1d1d;
+  --destructive-foreground: #fecaca;
+
+  /* Borders & Inputs */
+  --border: #30363d;
+  --input: #30363d;
+  --ring: #FF2A6D;
+
+  /* Charts - Adjusted for dark mode contrast */
+  --chart-1: oklch(0.488 0.243 264.376);
+  --chart-2: oklch(0.696 0.17 162.48);
+  --chart-3: oklch(0.769 0.188 70.08);
+  --chart-4: oklch(0.627 0.265 303.9);
+  --chart-5: oklch(0.645 0.246 16.439);
+
+  /* Sidebar - Dark Mode */
+  --sidebar: #010409;
+  --sidebar-foreground: #e6edf3;
+  --sidebar-primary: #FF2A6D;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #1f2937;
+  --sidebar-accent-foreground: #FF2A6D;
+  --sidebar-border: #30363d;
+  --sidebar-ring: #FF2A6D;
+
+  /* ──── Semantic Theme Tokens ──── */
+
+  /* Surfaces */
+  --surface: rgba(22,27,34,0.6);
+  --surface-elevated: #161b22;
+  --surface-inset: #0d1117;
+  --surface-overlay: rgba(22,27,34,0.9);
+
+  /* Glass panels */
+  --glass-bg: rgba(13,17,23,0.8);
+  --glass-border: rgba(225,29,72,0.2);
+
+  /* Glow / ambient effects */
+  --glow-color: rgba(225,29,72,0.1);
+  --glow-color-strong: rgba(225,29,72,0.2);
+  --glow-ambient: rgba(244,63,94,0.4);
+  --glow-ambient-secondary: rgba(147,51,234,0.4);
+
+  /* Grid background pattern */
+  --grid-line: rgba(239,68,68,0.1);
+
+  /* Selection */
+  --selection-bg: rgba(244,63,94,0.3);
+
+  /* Nav items */
+  --nav-active-bg: rgba(136,19,55,0.3);
+  --nav-active-text: #fb7185;
+  --nav-active-ring: rgba(244,63,94,0.3);
+  --nav-active-icon-bg: #f43f5e;
+  --nav-active-icon-text: #ffffff;
+  --nav-hover-bg: rgba(255,255,255,0.05);
+  --nav-hover-text: #e2e8f0;
+  --nav-item-text: #94a3b8;
+  --nav-icon-bg: rgba(255,255,255,0.05);
+  --nav-icon-text: #64748b;
+  --nav-icon-hover-bg: rgba(136,19,55,0.2);
+  --nav-icon-hover-text: #fb7185;
+  --nav-section-text: #64748b;
+
+  /* Active beam */
+  --beam-color: #f43f5e;
+  --beam-glow: rgba(244,63,94,0.6);
+  --beam-gradient: #fb7185;
+
+  /* Sidebar chrome */
+  --sidebar-chrome-bg: rgba(1,4,9,0.8);
+  --sidebar-chrome-border: rgba(136,19,55,0.4);
+  --sidebar-footer-bg: rgba(13,17,23,0.5);
+  --sidebar-footer-border: rgba(136,19,55,0.4);
+  --sidebar-brand-sub: #fb7185;
+
+  /* Chat input */
+  --chat-input-bg: rgba(22,27,34,0.9);
+  --chat-input-border: rgba(136,19,55,0.3);
+  --chat-input-glow: rgba(225,29,72,0.1);
+  --chat-input-glow-focus: rgba(225,29,72,0.2);
+  --chat-input-focus-border: rgba(244,63,94,0.5);
+  --chat-input-text: #e2e8f0;
+  --chat-input-placeholder: #475569;
+  --chat-input-divider: #1e293b;
+  --chat-input-attach-hover: rgba(136,19,55,0.2);
+  --chat-input-attach-text: #64748b;
+  --chat-input-attach-hover-text: #fb7185;
+  --chat-input-send-bg: #e11d48;
+  --chat-input-send-shadow: rgba(136,19,55,0.4);
+  --chat-input-send-hover: #f43f5e;
+  --chat-input-send-hover-shadow: rgba(244,63,94,0.4);
+  --chat-input-hint-text: #475569;
+
+  /* HUD */
+  --hud-bg: rgba(13,17,23,0.8);
+  --hud-border: rgba(136,19,55,0.3);
+  --hud-shadow: 0 4px 20px rgba(225,29,72,0.1);
+  --hud-icon-bg: rgba(136,19,55,0.3);
+  --hud-icon-border: rgba(136,19,55,0.4);
+  --hud-icon-text: #fb7185;
+  --hud-title-text: #e2e8f0;
+  --hud-status-bg: #161b22;
+  --hud-status-border: rgba(136,19,55,0.3);
+  --hud-status-label: #94a3b8;
+  --hud-back-hover: rgba(136,19,55,0.2);
+  --hud-back-text: #64748b;
+  --hud-back-hover-text: #fb7185;
+  --hud-progress-bar: #f43f5e;
+  --hud-state-ready: #34d399;
+  --hud-state-streaming: #fb7185;
+  --hud-state-submitted: #fb923c;
+
+  /* Chat message cards */
+  --msg-assistant-bg: rgba(22,27,34,0.9);
+  --msg-assistant-border: rgba(136,19,55,0.3);
+  --msg-assistant-shadow: 0 8px 30px rgba(225,29,72,0.05);
+  --msg-assistant-hover-shadow: none;
+  --msg-assistant-hover-border: rgba(244,63,94,0.3);
+  --msg-user-bg: #0d1117;
+  --msg-user-border: #1e293b;
+  --msg-header-line: linear-gradient(to right, #e11d48, rgba(136,19,55,0.5), transparent);
+  --msg-corner-icon: rgba(136,19,55,0.2);
+  --msg-role-text: #fb7185;
+  --msg-role-user-text: #64748b;
+  --msg-copy-hover: rgba(255,255,255,0.1);
+  --msg-copy-text: #94a3b8;
+  --msg-code-bg: rgba(136,19,55,0.3);
+  --msg-code-text: #fecdd3;
+  --msg-code-block-header-bg: #0d1117;
+  --msg-code-block-header-border: #334155;
+  --msg-code-block-header-text: #94a3b8;
+  --msg-dot-color: #f43f5e;
+  --msg-timestamp-text: #9ca3af;
+
+  /* User avatar in chat */
+  --user-avatar-bg: #161b22;
+  --user-avatar-border: rgba(136,19,55,0.3);
+  --user-avatar-icon: #fb7185;
+
+  /* Agent avatar */
+  --avatar-bg: #161b22;
+  --avatar-border: rgba(136,19,55,0.3);
+  --avatar-hover-border: rgba(190,18,60,0.5);
+  --avatar-ring: rgba(136,19,55,0.2);
+  --avatar-gradient: linear-gradient(to bottom right, rgba(136,19,55,0.2), transparent);
+  --avatar-text: rgba(244,63,94,0.5);
+  --avatar-glow: rgba(244,63,94,0.3);
+
+  /* Level badge */
+  --badge-border: #f43f5e;
+  --badge-text: #f43f5e;
+  --badge-ring-stroke: #f43f5e;
+  --badge-label-bg: #f43f5e;
+
+  /* Empty state chat */
+  --empty-glow: rgba(244,63,94,1);
+  --empty-title: #e2e8f0;
+  --empty-text: #64748b;
+  --empty-indicator-bg: rgba(22,27,34,0.5);
+  --empty-indicator-border: rgba(136,19,55,0.3);
+  --empty-indicator-shadow: 0 4px 20px rgba(225,29,72,0.1);
+  --empty-dot: #f43f5e;
+  --empty-dot-glow: rgba(225,29,72,0.8);
+  --empty-label-text: #94a3b8;
+
+  /* BentoCard */
+  --bento-bg: rgba(15,23,42,0.6);
+  --bento-border: rgba(255,255,255,0.1);
+  --bento-hover-bg: rgba(15,23,42,0.8);
+  --bento-glare: rgba(255,42,109,0.1);
+  --bento-value-text: #ffffff;
+  --bento-bar-track: rgba(255,255,255,0.1);
+  --bento-bar-fill: #f43f5e;
+
+  /* MissionCard */
+  --mission-active-bg: rgba(30,41,59,0.8);
+  --mission-active-border: rgba(244,63,94,0.3);
+  --mission-active-shadow: none;
+  --mission-inactive-bg: rgba(15,23,42,0.4);
+  --mission-inactive-border: rgba(255,255,255,0.05);
+  --mission-active-badge-bg: #f43f5e;
+  --mission-tag-bg: #1e293b;
+  --mission-tag-text: #94a3b8;
+  --mission-tag-border: rgba(255,255,255,0.1);
+  --mission-title: #e2e8f0;
+  --mission-title-hover: #fb7185;
+  --mission-status-bg: rgba(255,255,255,0.05);
+  --mission-status-text: #64748b;
+  --mission-status-hover-bg: none;
+  --mission-status-hover-text: #fb7185;
+  --mission-progress-track: rgba(255,255,255,0.1);
+  --mission-progress-fill: #f43f5e;
+  --mission-progress-text: #cbd5e1;
+  --mission-resume-text: #fb7185;
+  --mission-resume-hover-text: #fda4af;
+  --mission-resume-hover-bg: rgba(136,19,55,0.2);
+  --mission-footer-border: rgba(255,255,255,0.05);
+
+  /* ChatSidebar */
+  --chat-sidebar-bg: rgba(13,17,23,0.8);
+  --chat-sidebar-border: rgba(136,19,55,0.2);
+  --chat-sidebar-section-border: rgba(136,19,55,0.1);
+  --chat-sidebar-heading: #fb7185;
+  --chat-sidebar-card-bg: #161b22;
+  --chat-sidebar-card-border: rgba(136,19,55,0.2);
+  --chat-sidebar-card-gradient: linear-gradient(to right, #f43f5e, #dc2626);
+  --chat-sidebar-value: #e2e8f0;
+  --chat-sidebar-stat-bg: rgba(136,19,55,0.2);
+  --chat-sidebar-stat-text: #f43f5e;
+  --chat-sidebar-stat-label: #64748b;
+  --chat-sidebar-bar-low: rgba(136,19,55,0.3);
+  --chat-sidebar-bar-mid: rgba(190,18,60,0.4);
+  --chat-sidebar-bar-pulse: #e11d48;
+  --chat-sidebar-bar-high: rgba(190,18,60,0.5);
+  --chat-sidebar-bar-bg: rgba(136,19,55,0.3);
+  --chat-sidebar-artifact-bg: rgba(22,27,34,0.5);
+  --chat-sidebar-artifact-border: rgba(136,19,55,0.1);
+  --chat-sidebar-artifact-hover-border: rgba(190,18,60,0.5);
+  --chat-sidebar-artifact-hover-bg: #161b22;
+  --chat-sidebar-artifact-icon-bg: rgba(136,19,55,0.2);
+  --chat-sidebar-artifact-icon-text: #f43f5e;
+  --chat-sidebar-artifact-name: #e2e8f0;
+  --chat-sidebar-artifact-meta: #64748b;
+  --chat-sidebar-artifact-line: #e11d48;
+
+  /* Dashboard header */
+  --dash-corner-border: rgba(244,63,94,0.3);
+  --dash-title: #ffffff;
+  --dash-subtitle: #94a3b8;
+
+  /* Settings modal */
+  --settings-bg: #0d1117;
+  --settings-border: rgba(136,19,55,0.4);
+  --settings-shadow: rgba(136,19,55,0.2);
+  --settings-sidebar-bg: rgba(1,4,9,0.5);
+  --settings-sidebar-border: rgba(136,19,55,0.3);
+  --settings-heading: #f43f5e;
+  --settings-tab-active-bg: #e11d48;
+  --settings-tab-active-shadow: rgba(136,19,55,0.2);
+  --settings-tab-inactive-text: #64748b;
+  --settings-tab-hover-bg: rgba(136,19,55,0.1);
+  --settings-tab-hover-text: #fb7185;
+  --settings-section-title: #f1f5f9;
+  --settings-input-bg: rgba(136,19,55,0.1);
+  --settings-input-border: rgba(136,19,55,0.3);
+  --settings-input-focus-border: #f43f5e;
+  --settings-input-focus-bg: #0d1117;
+  --settings-input-text: #94a3b8;
+  --settings-input-label: #f43f5e;
+  --settings-card-bg: #0d1117;
+  --settings-card-border: rgba(136,19,55,0.3);
+  --settings-section-border: rgba(136,19,55,0.3);
+  --settings-avatar-border: rgba(136,19,55,0.3);
+  --settings-name: #f1f5f9;
+  --settings-toggle-bg: #334155;
+  --settings-toggle-hover-bg: #475569;
+
+  /* Chat header */
+  --chat-header-bg: rgba(13,17,23,0.6);
+  --chat-header-border: rgba(136,19,55,0.2);
+  --chat-header-line: #e11d48;
+  --chat-header-status-bg: #161b22;
+  --chat-header-status-border: rgba(136,19,55,0.3);
+  --chat-header-dot: #f43f5e;
+  --chat-header-dot-shadow: rgba(136,19,55,0.5);
+  --chat-header-status-text: #94a3b8;
+  --chat-header-status-value: #f43f5e;
+  --chat-header-divider: rgba(51,65,85,0.5);
+  --chat-header-latency: #64748b;
+  --chat-header-btn-text: #64748b;
+  --chat-header-btn-hover-bg: #161b22;
+  --chat-header-btn-hover-text: #fb7185;
+
+  /* Mission control */
+  --mission-ctrl-back-bg: #161b22;
+  --mission-ctrl-back-text: #e2e8f0;
+  --mission-ctrl-bg: rgba(13,17,23,0.3);
+
+  /* Header bar */
+  --header-gradient-from: rgba(26,22,37,0.8);
+  --header-level-border: #f43f5e;
+  --header-level-bg: #2d253a;
+  --header-level-text: #f43f5e;
+  --header-level-ring: #f43f5e;
+  --header-subtitle: #94a3b8;
+  --header-name: #ffffff;
+  --header-ap-icon: #fb7185;
+  --header-credits-icon: #cbd5e1;
+  --header-resource-bg: rgba(45,37,58,0.8);
+  --header-resource-border: rgba(255,255,255,0.1);
+  --header-resource-text: #e2e8f0;
+  --header-resource-badge: #475569;
+  --header-bell-text: #cbd5e1;
+  --header-bell-hover: rgba(255,255,255,0.1);
+
+  /* Character selector */
+  --char-trigger-bg: rgba(136,19,55,0.4);
+  --char-trigger-border: rgba(244,63,94,0.3);
+  --char-trigger-text: #fecdd3;
+  --char-trigger-hover-border: #fb7185;
+  --char-trigger-hover-bg: rgba(136,19,55,0.6);
+  --char-avatar-bg: #e11d48;
+  --char-label-text: #fda4af;
+  --char-dropdown-bg: rgba(22,27,34,0.9);
+  --char-dropdown-border: rgba(244,63,94,0.3);
+  --char-dropdown-heading: #64748b;
+  --char-item-active-bg: rgba(136,19,55,0.4);
+  --char-item-active-border: rgba(244,63,94,0.3);
+  --char-item-text: #94a3b8;
+  --char-item-active-text: #ffffff;
+  --char-check-text: #fb7185;
+  --char-check-bg: rgba(136,19,55,0.5);
+
+  /* Tutorial overlay */
+  --tutorial-overlay: rgba(2,6,23,0.7);
+  --tutorial-highlight-border: #f43f5e;
+  --tutorial-highlight-shadow: rgba(244,63,94,0.3);
+  --tutorial-accent: #f43f5e;
+  --tutorial-accent-hover: #e11d48;
+  --tutorial-step-bg: #fff1f2;
+  --tutorial-step-text: #94a3b8;
+  --tutorial-dialogue-border: #f43f5e;
+  --tutorial-triangle-border: #f43f5e;
+}

@@ -21,7 +21,9 @@ import { SettingsModal } from "./settings-modal"
 import { useUIStore } from "@/store/ui-store"
 
 import { LevelBadgeSidebar } from "./LevelBadgeSidebar"
-import { useTheme } from "@/components/providers/theme-provider"
+import { ActiveBeam } from "@/components/ui/tracing-beam"
+import { Kbd } from "@/components/ui/kbd"
+import { AnimatePresence } from "framer-motion"
 
 interface SidebarProps extends React.HTMLAttributes<HTMLElement> {}
 
@@ -32,9 +34,6 @@ export function Sidebar({ className, ...props }: SidebarProps) {
   const startMission = useUIStore((state) => state.startMission)
   const setViewMode = useUIStore((state) => state.setViewMode)
   const sidebarOpen = useUIStore((state) => state.sidebarOpen)
-  
-  const { theme } = useTheme()
-  const isNight = theme === 'dark'
 
   const handleHomeClick = () => {
     setViewMode('dashboard')
@@ -79,31 +78,30 @@ export function Sidebar({ className, ...props }: SidebarProps) {
   return (
     <>
       <aside 
+        role="complementary"
+        aria-label="Main navigation sidebar"
         className={cn(
           "group/sidebar relative z-20 flex w-[280px] flex-col border-r transition-all duration-300 shadow-sm hidden lg:flex",
-          isNight 
-            ? "bg-[#010409]/80 border-rose-900/40 backdrop-blur-xl" 
-            : "bg-sidebar/70 border-sidebar-border backdrop-blur-xl",
+          "bg-[var(--sidebar-chrome-bg)] border-[var(--sidebar-chrome-border)] backdrop-blur-xl",
           className
         )} 
         {...props}
       >
         {/* Header / Logo Area */}
-        <div className={cn("flex flex-col items-center justify-center border-b px-6 py-8 gap-4", isNight ? "border-rose-900/40" : "border-border")}>
+        <div className="flex flex-col items-center justify-center border-b border-[var(--sidebar-chrome-border)] px-6 py-8 gap-4">
           <LevelBadgeSidebar />
           
-          {/* Logo Text Hidden or smaller since Level is Main Focus now */}
           <div className="text-center mt-2 group-hover:opacity-100 transition-opacity">
-             <h1 className={cn("font-black tracking-widest text-lg", isNight ? "text-white" : "text-foreground")}>SCHALE</h1>
-             <p className={cn("text-[10px] font-bold uppercase tracking-[0.2em] -mt-1", isNight ? "text-rose-400" : "text-muted-foreground")}>Federal Investigation</p>
+             <h1 className="font-black tracking-widest text-lg text-foreground">SCHALE</h1>
+             <p className="text-[10px] font-bold uppercase tracking-[0.2em] -mt-1 text-[var(--sidebar-brand-sub)]">Federal Investigation</p>
           </div>
         </div>
 
         {/* Navigation */}
-        <div id="sidebar-scroll-container" className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
+        <nav id="sidebar-scroll-container" aria-label="Main navigation" className="flex-1 overflow-y-auto py-6 px-4 space-y-8 custom-scrollbar">
             {navSections.map((section, idx) => (
                 <div key={idx}>
-                    <h3 className={cn("px-4 text-[10px] font-black uppercase tracking-widest mb-3 pl-6 border-l-2 border-transparent", isNight ? "text-slate-500" : "text-slate-400")}>
+                    <h3 className="px-4 text-[10px] font-black uppercase tracking-widest mb-3 pl-6 border-l-2 border-transparent text-nav-section-text">
                         {section.title}
                     </h3>
                     <div className="space-y-1">
@@ -118,53 +116,52 @@ export function Sidebar({ className, ...props }: SidebarProps) {
                                 className={cn(
                                     "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 group relative overflow-hidden",
                                     item.active 
-                                        ? (isNight 
-                                            ? "bg-rose-900/30 text-rose-400 font-bold shadow-sm ring-1 ring-rose-500/30" 
-                                            : "bg-blue-50 text-[#1289F4] font-bold shadow-sm ring-1 ring-blue-100")
-                                        : (isNight
-                                            ? "text-slate-400 hover:bg-white/5 hover:text-slate-200"
-                                            : "text-slate-500 hover:bg-white hover:text-slate-700 hover:shadow-sm")
+                                        ? "bg-[var(--nav-active-bg)] text-[var(--nav-active-text)] font-bold shadow-sm ring-1 ring-[var(--nav-active-ring)]"
+                                        : "text-[var(--nav-item-text)] hover:bg-[var(--nav-hover-bg)] hover:text-[var(--nav-hover-text)] hover:shadow-sm"
                                 )}
                             >
                                 <div className={cn(
-                                    "p-2 rounded-lg transition-colors",
+                                    "p-2 rounded-lg transition-colors relative z-10",
                                     item.active 
-                                        ? (isNight ? "bg-rose-500 text-white" : "bg-white text-[#1289F4]")
-                                        : (isNight 
-                                            ? "bg-white/5 text-slate-500 group-hover:bg-rose-900/20 group-hover:text-rose-400" 
-                                            : "bg-slate-100 text-slate-400 group-hover:bg-blue-50 group-hover:text-[#1289F4]")
+                                        ? "bg-[var(--nav-active-icon-bg)] text-[var(--nav-active-icon-text)]"
+                                        : "bg-[var(--nav-icon-bg)] text-[var(--nav-icon-text)] group-hover:bg-[var(--nav-icon-hover-bg)] group-hover:text-[var(--nav-icon-hover-text)]"
                                 )}>
                                     {item.icon}
                                 </div>
-                                <span className="text-sm tracking-wide">{item.label}</span>
+                                <span className="text-sm tracking-wide relative z-10">{item.label}</span>
                                 
-                                {item.active && (
-                                    <div className={cn("absolute left-0 top-1/2 -translate-y-1/2 w-1 h-8 rounded-r-full", isNight ? "bg-rose-500" : "bg-[#1289F4]")} />
-                                )}
+                                <AnimatePresence>
+                                    {item.active && <ActiveBeam />}
+                                </AnimatePresence>
                             </button>
                         ))}
                     </div>
                 </div>
             ))}
+        </nav>
+
+        {/* Quick Search Hint */}
+        <div className="px-4 py-3 border-t border-[var(--sidebar-chrome-border)]">
+            <button 
+                onClick={() => {
+                    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true }))
+                }}
+                aria-label="Open command palette"
+                className="w-full flex items-center gap-3 px-4 py-2.5 rounded-xl border border-border text-sm transition-colors text-[var(--nav-item-text)] hover:bg-[var(--nav-hover-bg)]"
+            >
+                <Command size={14} aria-hidden="true" />
+                <span className="flex-1 text-left text-xs">Search...</span>
+                <Kbd>⌘K</Kbd>
+            </button>
         </div>
 
         {/* User Footer */}
-        <div className={cn("p-4 border-t", isNight ? "border-rose-900/40 bg-[#0d1117]/50" : "border-blue-100/50 bg-white/40")}>
+        <div className="p-4 border-t border-[var(--sidebar-footer-border)] bg-[var(--sidebar-footer-bg)]">
             <button 
                 onClick={handleLogout}
-                className={cn(
-                    "w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group",
-                    isNight 
-                        ? "text-slate-500 hover:bg-rose-900/20 hover:text-rose-400" 
-                        : "text-slate-400 hover:bg-rose-50 hover:text-rose-500 hover:shadow-sm"
-                )}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-all group text-[var(--nav-item-text)] hover:bg-destructive/10 hover:text-destructive"
             >
-                <div className={cn(
-                    "p-2 rounded-lg transition-colors",
-                    isNight 
-                        ? "bg-white/5 text-slate-500 group-hover:bg-rose-900/20 group-hover:text-rose-400" 
-                        : "bg-slate-100 text-slate-400 group-hover:bg-white group-hover:text-rose-500"
-                )}>
+                <div className="p-2 rounded-lg transition-colors bg-[var(--nav-icon-bg)] text-[var(--nav-icon-text)] group-hover:bg-destructive/10 group-hover:text-destructive">
                     <LogOut size={18} />
                 </div>
                 <span className="text-sm font-bold">Disconnect</span>

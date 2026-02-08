@@ -2,8 +2,9 @@
 
 import React, { useRef } from 'react'
 import { ChatRequestOptions } from 'ai'
-import { useTheme } from '@/components/providers/theme-provider'
 import { cn } from '@/lib/utils'
+import { Textarea } from '@/components/ui/textarea'
+import { Paperclip, ArrowRight } from 'lucide-react'
 
 interface ChatInputProps {
   input: string
@@ -13,68 +14,60 @@ interface ChatInputProps {
 }
 
 export function ChatInput({ input, handleInputChange, handleSubmit, isLoading }: ChatInputProps) {
-  const inputRef = useRef<HTMLInputElement>(null)
-  const { theme } = useTheme()
-  const isPlana = theme === 'dark'
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      if (input.trim() && !isLoading) {
+        handleSubmit(e as unknown as React.FormEvent<HTMLFormElement>)
+      }
+    }
+  }
 
   return (
-    <footer className="relative p-6 lg:p-10 flex-shrink-0">
+    <footer className="relative p-3 md:p-6 lg:p-10 flex-shrink-0">
       <div className="relative z-20 mx-auto max-w-4xl">
         <form 
           onSubmit={handleSubmit}
-          className={cn(
-            "flex items-center rounded-[2rem] border-2 p-2 backdrop-blur-xl transition-all duration-300 focus-within:scale-[1.01]",
-            isPlana 
-                ? "bg-[#161b22]/90 border-rose-900/30 shadow-[0_0_40px_rgba(225,29,72,0.1)] focus-within:border-rose-500/50 focus-within:shadow-[0_0_40px_rgba(225,29,72,0.2)]" 
-                : "bg-white/90 border-blue-100 shadow-[0_0_40px_rgba(59,130,246,0.1)] focus-within:border-blue-400 focus-within:shadow-[0_0_40px_rgba(59,130,246,0.2)]"
-          )}
+          className="flex items-end rounded-[2rem] border-2 p-2 backdrop-blur-xl transition-all duration-300 focus-within:scale-[1.005] bg-[var(--chat-input-bg)] border-[var(--chat-input-border)] shadow-[0_0_40px_var(--chat-input-glow)] focus-within:border-[var(--chat-input-focus-border)] focus-within:shadow-[0_0_40px_var(--chat-input-glow-focus)]"
         >
           <button 
              type="button" 
-             className={cn(
-                 "rounded-2xl p-4 transition-all",
-                 isPlana 
-                    ? "text-slate-500 hover:bg-rose-900/20 hover:text-rose-400" 
-                    : "text-slate-400 hover:bg-blue-50 hover:text-blue-500"
-             )}
+             aria-label="Attach file"
+             className="rounded-2xl p-4 transition-all flex-shrink-0 text-[var(--chat-input-attach-text)] hover:bg-[var(--chat-input-attach-hover)] hover:text-[var(--chat-input-attach-hover-text)]"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" /></svg>
+            <Paperclip className="h-5 w-5" />
           </button>
 
-          <div className={cn("mx-2 h-8 w-[1px]", isPlana ? "bg-slate-800" : "bg-slate-200")}></div>
+          <div className="mx-2 self-stretch w-[1px] my-2 bg-[var(--chat-input-divider)]"></div>
 
-          <input 
-            type="text" 
-            placeholder="Enter tactical command..." 
+          <Textarea
+            placeholder="Type a message..."
+            aria-label="Chat message input"
             value={input}
             onChange={handleInputChange}
+            onKeyDown={handleKeyDown}
             disabled={isLoading}
-            ref={inputRef}
-            className={cn(
-                "flex-1 bg-transparent px-4 text-sm font-bold tracking-wide outline-none",
-                isPlana 
-                    ? "text-slate-200 placeholder:text-slate-600" 
-                    : "text-slate-700 placeholder:text-slate-300"
-            )}
+            ref={textareaRef}
+            maxHeight={160}
+            className="flex-1 px-4 py-3 text-[var(--chat-input-text)] placeholder:text-[var(--chat-input-placeholder)]"
           />
 
           <button 
              type="submit"
              disabled={isLoading || !input.trim()}
-             className={cn(
-                 "group rounded-[1.5rem] p-4 text-white shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:grayscale",
-                 isPlana 
-                    ? "bg-rose-600 shadow-rose-900/40 hover:bg-rose-500 hover:shadow-rose-600/40" 
-                    : "bg-blue-500 shadow-blue-200 hover:bg-blue-600 hover:shadow-blue-400"
-             )}
+             aria-label="Send message"
+             className="group rounded-[1.5rem] p-4 text-white shadow-lg transition-all active:scale-95 disabled:opacity-50 disabled:grayscale flex-shrink-0 bg-[var(--chat-input-send-bg)] shadow-[var(--chat-input-send-shadow)] hover:bg-[var(--chat-input-send-hover)] hover:shadow-[var(--chat-input-send-hover-shadow)]"
           >
-            <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5 transition-transform group-hover:translate-x-1" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M14 5l7 7m0 0l-7 7m7-7H3" /></svg>
+            <ArrowRight className="h-5 w-5 transition-transform group-hover:translate-x-0.5" strokeWidth={3} />
           </button>
         </form>
 
-        <div className="mt-3 flex justify-between px-6">
-          <span className={cn("font-mono text-[9px] tracking-widest uppercase", isPlana ? "text-slate-600" : "text-slate-400")}>Secure Connection <span className={cn(isPlana ? "text-rose-400" : "text-blue-400")}>TLS_1.3</span></span>
-          <span className={cn("font-mono text-[9px] tracking-widest uppercase", isPlana ? "text-slate-600" : "text-slate-400")}>Schale_ID: <span className={cn(isPlana ? "text-slate-400" : "text-slate-600")}>8892-XJ</span></span>
+        <div className="mt-2 flex justify-center px-6">
+          <span className="text-[10px] font-medium text-[var(--chat-input-hint-text)]">
+            <kbd className="font-mono text-[9px] px-1 py-0.5 rounded border border-current/20 mr-1">Enter</kbd> to send · <kbd className="font-mono text-[9px] px-1 py-0.5 rounded border border-current/20 mx-1">Shift + Enter</kbd> for new line
+          </span>
         </div>
       </div>
     </footer>

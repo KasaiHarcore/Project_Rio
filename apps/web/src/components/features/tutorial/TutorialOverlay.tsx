@@ -178,7 +178,7 @@ export function TutorialOverlay() {
                             </mask>
                         </defs>
                         {/* Light Gray Outside (as requested) */}
-                        <rect width="100%" height="100%" fill={isNight ? "rgba(2, 6, 23, 0.7)" : "rgba(200, 200, 200, 0.5)"} mask="url(#spotlight-mask)" />
+                        <rect width="100%" height="100%" fill="var(--tutorial-overlay)" mask="url(#spotlight-mask)" />
                     </svg>
                 </div>
 
@@ -186,13 +186,9 @@ export function TutorialOverlay() {
                 {targetRect && (
                     <motion.div 
                         layoutId="highlight-box"
-                        className={cn(
-                            "absolute border-2 rounded-xl pointer-events-none",
-                            isNight 
-                                ? "border-rose-500 shadow-[0_0_50px_rgba(244,63,94,0.3)]" 
-                                : "border-[#1289F4] shadow-[0_0_50px_rgba(18,137,244,0.3)]"
-                        )}
+                        className="absolute border-2 rounded-xl pointer-events-none border-[var(--tutorial-highlight-border)]"
                         style={{
+                            boxShadow: `0 0 50px var(--tutorial-highlight-shadow)`,
                             left: targetRect.left - 10,
                             top: targetRect.top - 10,
                             width: targetRect.width + 20,
@@ -254,42 +250,30 @@ export function TutorialOverlay() {
                          </div>
 
                          {/* Dialogue Box */}
-                         <div className={cn(
-                            "bg-white rounded-t-[30px] rounded-br-[30px] rounded-bl-sm p-6 shadow-2xl max-w-md border-2 relative z-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')]",
-                            isNight ? "border-rose-500" : "border-[#1289F4]"
-                         )}>
+                         <div className="bg-white rounded-t-[30px] rounded-br-[30px] rounded-bl-sm p-6 shadow-2xl max-w-md border-2 relative z-10 bg-[url('https://grainy-gradients.vercel.app/noise.svg')] border-[var(--tutorial-dialogue-border)]">
                              <div className="flex justify-between items-start mb-2">
-                                 <h3 className={cn(
-                                     "text-xl font-black tracking-wider uppercase",
-                                     isNight ? "text-rose-500" : "text-[#1289F4]"
-                                 )}>
+                                 <h3 className="text-xl font-black tracking-wider uppercase text-[var(--tutorial-accent)]">
                                      {currentStep.title}
                                  </h3>
-                                 <div className={cn(
-                                     "text-xs font-bold px-2 py-1 rounded",
-                                     isNight ? "text-slate-400 bg-rose-50" : "text-slate-300 bg-slate-50"
-                                 )}>
+                                 <div className="text-xs font-bold px-2 py-1 rounded text-[var(--tutorial-step-text)] bg-[var(--tutorial-step-bg)]">
                                      Step {tutorialStep + 1} / {STEPS.length}
                                  </div>
                              </div>
                              
-                             <p className={cn("font-medium leading-relaxed mb-6 text-sm", isNight ? "text-slate-600" : "text-slate-600")}>
+                             <p className="font-medium leading-relaxed mb-6 text-sm text-slate-600">
                                  {currentStep.content}
                              </p>
 
                              <div className="flex justify-end gap-2">
                                  {/* Interactive Step? */}
                                  {currentStep.action === 'click_target' ? (
-                                     <div className={cn("text-xs font-bold animate-pulse flex items-center", isNight ? "text-rose-500" : "text-[#1289F4]")}>
+                                     <div className="text-xs font-bold animate-pulse flex items-center text-[var(--tutorial-accent)]">
                                          Click highlight to continue...
                                      </div>
                                  ) : (
                                      <button 
                                         onClick={handleNext}
-                                        className={cn(
-                                            "text-white px-6 py-2 rounded-full font-bold text-sm shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center gap-2",
-                                            isNight ? "bg-rose-500 hover:bg-rose-600" : "bg-[#1289F4] hover:bg-blue-600"
-                                        )}
+                                        className="text-white px-6 py-2 rounded-full font-bold text-sm shadow-md transition-all hover:shadow-lg active:scale-95 flex items-center gap-2 bg-[var(--tutorial-accent)] hover:bg-[var(--tutorial-accent-hover)]"
                                      >
                                         {tutorialStep === STEPS.length - 1 ? "Let's Go!" : "Next"}
                                         <div className="w-2 h-2 bg-white rounded-full animate-pulse" />
@@ -298,10 +282,7 @@ export function TutorialOverlay() {
                              </div>
 
                              {/* Little triangle tail */}
-                             <div className={cn(
-                                 "absolute -left-3 bottom-8 w-0 h-0 border-t-[10px] border-t-transparent border-r-[15px] border-b-[10px] border-b-transparent transform rotate-12",
-                                 isNight ? "border-r-rose-500" : "border-r-[#1289F4]"
-                             )} />
+                             <div className="absolute -left-3 bottom-8 w-0 h-0 border-t-[10px] border-t-transparent border-r-[15px] border-b-[10px] border-b-transparent transform rotate-12 border-r-[var(--tutorial-triangle-border)]" />
                          </div>
                     </motion.div>
                 </div>

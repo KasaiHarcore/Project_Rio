@@ -1,65 +1,56 @@
 import React, { useEffect } from 'react'
 import { Sidebar } from './sidebar'
-import { Header } from './header'
+import { MobileNav } from './mobile-nav'
 import { useUIStore } from '@/store/ui-store'
 import { cn } from '@/lib/utils'
 import { TutorialOverlay } from '@/components/features/tutorial/TutorialOverlay'
+import { PageTransition } from './page-transition'
+import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
 }
 
 export function DashboardLayout({ children }: DashboardLayoutProps) {
-  const { activeCharacterId, splashSeen, startTutorial, isTutorialActive } = useUIStore()
+  const { splashSeen, startTutorial, isTutorialActive, tutorialCompleted } = useUIStore()
+  useKeyboardShortcuts()
   
-  // Trigger tutorial just after splash screen (simulated logic)
+  // Trigger tutorial after splash screen if not already completed
   useEffect(() => {
-    // Only run if splash finished and tutorial is NOT inactive (to prevent restarts)
-    if (splashSeen && !isTutorialActive) {
-        // In a real app, check localStorage.getItem('tutorial_completed')
-        const hasDoneTutorial = false // DEV: FORCE TUTORIAL ALWAYS
-        if (!hasDoneTutorial) {
-             const timer = setTimeout(() => startTutorial(), 1000)
-             return () => clearTimeout(timer) 
-        }
+    if (splashSeen && !isTutorialActive && !tutorialCompleted) {
+      const timer = setTimeout(() => startTutorial(), 1000)
+      return () => clearTimeout(timer)
     }
-  }, [splashSeen]) // Ensure we don't re-run on other state changes
-
-  // Theme logic
-  const isPlana = activeCharacterId === 'plana'
+  }, [splashSeen, isTutorialActive, tutorialCompleted, startTutorial])
   
   return (
     <div className={cn(
         "flex h-screen font-sans text-foreground overflow-hidden relative transition-colors duration-1000",
-        isPlana ? "bg-[#1a1625] selection:bg-rose-500/30" : "bg-background selection:bg-primary/30"
+        "bg-background selection:bg-[var(--selection-bg)]"
     )}>
-        {/* Background - Exact match from chat.html */}
+        {/* Background - Grid + Ambient Orbs (themed via CSS vars) */}
         <div className="pointer-events-none absolute inset-0 z-0 transition-opacity duration-1000">
             {/* Grid Pattern */}
-            <div className={cn(
-                "absolute inset-0 bg-[size:4rem_4rem] transition-colors duration-1000",
-                isPlana 
-                    ? "bg-[linear-gradient(to_right,#ef44441a_1px,transparent_1px),linear-gradient(to_bottom,#ef44441a_1px,transparent_1px)]"
-                    : "bg-[linear-gradient(to_right,color-mix(in_srgb,var(--primary),transparent_90%)_1px,transparent_1px),linear-gradient(to_bottom,color-mix(in_srgb,var(--primary),transparent_90%)_1px,transparent_1px)]"
-            )} style={{maskImage: 'radial-gradient(ellipse 60% 50% at 50% 0%, #000 70%, transparent 100%)'}}></div>
+            <div
+                className="absolute inset-0 bg-[size:4rem_4rem] transition-colors duration-1000 bg-[linear-gradient(to_right,var(--grid-line)_1px,transparent_1px),linear-gradient(to_bottom,var(--grid-line)_1px,transparent_1px)]"
+                style={{maskImage: 'radial-gradient(ellipse 60% 50% at 50% 0%, #000 70%, transparent 100%)'}}
+            ></div>
 
             {/* Ambient Orbs */}
-            <div className={cn(
-                "absolute top-[-20%] left-[-10%] h-[50%] w-[50%] animate-pulse rounded-full mix-blend-multiply blur-[120px] transition-colors duration-1000",
-                isPlana ? "bg-rose-900/40" : "bg-primary/20"
-            )}></div>
-            <div className={cn(
-                "absolute right-[-10%] bottom-[-20%] h-[50%] w-[50%] rounded-full mix-blend-multiply blur-[120px] transition-colors duration-1000",
-                isPlana ? "bg-purple-900/40" : "bg-primary/10"
-            )}></div>
+            <div className="absolute top-[-20%] left-[-10%] h-[50%] w-[50%] animate-pulse rounded-full mix-blend-multiply blur-[120px] transition-colors duration-1000 bg-[var(--glow-ambient)]"></div>
+            <div className="absolute right-[-10%] bottom-[-20%] h-[50%] w-[50%] rounded-full mix-blend-multiply blur-[120px] transition-colors duration-1000 bg-[var(--glow-ambient-secondary)]"></div>
         </div>
 
-        {/* Sidebar */}
+        {/* Sidebar (desktop) */}
         <Sidebar className="flex-shrink-0" />
 
         {/* Main Content Area */}
-        <main className="flex-1 relative z-10 overflow-hidden flex flex-col">
-            {children}
+        <main id="main-content" className="flex-1 relative z-10 overflow-hidden flex flex-col">
+            {/* Mobile Nav (shows on <lg) */}
+            <MobileNav />
+            <PageTransition className="flex-1 flex flex-col overflow-hidden">
+              {children}
+            </PageTransition>
         </main>
         
         {/* Overlays */}

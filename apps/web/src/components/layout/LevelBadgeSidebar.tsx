@@ -3,19 +3,13 @@
 import React from 'react'
 import { motion } from 'framer-motion'
 import { useUIStore } from '@/store/ui-store'
-import { cn } from '@/lib/utils'
 
 export function LevelBadgeSidebar() {
-    const { userLevel, activeCharacterId } = useUIStore()
-    const isPlana = activeCharacterId === 'plana'
+    const { userLevel } = useUIStore()
 
     return (
         <div id="level-badge" className="relative group cursor-pointer hover:scale-105 transition-transform">
-             <div className={cn(
-                "w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors bg-white",
-                // Blue Archive Style: Blue text for level
-                isPlana ? "border-rose-500 text-rose-500" : "border-[#1289F4] text-[#1289F4]"
-            )}>
+             <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors bg-white border-[var(--badge-border)] text-[var(--badge-text)]">
                 <span className="font-black font-mono text-lg">{userLevel}</span>
             </div>
             
@@ -24,20 +18,17 @@ export function LevelBadgeSidebar() {
                  <circle
                      cx="28" cy="28" r="26"
                      fill="none"
-                     stroke={isPlana ? "#f43f5e" : "#1289F4"}
+                     stroke="var(--badge-ring-stroke)"
                      strokeWidth="2"
                     strokeDasharray="163" 
-                    strokeDashoffset={40} // 75% full
+                    strokeDashoffset={40}
                     strokeLinecap="round"
-                    className="opacity-80 drop-shadow-[0_0_2px_rgba(18,137,244,0.5)]"
+                    className="opacity-80"
                  />
              </svg>
              
              {/* Sensei Label below */}
-             <div className={cn(
-                 "absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded text-white shadow-sm whitespace-nowrap",
-                 isPlana ? "bg-rose-500" : "bg-[#1289F4]"
-             )}>
+             <div className="absolute -bottom-5 left-1/2 -translate-x-1/2 text-[9px] font-black uppercase tracking-widest px-1.5 py-0.5 rounded text-white shadow-sm whitespace-nowrap bg-[var(--badge-label-bg)]">
                  Sensei
              </div>
         </div>

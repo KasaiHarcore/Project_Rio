@@ -1,6 +1,15 @@
 import { create } from 'zustand'
 import { CharacterId } from '@/types/character'
 
+// Safe localStorage helpers
+const getStoredBoolean = (key: string, fallback: boolean): boolean => {
+  if (typeof window === 'undefined') return fallback
+  try {
+    const stored = localStorage.getItem(key)
+    return stored !== null ? stored === 'true' : fallback
+  } catch { return fallback }
+}
+
 type ViewType = 'chat' | 'knowledge' | 'artifacts'
 type ViewMode = 'dashboard' | 'operation'
 
@@ -29,6 +38,7 @@ interface UIState {
   // Tutorial System
   isTutorialActive: boolean
   tutorialStep: number
+  tutorialCompleted: boolean
   startTutorial: () => void
   nextTutorialStep: () => void
   endTutorial: () => void
@@ -60,14 +70,21 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: true,
   chatKey: 0,
   
-  splashSeen: false,
-  setSplashSeen: (seen) => set({ splashSeen: seen }),
+  splashSeen: getStoredBoolean('schale-splash-seen', false),
+  setSplashSeen: (seen) => {
+    try { localStorage.setItem('schale-splash-seen', String(seen)) } catch {}
+    set({ splashSeen: seen })
+  },
 
   isTutorialActive: false,
   tutorialStep: 0,
+  tutorialCompleted: getStoredBoolean('schale-tutorial-completed', false),
   startTutorial: () => set({ isTutorialActive: true, tutorialStep: 0 }),
   nextTutorialStep: () => set((state) => ({ tutorialStep: state.tutorialStep + 1 })),
-  endTutorial: () => set({ isTutorialActive: false, tutorialStep: 0 }),
+  endTutorial: () => {
+    try { localStorage.setItem('schale-tutorial-completed', 'true') } catch {}
+    set({ isTutorialActive: false, tutorialStep: 0, tutorialCompleted: true })
+  },
 
   setActiveView: (view) => set({ activeView: view }),
   setViewMode: (mode) => set({ viewMode: mode }),

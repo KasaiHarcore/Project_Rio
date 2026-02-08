@@ -1,7 +1,7 @@
 "use client"
 
 import React, { useEffect, useRef } from 'react'
-import { Script } from 'next/script'
+import Script from 'next/script'
 
 interface SpinePlayerProps {
     className?: string;

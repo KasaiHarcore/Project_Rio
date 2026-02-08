@@ -1,16 +1,20 @@
 "use client"
 
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useRef, useCallback } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import Script from 'next/script'
 import { Play } from 'lucide-react'
+import { useTheme } from '@/components/providers/theme-provider'
+import { useUIStore } from '@/store/ui-store'
 
 declare global {
   interface Window {
     spine: any;
     startAronaEngine: any;
     stopAronaEngine: any;
+    setAronaCharacter: (id: string | null) => void;
+    getAronaCharacter: () => string | null;
   }
 }
 
@@ -19,7 +23,33 @@ declare global {
 // ==========================================
 export default function AronaPage() {
     const [isStarted, setIsStarted] = useState(false);
+    const { theme } = useTheme();
+    const activeCharacterId = useUIStore((state) => state.activeCharacterId);
+    const prevCharRef = useRef(activeCharacterId);
     
+    // Sync forced character with the engine whenever the active character changes
+    useEffect(() => {
+        if (window.setAronaCharacter) {
+            window.setAronaCharacter(activeCharacterId);
+        }
+    }, [activeCharacterId]);
+
+    // If the character changes while the engine is running, restart it
+    useEffect(() => {
+        if (prevCharRef.current !== activeCharacterId && isStarted) {
+            prevCharRef.current = activeCharacterId;
+            if (window.setAronaCharacter) {
+                window.setAronaCharacter(activeCharacterId);
+            }
+            if (window.startAronaEngine && window.spine) {
+                console.log("[ARONA] Character changed, restarting engine...");
+                window.startAronaEngine();
+            }
+        } else {
+            prevCharRef.current = activeCharacterId;
+        }
+    }, [activeCharacterId, isStarted]);
+
     useEffect(() => {
         // Cleanup on unmount
         return () => {
@@ -32,6 +62,10 @@ export default function AronaPage() {
 
     const handleStart = () => {
         setIsStarted(true);
+        // Set the forced character before starting
+        if (window.setAronaCharacter) {
+            window.setAronaCharacter(activeCharacterId);
+        }
         // Small delay to allow UI to update before heavy engine work
         setTimeout(() => {
              if (window.startAronaEngine && window.spine) {

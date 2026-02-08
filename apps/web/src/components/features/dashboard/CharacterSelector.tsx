@@ -6,25 +6,46 @@ import { cn } from '@/lib/utils'
 import { Check } from 'lucide-react'
 import { useTheme } from '@/components/providers/theme-provider'
 import { getCycleConfig } from '@/lib/cycle-config'
+import Image from 'next/image'
+
+const CHARACTER_ICONS: Record<string, string> = {
+  arona: '/images/arona_icon.png',
+  plana: '/images/plana.icon.png',
+}
+
+const CHARACTER_THEME: Record<string, 'light' | 'dark'> = {
+  arona: 'light',
+  plana: 'dark',
+}
 
 export function CharacterSelector() {
   const activeCharacterId = useUIStore((state) => state.activeCharacterId)
   const setActiveCharacter = useUIStore((state) => state.setActiveCharacter)
   const [isOpen, setIsOpen] = React.useState(false)
   
-  const { theme } = useTheme()
+  const { theme, setThemeManual, isAutoMode } = useTheme()
   const config = getCycleConfig(theme)
+  const initialSyncDone = React.useRef(false)
 
-  // Sync Character with Theme automatically
+  // On first mount, always sync character to match the current theme (whether auto or manual-restored)
   useEffect(() => {
-    if (activeCharacterId !== config.characterId) {
+    if (!initialSyncDone.current) {
+      initialSyncDone.current = true
+      if (activeCharacterId !== config.characterId) {
+        setActiveCharacter(config.characterId as CharacterId)
+      }
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // After initial sync, only auto-cycle when in auto mode
+  useEffect(() => {
+    if (initialSyncDone.current && isAutoMode && activeCharacterId !== config.characterId) {
         setActiveCharacter(config.characterId as CharacterId)
     }
-  }, [theme, config.characterId, setActiveCharacter, activeCharacterId])
+  }, [theme, config.characterId, setActiveCharacter, activeCharacterId, isAutoMode])
 
   // Always use the store's active character for display, which is now synced
   const activeChar = CHARACTERS.find(c => c.id === activeCharacterId) || CHARACTERS[0]
-  const isNight = theme === 'dark'
 
   return (
     <div className="relative z-50">
@@ -33,21 +54,19 @@ export function CharacterSelector() {
         onClick={() => setIsOpen(!isOpen)}
         whileHover={{ scale: 1.05 }}
         whileTap={{ scale: 0.95 }}
-        className={cn(
-          "flex items-center gap-3 pl-2 pr-4 py-2 rounded-full border transition-all duration-300 backdrop-blur-md shadow-sm",
-          isNight 
-            ? "bg-rose-900/40 border-rose-500/30 text-rose-200 hover:border-rose-400 hover:bg-rose-900/60" 
-            : "bg-blue-50/80 border-blue-200 hover:border-blue-300 text-blue-900"
-        )}
+        className="flex items-center gap-3 pl-2 pr-4 py-2 rounded-full border transition-all duration-300 backdrop-blur-md shadow-sm bg-[var(--char-trigger-bg)] border-[var(--char-trigger-border)] text-[var(--char-trigger-text)] hover:border-[var(--char-trigger-hover-border)] hover:bg-[var(--char-trigger-hover-bg)]"
       >
-        <div className={cn(
-          "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold text-white shadow-inner",
-          isNight ? "bg-rose-600" : "bg-blue-400"
-        )}>
-          {activeChar.name[0]}
+        <div className="w-8 h-8 rounded-full flex items-center justify-center overflow-hidden shadow-inner bg-[var(--char-avatar-bg)]">
+          <Image
+            src={CHARACTER_ICONS[activeChar.id] || CHARACTER_ICONS.arona}
+            alt={activeChar.name}
+            width={28}
+            height={28}
+            className="object-contain"
+          />
         </div>
         <div className="text-left hidden sm:block">
-          <div className={cn("text-xs font-bold uppercase tracking-wider opacity-70", isNight ? "text-rose-300" : "text-blue-900")}>Assistant</div>
+          <div className="text-xs font-bold uppercase tracking-wider opacity-70 text-[var(--char-label-text)]">Assistant</div>
           <div className="text-sm font-black leading-none">{activeChar.name}</div>
         </div>
       </motion.button>
@@ -66,12 +85,9 @@ export function CharacterSelector() {
               animate={{ opacity: 1, y: 0, scale: 1 }}
               exit={{ opacity: 0, y: -10, scale: 0.95 }}
               transition={{ duration: 0.2 }}
-              className={cn(
-                "absolute right-0 top-14 w-64 z-50 rounded-2xl border backdrop-blur-xl shadow-2xl p-2",
-                isNight ? "bg-[#161b22]/90 border-rose-500/30 shadow-rose-900/10" : "bg-white/80 border-white/50 shadow-2xl"
-              )}
+              className="absolute right-0 top-14 w-64 z-50 rounded-2xl border backdrop-blur-xl shadow-2xl p-2 bg-[var(--char-dropdown-bg)] border-[var(--char-dropdown-border)]"
             >
-              <div className={cn("px-3 py-2 text-[10px] font-black uppercase tracking-widest", isNight ? "text-slate-500" : "text-slate-400")}>
+              <div className="px-3 py-2 text-[10px] font-black uppercase tracking-widest text-[var(--char-dropdown-heading)]">
                 Select AI Model
               </div>
               
@@ -81,30 +97,37 @@ export function CharacterSelector() {
                     key={char.id}
                     onClick={() => {
                         setActiveCharacter(char.id)
+                        if (CHARACTER_THEME[char.id]) {
+                          setThemeManual(CHARACTER_THEME[char.id])
+                        }
                         setIsOpen(false)
                     }}
                     className={cn(
                       "group relative w-full flex items-center gap-3 p-2 rounded-xl transition-all border",
                       activeCharacterId === char.id
-                        ? isNight
-                             ? "bg-rose-900/40 border-rose-500/30"
-                             : (char.id === 'arona' ? "bg-blue-50 border-blue-200" : "bg-rose-50 border-rose-200")
+                        ? "bg-[var(--char-item-active-bg)] border-[var(--char-item-active-border)]"
                         : "bg-transparent border-transparent hover:bg-slate-50/10 hover:border-white/10"
                     )}
                   >
                     <div className={cn(
-                      "w-10 h-10 rounded-full flex items-center justify-center text-sm font-bold text-white shadow-sm transition-transform group-hover:scale-110",
+                      "w-10 h-10 rounded-full flex items-center justify-center overflow-hidden shadow-sm transition-transform group-hover:scale-110",
                        char.id === 'arona' ? "bg-blue-400" : "bg-rose-400"
                     )}>
-                      {char.name[0]}
+                      <Image
+                        src={CHARACTER_ICONS[char.id] || CHARACTER_ICONS.arona}
+                        alt={char.name}
+                        width={32}
+                        height={32}
+                        className="object-contain"
+                      />
                     </div>
                     
                     <div className="flex-1 text-left">
                       <div className={cn(
                         "text-sm font-bold",
-                        isNight 
-                            ? (activeCharacterId === char.id ? "text-white" : "text-slate-400 group-hover:text-slate-200")
-                            : (activeCharacterId === char.id ? "text-slate-900" : "text-slate-600")
+                        activeCharacterId === char.id
+                            ? "text-[var(--char-item-active-text)]"
+                            : "text-[var(--char-item-text)] group-hover:text-foreground"
                       )}>
                         {char.name}
                       </div>
@@ -114,12 +137,7 @@ export function CharacterSelector() {
                     </div>
 
                     {activeCharacterId === char.id && (
-                        <div className={cn(
-                            "p-1 rounded-full",
-                            isNight 
-                                ? "text-rose-400 bg-rose-900/50"
-                                : (char.id === 'arona' ? "text-blue-500 bg-blue-100" : "text-rose-500 bg-rose-100")
-                        )}>
+                        <div className="p-1 rounded-full text-[var(--char-check-text)] bg-[var(--char-check-bg)]">
                             <Check className="w-3 h-3" strokeWidth={4} />
                         </div>
                     )}

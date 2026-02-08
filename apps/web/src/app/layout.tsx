@@ -14,6 +14,10 @@ const sourceCodePro = Source_Code_Pro({
 });
 
 import { ThemeProvider } from "@/components/providers/theme-provider";
+import { SmoothScroll } from "@/components/layout/smooth-scroll";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { CommandPalette } from "@/components/features/command/CommandPalette";
+import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
   title: "Arona | SCHALE Office",
@@ -31,7 +35,15 @@ export default function RootLayout({
         className={`${nunito.variable} ${sourceCodePro.variable} antialiased h-screen w-screen overflow-hidden bg-background text-foreground`}
       >
         <ThemeProvider>
-          {children}
+          <TooltipProvider>
+            <a href="#main-content" className="skip-to-content">
+              Skip to main content
+            </a>
+            <SmoothScroll />
+            <CommandPalette />
+            <Toaster />
+            {children}
+          </TooltipProvider>
         </ThemeProvider>
       </body>
     </html>
