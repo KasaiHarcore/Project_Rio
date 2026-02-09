@@ -14,12 +14,12 @@ def _bootstrap_src_layout() -> None:
 
 
 try:
-    from backend.utils.log import log_info, log_error, log_warning
-    from backend.core.startup import run_startup_tasks
+    from utils.log import log_info, log_error, log_warning
+    from core.startup import run_startup_tasks
 except ModuleNotFoundError:
     _bootstrap_src_layout()
-    from backend.utils.log import log_info, log_error, log_warning
-    from backend.core.startup import run_startup_tasks
+    from utils.log import log_info, log_error, log_warning
+    from core.startup import run_startup_tasks
 
 
 def serve() -> None:
@@ -35,7 +35,7 @@ def serve() -> None:
     run_startup_tasks()
     
     repo_root = Path(__file__).resolve().parent
-    app_path = repo_root / "src" / "backend" / "interfaces" / "demo" / "chat_main.py"
+    app_path = repo_root / "src" / "interfaces" / "demo" / "chat_main.py"
     
     if not app_path.exists():
         log_error(f"UI not found: {app_path}")

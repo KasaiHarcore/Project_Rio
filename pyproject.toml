@@ -46,4 +46,4 @@ package-dir = {"" = "src"}
 
 [tool.setuptools.packages.find]
 where = ["src"]
-include = ["backend*", "frontend*"]
+include = ["core*", "application*", "infrastructure*", "interfaces*", "utils*", "frontend*"]

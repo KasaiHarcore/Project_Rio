@@ -1,15 +1,6 @@
 import { create } from 'zustand'
 import { CharacterId } from '@/types/character'
 
-// Safe localStorage helpers
-const getStoredBoolean = (key: string, fallback: boolean): boolean => {
-  if (typeof window === 'undefined') return fallback
-  try {
-    const stored = localStorage.getItem(key)
-    return stored !== null ? stored === 'true' : fallback
-  } catch { return fallback }
-}
-
 type ViewType = 'chat' | 'knowledge' | 'artifacts'
 type ViewMode = 'dashboard' | 'operation'
 
@@ -43,6 +34,8 @@ interface UIState {
   nextTutorialStep: () => void
   endTutorial: () => void
 
+  hydrateFromStorage: () => void
+
   setActiveView: (view: ViewType) => void
   setViewMode: (mode: ViewMode) => void
   setActiveCharacter: (characterId: CharacterId) => void // New Action
@@ -70,7 +63,7 @@ export const useUIStore = create<UIState>((set) => ({
   sidebarOpen: true,
   chatKey: 0,
   
-  splashSeen: getStoredBoolean('schale-splash-seen', false),
+  splashSeen: false,
   setSplashSeen: (seen) => {
     try { localStorage.setItem('schale-splash-seen', String(seen)) } catch {}
     set({ splashSeen: seen })
@@ -78,12 +71,24 @@ export const useUIStore = create<UIState>((set) => ({
 
   isTutorialActive: false,
   tutorialStep: 0,
-  tutorialCompleted: getStoredBoolean('schale-tutorial-completed', false),
+  tutorialCompleted: false,
   startTutorial: () => set({ isTutorialActive: true, tutorialStep: 0 }),
   nextTutorialStep: () => set((state) => ({ tutorialStep: state.tutorialStep + 1 })),
   endTutorial: () => {
     try { localStorage.setItem('schale-tutorial-completed', 'true') } catch {}
     set({ isTutorialActive: false, tutorialStep: 0, tutorialCompleted: true })
+  },
+
+  hydrateFromStorage: () => {
+    if (typeof window === 'undefined') return
+    try {
+      const splash = localStorage.getItem('schale-splash-seen')
+      const tutorial = localStorage.getItem('schale-tutorial-completed')
+      set({
+        ...(splash !== null ? { splashSeen: splash === 'true' } : {}),
+        ...(tutorial !== null ? { tutorialCompleted: tutorial === 'true' } : {}),
+      })
+    } catch {}
   },
 
   setActiveView: (view) => set({ activeView: view }),

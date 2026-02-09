@@ -1,0 +1,138 @@
+"""Pydantic Schemas for Request/Response Validation.
+
+This module provides:
+- User and UserProfile schemas (create, update, read)
+- Thread and Message schemas
+- Tool usage tracking schemas
+- Audit log schemas
+- Chat history buffer schemas
+- API response envelopes
+- Admin dashboard schemas
+
+Schema Naming Convention:
+    - *Base: Shared fields between create/update/read
+    - *Create: Fields required for creation
+    - *Update: Optional fields for partial updates
+    - *InDB: Full model with DB-generated fields (id, timestamps)
+
+Usage:
+    from infrastructure.dto.schemas import UserCreate, UserInDB, ChatResponse
+"""
+
+# User schemas
+from infrastructure.dto.schemas.user import (
+    UserBase,
+    UserCreate,
+    UserUpdate,
+    UserInDB,
+    UserProfileBase,
+    UserProfileUpdate,
+    UserProfileInDB,
+)
+
+# Thread schemas
+from infrastructure.dto.schemas.thread import (
+    ThreadBase,
+    ThreadCreate,
+    ThreadUpdate,
+    ThreadInDB,
+)
+
+# Message schemas
+from infrastructure.dto.schemas.message import (
+    MessageBase,
+    MessageCreate,
+    MessageUpdate,
+    MessageInDB,
+)
+
+# Audit log schemas
+from infrastructure.dto.schemas.audit_log import (
+    AuditLogBase,
+    AuditLogCreate,
+    AuditLogInDB,
+)
+
+# Chat history schemas
+from infrastructure.dto.schemas.query import (
+    ChatMessageRecord,
+    ChatHistoryBuffer,
+    ChatHistorySave,
+    ChatMessageRecordModel,
+    normalize_chat_history,
+)
+
+# Response schemas
+from infrastructure.dto.schemas.response import (
+    ErrorDetail,
+    BaseResponse,
+    ErrorResponse,
+    ChatStats,
+    ChatResponse,
+)
+
+# Admin schemas
+from infrastructure.dto.schemas.admin import (
+    AdminUserView,
+    AdminUserList,
+    AdminThreadView,
+    AdminThreadList,
+    AdminMessageView,
+    AdminMessageList,
+    AdminToolUsageStats,
+    AdminAuditLogView,
+    AdminAuditLogList,
+    AdminSystemStats,
+    AdminUserUpdateAction,
+    AdminBulkDeleteAction,
+)
+
+__all__ = [
+    # User
+    "UserBase",
+    "UserCreate",
+    "UserUpdate",
+    "UserInDB",
+    "UserProfileBase",
+    "UserProfileUpdate",
+    "UserProfileInDB",
+    # Thread
+    "ThreadBase",
+    "ThreadCreate",
+    "ThreadUpdate",
+    "ThreadInDB",
+    # Message
+    "MessageBase",
+    "MessageCreate",
+    "MessageUpdate",
+    "MessageInDB",
+    # Audit Log
+    "AuditLogBase",
+    "AuditLogCreate",
+    "AuditLogInDB",
+    # Chat History
+    "ChatMessageRecord",
+    "ChatHistoryBuffer",
+    "ChatHistorySave",
+    "ChatMessageRecordModel",
+    "normalize_chat_history",
+    # Response
+    "ErrorDetail",
+    "BaseResponse",
+    "ErrorResponse",
+    "ChatStats",
+    "ChatResponse",
+    # Admin
+    "AdminUserView",
+    "AdminUserList",
+    "AdminThreadView",
+    "AdminThreadList",
+    "AdminMessageView",
+    "AdminMessageList",
+    "AdminToolUsageStats",
+    "AdminAuditLogView",
+    "AdminAuditLogList",
+    "AdminSystemStats",
+    "AdminUserUpdateAction",
+    "AdminBulkDeleteAction",
+]

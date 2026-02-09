@@ -19,10 +19,10 @@ def _bootstrap_src_layout() -> None:
 
 
 try:
-    from backend.infra.db.session import get_db_context
-    from backend.infra.db.models.user import User, UserRole
-    from backend.infra.security.auth import get_password_hash
-    from backend.common.utils.log import (
+    from infrastructure.dto.session import get_db_context
+    from infrastructure.dto.models.user import User, UserRole
+    from infrastructure.security.auth import get_password_hash
+    from utils.log import (
         log_info,
         log_success,
         log_error,
@@ -30,10 +30,10 @@ try:
     )
 except ModuleNotFoundError:
     _bootstrap_src_layout()
-    from backend.infra.db.session import get_db_context
-    from backend.infra.db.models.user import User, UserRole
-    from backend.infra.security.auth import get_password_hash
-    from backend.common.utils.log import (
+    from infrastructure.dto.session import get_db_context
+    from infrastructure.dto.models.user import User, UserRole
+    from infrastructure.security.auth import get_password_hash
+    from utils.log import (
         log_info,
         log_success,
         log_error,

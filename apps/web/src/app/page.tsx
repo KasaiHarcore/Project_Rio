@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { MissionBoard } from "@/components/features/dashboard/MissionBoard"
@@ -12,8 +12,24 @@ import { useUIStore } from '@/store/ui-store'
 export default function Page() {
   const splashSeen = useUIStore((state) => state.splashSeen)
   const setSplashSeen = useUIStore((state) => state.setSplashSeen)
-  const [showSplash, setShowSplash] = useState(!splashSeen)
+  const hydrateFromStorage = useUIStore((state) => state.hydrateFromStorage)
   const viewMode = useUIStore((state) => state.viewMode)
+
+  // Hydrate persisted state from localStorage after mount (avoids SSR mismatch)
+  const hydrated = useRef(false)
+  useEffect(() => {
+    if (!hydrated.current) {
+      hydrateFromStorage()
+      hydrated.current = true
+    }
+  }, [hydrateFromStorage])
+
+  const [showSplash, setShowSplash] = useState(true)
+
+  // Sync showSplash with the hydrated splashSeen value
+  useEffect(() => {
+    if (splashSeen) setShowSplash(false)
+  }, [splashSeen])
 
   const handleSplashComplete = () => {
     setShowSplash(false)
