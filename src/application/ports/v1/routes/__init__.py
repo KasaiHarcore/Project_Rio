@@ -1,1 +1,0 @@
-"""API route collection for v1 endpoints."""

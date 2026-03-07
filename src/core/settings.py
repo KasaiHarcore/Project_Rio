@@ -66,6 +66,7 @@ class AgentConfig:
 
 	mode: Literal["rag", "web", "chat", "sql"] = "chat"
 	user_role: Literal["user", "admin"] = "user"
+	character: str = "rio"  # Persona ID: "rio", etc.
 	top_k: int = 5
 	model_name: Optional[str] = None
 	verify_max_retries: int = 2
@@ -83,6 +84,7 @@ class AgentConfig:
 	web_search_max_calls: int = 6
 	web_search_max_results: int = 5
 	web_search_dedupe: bool = True
+	retrieval_strategy: Literal["standard", "hyde", "rewrite"] = "standard"
 
 	def __post_init__(self):
 		"""Validate configuration"""
@@ -130,6 +132,12 @@ class AgentConfig:
 
 		if self.web_search_max_results < 1 or self.web_search_max_results > 20:
 			raise ValueError("web_search_max_results must be in [1, 20]")
+
+		if self.retrieval_strategy not in {"standard", "hyde", "rewrite"}:
+			raise ValueError(
+				f"Invalid retrieval_strategy: {self.retrieval_strategy}. "
+				"Must be one of: standard, hyde, rewrite"
+			)
 
 
 @dataclass
@@ -194,8 +202,13 @@ class RedisConfig:
 	hot_conversation_ttl_seconds: int = 6 * 3600
 	hot_conversation_max_messages: int = 200
 	warm_summary_ttl_seconds: int = 7 * 86400
-	session_state_ttl_seconds: int = 6 * 3600
-	user_memory_ttl_seconds: int = 86400
+
+	# Entity L2 cache TTLs
+	user_cache_ttl_seconds: int = 300            # 5 min
+	dashboard_cache_ttl_seconds: int = 60        # 1 min
+	thread_list_cache_ttl_seconds: int = 120     # 2 min
+	xp_cache_ttl_seconds: int = 600              # 10 min
+	mission_stats_cache_ttl_seconds: int = 300   # 5 min
 
 	# Tool/result caches
 	tool_dedup_ttl_seconds: int = 600
@@ -223,10 +236,6 @@ class RedisConfig:
 			raise ValueError("redis hot_conversation_max_messages must be >= 0")
 		if self.warm_summary_ttl_seconds <= 0:
 			raise ValueError("redis warm_summary_ttl_seconds must be > 0")
-		if self.session_state_ttl_seconds <= 0:
-			raise ValueError("redis session_state_ttl_seconds must be > 0")
-		if self.user_memory_ttl_seconds <= 0:
-			raise ValueError("redis user_memory_ttl_seconds must be > 0")
 		if self.tool_dedup_ttl_seconds <= 0:
 			raise ValueError("redis tool_dedup_ttl_seconds must be > 0")
 		if self.retrieval_cache_ttl_seconds <= 0:
@@ -254,8 +263,11 @@ class RedisConfig:
 			hot_conversation_ttl_seconds=_env_int("REDIS_HOT_TTL", str(6 * 3600)),
 			hot_conversation_max_messages=_env_int("REDIS_HOT_MAX_MESSAGES", "200"),
 			warm_summary_ttl_seconds=_env_int("REDIS_WARM_SUMMARY_TTL", str(7 * 86400)),
-			session_state_ttl_seconds=_env_int("REDIS_SESSION_STATE_TTL", str(6 * 3600)),
-			user_memory_ttl_seconds=_env_int("REDIS_USER_MEMORY_TTL", "86400"),
+			user_cache_ttl_seconds=_env_int("REDIS_USER_CACHE_TTL", "300"),
+			dashboard_cache_ttl_seconds=_env_int("REDIS_DASHBOARD_CACHE_TTL", "60"),
+			thread_list_cache_ttl_seconds=_env_int("REDIS_THREAD_LIST_CACHE_TTL", "120"),
+			xp_cache_ttl_seconds=_env_int("REDIS_XP_CACHE_TTL", "600"),
+			mission_stats_cache_ttl_seconds=_env_int("REDIS_MISSION_STATS_CACHE_TTL", "300"),
 			tool_dedup_ttl_seconds=_env_int("REDIS_TOOL_DEDUP_TTL", "600"),
 			retrieval_cache_ttl_seconds=_env_int("REDIS_RETRIEVAL_CACHE_TTL", "1800"),
 			web_cache_ttl_seconds=_env_int("REDIS_WEB_CACHE_TTL", "900"),
@@ -358,16 +370,166 @@ class AppConfig:
 		return len(errors) == 0, errors
 
 
+# =============================================================================
+# OAuth2 Configuration
+# =============================================================================
+
+@dataclass
+class OAuthConfig:
+	"""OAuth2 provider configuration (Google + GitHub)."""
+
+	google_client_id: Optional[str] = None
+	google_client_secret: Optional[str] = None
+	github_client_id: Optional[str] = None
+	github_client_secret: Optional[str] = None
+	redirect_base_url: str = "http://localhost:3000"
+
+	@property
+	def google_enabled(self) -> bool:
+		return bool(self.google_client_id and self.google_client_secret)
+
+	@property
+	def github_enabled(self) -> bool:
+		return bool(self.github_client_id and self.github_client_secret)
+
+	@classmethod
+	def from_env(cls) -> "OAuthConfig":
+		return cls(
+			google_client_id=_env_str("GOOGLE_CLIENT_ID"),
+			google_client_secret=_env_str("GOOGLE_CLIENT_SECRET"),
+			github_client_id=_env_str("GITHUB_CLIENT_ID"),
+			github_client_secret=_env_str("GITHUB_CLIENT_SECRET"),
+			redirect_base_url=_env_str("OAUTH_REDIRECT_BASE_URL", "http://localhost:3000"),
+		)
+
+
+# =============================================================================
+# CORS Configuration
+# =============================================================================
+
+@dataclass
+class CorsConfig:
+	"""CORS configuration with environment-driven whitelist."""
+
+	allowed_origins: list[str] | None = None
+	allow_credentials: bool = True
+	allowed_methods: list[str] | None = None
+	allowed_headers: list[str] | None = None
+	max_age: int = 600  # preflight cache in seconds (10 min)
+
+	def __post_init__(self):
+		if self.allowed_origins is None:
+			self.allowed_origins = [
+				"http://localhost:3000",
+				"http://127.0.0.1:3000",
+				"http://localhost:3001",
+			]
+		if self.allowed_methods is None:
+			self.allowed_methods = ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
+		if self.allowed_headers is None:
+			self.allowed_headers = [
+				"Authorization",
+				"Content-Type",
+				"Accept",
+				"X-Request-Id",
+				"X-Thread-Id",
+			]
+
+	@classmethod
+	def from_env(cls) -> "CorsConfig":
+		origins_raw = _env_str("CORS_ORIGINS")
+		origins = (
+			[o.strip() for o in origins_raw.split(",") if o.strip()]
+			if origins_raw
+			else None
+		)
+		methods_raw = _env_str("CORS_METHODS")
+		methods = (
+			[m.strip() for m in methods_raw.split(",") if m.strip()]
+			if methods_raw
+			else None
+		)
+		headers_raw = _env_str("CORS_HEADERS")
+		headers = (
+			[h.strip() for h in headers_raw.split(",") if h.strip()]
+			if headers_raw
+			else None
+		)
+		return cls(
+			allowed_origins=origins,
+			allow_credentials=_env_bool("CORS_ALLOW_CREDENTIALS", "True"),
+			allowed_methods=methods,
+			allowed_headers=headers,
+			max_age=_env_int("CORS_MAX_AGE", "600"),
+		)
+
+
+# =============================================================================
+# Concurrency Configuration
+# =============================================================================
+
+@dataclass
+class ConcurrencyConfig:
+	"""Thread / process pool sizes for the ConcurrencyManager."""
+
+	thread_pool_size: int = 4
+	process_pool_size: int = 2
+
+	def __post_init__(self):
+		if self.thread_pool_size < 1:
+			raise ValueError("thread_pool_size must be >= 1")
+		if self.process_pool_size < 1:
+			raise ValueError("process_pool_size must be >= 1")
+
+	@classmethod
+	def from_env(cls) -> "ConcurrencyConfig":
+		return cls(
+			thread_pool_size=_env_int("THREAD_POOL_SIZE", "4"),
+			process_pool_size=_env_int("PROCESS_POOL_SIZE", "2"),
+		)
+
+
+# =============================================================================
 # Global configuration instances
+# =============================================================================
+
 _app_config: Optional[AppConfig] = None
 _vectordb_config: Optional[VectorDBConfig] = None
 _redis_config: Optional[RedisConfig] = None
+_oauth_config: Optional[OAuthConfig] = None
+_cors_config: Optional[CorsConfig] = None
+_concurrency_config: Optional[ConcurrencyConfig] = None
+_dotenv_loaded: bool = False
+
+
+def _ensure_dotenv() -> None:
+	"""Load .env from the repo root exactly once.
+
+	This is called automatically by every ``get_*_config()`` factory so that
+	environment variables are available no matter which entry point starts the
+	process (main.py serve, main.py api, uvicorn --reload workers, alembic,
+	tests, etc.).
+	"""
+	global _dotenv_loaded
+	if _dotenv_loaded:
+		return
+	try:
+		from dotenv import load_dotenv
+		# Walk up from  src/core/settings.py  →  src/  →  repo root
+		repo_root = Path(__file__).resolve().parents[2]
+		env_file = repo_root / ".env"
+		if env_file.is_file():
+			load_dotenv(env_file, override=False)
+	except ImportError:
+		pass  # python-dotenv not installed – rely on real env vars
+	_dotenv_loaded = True
 
 
 def get_app_config() -> AppConfig:
 	"""Get or create application configuration"""
 	global _app_config
 	if _app_config is None:
+		_ensure_dotenv()
 		_app_config = AppConfig.from_env()
 	return _app_config
 
@@ -376,6 +538,7 @@ def get_vectordb_config() -> VectorDBConfig:
 	"""Get or create vector database configuration"""
 	global _vectordb_config
 	if _vectordb_config is None:
+		_ensure_dotenv()
 		_vectordb_config = VectorDBConfig.from_env()
 	return _vectordb_config
 
@@ -384,5 +547,33 @@ def get_redis_config() -> RedisConfig:
 	"""Get or create Redis configuration."""
 	global _redis_config
 	if _redis_config is None:
+		_ensure_dotenv()
 		_redis_config = RedisConfig.from_env()
 	return _redis_config
+
+
+def get_oauth_config() -> OAuthConfig:
+	"""Get or create OAuth2 configuration."""
+	global _oauth_config
+	if _oauth_config is None:
+		_ensure_dotenv()
+		_oauth_config = OAuthConfig.from_env()
+	return _oauth_config
+
+
+def get_cors_config() -> CorsConfig:
+	"""Get or create CORS configuration."""
+	global _cors_config
+	if _cors_config is None:
+		_ensure_dotenv()
+		_cors_config = CorsConfig.from_env()
+	return _cors_config
+
+
+def get_concurrency_config() -> ConcurrencyConfig:
+	"""Get or create concurrency configuration."""
+	global _concurrency_config
+	if _concurrency_config is None:
+		_ensure_dotenv()
+		_concurrency_config = ConcurrencyConfig.from_env()
+	return _concurrency_config

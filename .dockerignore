@@ -1,0 +1,44 @@
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Version control
+.git/
+.gitignore
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# Frontend (built separately)
+apps/web/
+node_modules/
+
+# Environment files
+.env
+.env.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Storage / data
+storage/
+*.db
+
+# Documentation / misc
+docs/
+*.md
+LICENSE
+
+# Docker
+Dockerfile
+docker-compose*.yml
+
+# Build artifacts
+build_out*.txt

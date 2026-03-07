@@ -3,26 +3,26 @@ import { CharacterId } from '@/types/character'
 
 type ViewType = 'chat' | 'knowledge' | 'artifacts'
 type ViewMode = 'dashboard' | 'operation'
+export type AgentMode = 'chat' | 'rag' | 'web' | 'sql'
 
 interface UIState {
-  // User Stats (RPG Elements)
-  userLevel: number
-  currentAp: number
-  maxAp: number
-  credits: number
-
   // Navigation View (Sidebar)
   activeView: ViewType
   // Main Content Mode
   viewMode: ViewMode
   activeMissionId: string | null
-  
-  // Character System
-  activeCharacterId: CharacterId
-  
+
+  // Agent Mode
+  agentMode: AgentMode
+
+  // User role (from backend)
+  userRole: 'user' | 'admin'
+
+
   sidebarOpen: boolean
+  chatSidebarOpen: boolean
   chatKey: number
-  
+
   splashSeen: boolean
   setSplashSeen: (seen: boolean) => void
 
@@ -38,34 +38,34 @@ interface UIState {
 
   setActiveView: (view: ViewType) => void
   setViewMode: (mode: ViewMode) => void
-  setActiveCharacter: (characterId: CharacterId) => void // New Action
-  
+  setAgentMode: (mode: AgentMode) => void
+  setUserRole: (role: 'user' | 'admin') => void
+
   startMission: (missionId?: string) => void
   endMission: () => void
-  
+
   toggleSidebar: () => void
+  toggleChatSidebar: () => void
   resetChat: () => void
 }
 
 export const useUIStore = create<UIState>((set) => ({
-  // User Stats Defaults
-  userLevel: 54,
-  currentAp: 120,
-  maxAp: 120,
-  credits: 1400200,
-
   activeView: 'chat',
-  viewMode: 'dashboard', 
+  viewMode: 'dashboard',
   activeMissionId: null,
-  
-  activeCharacterId: 'arona', // Default character
-  
+
+  agentMode: 'chat' as AgentMode, // Default agent mode
+
+  userRole: 'user' as const, // Default role, hydrated from /auth/me
+
+
   sidebarOpen: true,
+  chatSidebarOpen: true,
   chatKey: 0,
-  
+
   splashSeen: false,
   setSplashSeen: (seen) => {
-    try { localStorage.setItem('schale-splash-seen', String(seen)) } catch {}
+    try { localStorage.setItem('schale-splash-seen', String(seen)) } catch { }
     set({ splashSeen: seen })
   },
 
@@ -75,7 +75,7 @@ export const useUIStore = create<UIState>((set) => ({
   startTutorial: () => set({ isTutorialActive: true, tutorialStep: 0 }),
   nextTutorialStep: () => set((state) => ({ tutorialStep: state.tutorialStep + 1 })),
   endTutorial: () => {
-    try { localStorage.setItem('schale-tutorial-completed', 'true') } catch {}
+    try { localStorage.setItem('schale-tutorial-completed', 'true') } catch { }
     set({ isTutorialActive: false, tutorialStep: 0, tutorialCompleted: true })
   },
 
@@ -88,24 +88,30 @@ export const useUIStore = create<UIState>((set) => ({
         ...(splash !== null ? { splashSeen: splash === 'true' } : {}),
         ...(tutorial !== null ? { tutorialCompleted: tutorial === 'true' } : {}),
       })
-    } catch {}
+    } catch { }
   },
 
   setActiveView: (view) => set({ activeView: view }),
   setViewMode: (mode) => set({ viewMode: mode }),
-  setActiveCharacter: (id) => set({ activeCharacterId: id }),
-  
-  startMission: (missionId) => set({ 
-    viewMode: 'operation', 
+  setAgentMode: (mode) => set({ agentMode: mode }),
+  setUserRole: (role) => set((state) => ({
+    userRole: role,
+    // Reset to chat if non-admin had SQL selected
+    ...(role !== 'admin' && state.agentMode === 'sql' ? { agentMode: 'chat' as AgentMode } : {}),
+  })),
+
+  startMission: (missionId) => set({
+    viewMode: 'operation',
     activeMissionId: missionId || 'new-operation',
-    chatKey: Date.now() 
+    chatKey: Date.now()
   }),
-  
-  endMission: () => set({ 
-    viewMode: 'dashboard', 
-    activeMissionId: null 
+
+  endMission: () => set({
+    viewMode: 'dashboard',
+    activeMissionId: null
   }),
 
   toggleSidebar: () => set((state) => ({ sidebarOpen: !state.sidebarOpen })),
+  toggleChatSidebar: () => set((state) => ({ chatSidebarOpen: !state.chatSidebarOpen })),
   resetChat: () => set((state) => ({ chatKey: state.chatKey + 1 })),
 }))

@@ -13,11 +13,11 @@ Startup sequence:
 6. Enable Redis LLM cache
 """
 
-from infrastructure.dto.base import Base
-from infrastructure.dto.session import get_engine
+from models.base import Base
+from infrastructure.database.session import get_engine
 from core.settings import get_app_config
-from infrastructure.security.secrets import load_secrets
-from infrastructure.integrations.llm.registry import register_all_models
+from core.exceptions import ConfigurationError
+from infrastructure.llm.registry import register_all_models
 from utils.log import (
     log_info,
     log_success,
@@ -25,8 +25,8 @@ from utils.log import (
     log_error,
     configure_logging_from_env,
 )
-import infrastructure.dto.models  # noqa: F401 - imports for side effects (model registration)
-from infrastructure.integrations.tools.qdrant_tool import vector_db_tool
+import models  # noqa: F401 - imports for side effects (model registration)
+from infrastructure.tools.qdrant_tool import get_vector_db_tool
 from infrastructure.cache.redis_cache import redis_tool
 
 
@@ -61,13 +61,22 @@ def run_startup_tasks() -> None:
     Call this once when the application starts.
     """
     log_info("Running startup tasks...")
-    
-    # 1. Load secrets from environment
-    load_secrets()
-    
-    # 2. Register LLM models
+
+    # 1. Register LLM models
     register_all_models()
-    
+
+    # 2. Validate configuration
+    config = get_app_config()
+    ok, errors = config.validate()
+    if not ok:
+        for err in errors:
+            log_error(f"Config validation: {err}")
+        raise ConfigurationError(
+            "Application configuration is invalid",
+            details={"errors": errors},
+        )
+    log_success("Configuration validated")
+
     # 3. Configure logging
     configure_logging_from_env()
     
@@ -75,7 +84,7 @@ def run_startup_tasks() -> None:
     create_database_tables()
     
     # 5. Initialize vector DB
-    vector_db_tool.startup_check()
+    get_vector_db_tool().startup_check()
     
     # 6. Enable Redis LLM cache
     redis_tool.enable_llm_cache()

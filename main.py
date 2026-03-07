@@ -1,4 +1,4 @@
-"""Streamlit UI launcher (repo root)."""
+"""Application launcher: Streamlit UI + FastAPI REST API."""
 
 import argparse
 import sys
@@ -47,20 +47,48 @@ def serve() -> None:
     sys.exit(stcli.main())
 
 
+def api(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
+    """Launch FastAPI REST API server via uvicorn."""
+    try:
+        import uvicorn
+    except ImportError:
+        log_error("uvicorn not installed (should come with fastapi[standard])")
+        print("Install: pip install 'fastapi[standard]'")
+        sys.exit(1)
+
+    log_info(f"Launching FastAPI API server on {host}:{port} ...")
+    uvicorn.run(
+        "core.app:app",
+        host=host,
+        port=port,
+        reload=reload,
+        log_level="info",
+    )
+
+
 def main() -> None:
-    """Main CLI entry point (Streamlit only)."""
+    """Main CLI entry point."""
     parser = argparse.ArgumentParser(
-        description="Streamlit UI Launcher",
+        description="AI Study Roadmap Launcher",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Launch web interface
+  # Launch Streamlit web interface
   python main.py serve
+
+  # Launch FastAPI REST API
+  python main.py api
+  python main.py api --port 8080 --reload
 """
     )
     
     subparsers = parser.add_subparsers(dest="cmd", required=True, help="Available commands")
     subparsers.add_parser("serve", help="Launch Streamlit web interface")
+
+    api_parser = subparsers.add_parser("api", help="Launch FastAPI REST API server")
+    api_parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
+    api_parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
+    api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
     
     # Parse arguments
     args = parser.parse_args()
@@ -69,6 +97,8 @@ Examples:
     try:
         if args.cmd == "serve":
             serve()
+        elif args.cmd == "api":
+            api(host=args.host, port=args.port, reload=args.reload)
             
     except KeyboardInterrupt:
         log_warning("\nOperation cancelled by user")

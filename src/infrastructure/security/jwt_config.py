@@ -2,7 +2,8 @@
 
 import os
 import secrets
-from typing import Optional
+
+from utils.log import log_warning
 
 # JWT Algorithm
 JWT_ALGORITHM = "HS256"
@@ -12,14 +13,17 @@ ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_ACCESS_TOKEN_EXPIRE_MINUTES", "
 REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("JWT_REFRESH_TOKEN_EXPIRE_DAYS", "7"))
 
 # Secret key for signing tokens
-# In production, set JWT_SECRET_KEY environment variable
-_default_secret = secrets.token_urlsafe(32)
-JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY", _default_secret)
+_env_secret = os.getenv("JWT_SECRET_KEY")
+
+if _env_secret:
+    JWT_SECRET_KEY: str = _env_secret
+else:
+    JWT_SECRET_KEY = secrets.token_urlsafe(32)
+    log_warning(
+        "JWT_SECRET_KEY is NOT set – using a random ephemeral key. "
+        "All tokens will be invalidated on restart. "
+        "Set JWT_SECRET_KEY env var before deploying to production!"
+    )
 
 # Token type identifier
 TOKEN_TYPE = "bearer"
-
-
-def get_secret_key() -> str:
-    """Get the JWT secret key, generating if needed."""
-    return JWT_SECRET_KEY

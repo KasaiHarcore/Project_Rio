@@ -71,20 +71,15 @@ export function useKeyboardShortcuts() {
         }
         case "2": {
           e.preventDefault()
-          if (pathname !== "/arona") router.push("/arona")
+          if (pathname !== "/operation") router.push("/operation")
           break
         }
         case "3": {
           e.preventDefault()
-          if (pathname !== "/operation") router.push("/operation")
-          break
-        }
-        case "4": {
-          e.preventDefault()
           if (pathname !== "/mission") router.push("/mission")
           break
         }
-        case "5": {
+        case "4": {
           e.preventDefault()
           if (pathname !== "/history") router.push("/history")
           break

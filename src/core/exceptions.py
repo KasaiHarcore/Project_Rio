@@ -142,3 +142,24 @@ class ExternalServiceError(AppException):
 
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(message, error_code="EXTERNAL_SERVICE_ERROR", details=details)
+
+
+class RateLimitError(AppException):
+    """Rate limit exceeded error.
+    
+    Raised when a client exceeds the configured request rate limit.
+    """
+
+    def __init__(self, message: str = "Too many requests. Please try again later.", details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, error_code="RATE_LIMIT_EXCEEDED", details=details)
+
+
+class OAuthError(AppException):
+    """OAuth authentication error.
+    
+    Raised when an OAuth2 flow fails (invalid code, provider error, account linking).
+    """
+
+    def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
+        super().__init__(message, error_code="OAUTH_ERROR", details=details)
+

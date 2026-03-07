@@ -3,11 +3,12 @@
 Uses:
 - passlib for password hashing (Argon2/bcrypt)
 - PyJWT for token creation and verification
+- Redis for token blacklisting (real logout / revocation)
 """
 
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import jwt
 from passlib.context import CryptContext
@@ -26,6 +27,38 @@ from utils.log import log_debug, log_error, log_warning
 # Password hashing context using Argon2 (preferred) with bcrypt fallback
 pwd_context = CryptContext(schemes=["argon2", "bcrypt"], deprecated="auto")
 
+# Redis-based token blacklist (lazy import to avoid circular deps)
+_BLACKLIST_PREFIX = "token:blacklist"
+
+
+def _blacklist_token(jti: str, ttl_seconds: int) -> None:
+    """Add a token's jti to the Redis blacklist with matching TTL."""
+    try:
+        from infrastructure.cache.redis_cache import redis_tool
+
+        redis_tool.cache_set_json(
+            namespace=_BLACKLIST_PREFIX,
+            key=jti,
+            value=True,
+            ttl_seconds=ttl_seconds,
+        )
+    except Exception as exc:
+        # If Redis is down we degrade gracefully — the token will simply
+        # remain valid until its natural expiration.
+        log_warning(f"Could not blacklist token (Redis unavailable): {exc}")
+
+
+def _is_blacklisted(jti: str) -> bool:
+    """Check if a jti has been revoked."""
+    try:
+        from infrastructure.cache.redis_cache import redis_tool
+
+        return redis_tool.cache_get_json(namespace=_BLACKLIST_PREFIX, key=jti) is not None
+    except Exception:
+        return False
+
+
+# Pydantic models
 
 class TokenData(BaseModel):
     """Decoded JWT token data."""
@@ -33,6 +66,7 @@ class TokenData(BaseModel):
     role: str
     exp: datetime
     iat: datetime
+    jti: str = ""
     token_type: str = "access"
 
 
@@ -44,20 +78,10 @@ class TokenPair(BaseModel):
     expires_in: int = ACCESS_TOKEN_EXPIRE_MINUTES * 60
 
 
-# =============================================================================
 # Password Functions (using passlib)
-# =============================================================================
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Verify a password against its hash.
-    
-    Args:
-        plain_password: Plain text password
-        hashed_password: Hashed password from database
-        
-    Returns:
-        True if password matches, False otherwise
-    """
+    """Verify a password against its hash."""
     try:
         return pwd_context.verify(plain_password, hashed_password)
     except Exception as e:
@@ -66,36 +90,18 @@ def verify_password(plain_password: str, hashed_password: str) -> bool:
 
 
 def get_password_hash(password: str) -> str:
-    """Hash a password for storing using Argon2.
-    
-    Args:
-        password: Plain text password
-        
-    Returns:
-        Hashed password
-    """
+    """Hash a password for storing using Argon2."""
     return pwd_context.hash(password)
 
 
-# =============================================================================
 # JWT Token Functions (using PyJWT)
-# =============================================================================
 
 def create_access_token(
     user_id: str | UUID,
     role: str,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    """Create a JWT access token.
-    
-    Args:
-        user_id: User's unique identifier
-        role: User's role (e.g., 'user', 'admin')
-        expires_delta: Optional custom expiration time
-        
-    Returns:
-        Encoded JWT token string
-    """
+    """Create a JWT access token with a unique jti claim."""
     now = datetime.now(timezone.utc)
     expire = now + (expires_delta or timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES))
     
@@ -105,10 +111,11 @@ def create_access_token(
         "iat": now,
         "exp": expire,
         "type": "access",
+        "jti": uuid4().hex,
     }
     
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    log_debug(f"Created access token for user {user_id}, expires at {expire}")
+    log_debug("Access token created")
     return token
 
 
@@ -117,16 +124,7 @@ def create_refresh_token(
     role: str,
     expires_delta: Optional[timedelta] = None,
 ) -> str:
-    """Create a JWT refresh token.
-    
-    Args:
-        user_id: User's unique identifier
-        role: User's role
-        expires_delta: Optional custom expiration time
-        
-    Returns:
-        Encoded JWT refresh token string
-    """
+    """Create a JWT refresh token with a unique jti claim."""
     now = datetime.now(timezone.utc)
     expire = now + (expires_delta or timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS))
     
@@ -136,23 +134,16 @@ def create_refresh_token(
         "iat": now,
         "exp": expire,
         "type": "refresh",
+        "jti": uuid4().hex,
     }
     
     token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
-    log_debug(f"Created refresh token for user {user_id}, expires at {expire}")
+    log_debug("Refresh token created")
     return token
 
 
 def create_token_pair(user_id: str | UUID, role: str) -> TokenPair:
-    """Create both access and refresh tokens.
-    
-    Args:
-        user_id: User's unique identifier
-        role: User's role
-        
-    Returns:
-        TokenPair with access_token and refresh_token
-    """
+    """Create both access and refresh tokens."""
     return TokenPair(
         access_token=create_access_token(user_id, role),
         refresh_token=create_refresh_token(user_id, role),
@@ -162,15 +153,10 @@ def create_token_pair(user_id: str | UUID, role: str) -> TokenPair:
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
     """Verify and decode a JWT token.
     
-    Args:
-        token: JWT token string
-        
-    Returns:
-        Decoded payload dict if valid, None if invalid/expired
+    Returns None if the token is expired, invalid, or blacklisted.
     """
     try:
         payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
-        return payload
     except jwt.ExpiredSignatureError:
         log_warning("Token has expired")
         return None
@@ -178,16 +164,17 @@ def verify_token(token: str) -> Optional[Dict[str, Any]]:
         log_warning(f"Invalid token: {e}")
         return None
 
+    # Check blacklist
+    jti = payload.get("jti", "")
+    if jti and _is_blacklisted(jti):
+        log_warning("Token has been revoked")
+        return None
+
+    return payload
+
 
 def decode_token(token: str) -> Optional[TokenData]:
-    """Decode a JWT token into TokenData.
-    
-    Args:
-        token: JWT token string
-        
-    Returns:
-        TokenData if valid, None if invalid
-    """
+    """Decode a JWT token into TokenData."""
     payload = verify_token(token)
     if not payload:
         return None
@@ -198,6 +185,7 @@ def decode_token(token: str) -> Optional[TokenData]:
             role=payload["role"],
             exp=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
             iat=datetime.fromtimestamp(payload["iat"], tz=timezone.utc),
+            jti=payload.get("jti", ""),
             token_type=payload.get("type", "access"),
         )
     except (KeyError, ValueError) as e:
@@ -206,13 +194,11 @@ def decode_token(token: str) -> Optional[TokenData]:
 
 
 def refresh_access_token(refresh_token: str) -> Optional[str]:
-    """Create a new access token from a valid refresh token.
+    """
+    Create a new access token from a valid refresh token.
     
-    Args:
-        refresh_token: Valid refresh token
-        
-    Returns:
-        New access token if refresh token is valid, None otherwise
+    The old refresh token remains valid until expiry (single-use rotation
+    can be added later by blacklisting the consumed refresh token).
     """
     payload = verify_token(refresh_token)
     if not payload:
@@ -232,14 +218,32 @@ def refresh_access_token(refresh_token: str) -> Optional[str]:
     return create_access_token(user_id, role)
 
 
-def is_token_expired(token: str) -> bool:
-    """Check if a token is expired without raising exceptions.
-    
-    Args:
-        token: JWT token string
-        
-    Returns:
-        True if expired or invalid, False if still valid
+def revoke_token(token: str) -> bool:
     """
-    return verify_token(token) is None
+    Blacklist a token so it can no longer be used.
+    
+    Calculates remaining TTL from the token's `exp` claim and stores
+    the jti in Redis for that duration.
+    
+    Returns True if successfully blacklisted.
+    """
+    try:
+        # Decode WITHOUT blacklist check — we want to revoke even if it's
+        # already in the list (idempotent).
+        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+    except jwt.ExpiredSignatureError:
+        return True  # already expired, nothing to revoke
+    except jwt.InvalidTokenError:
+        return False
 
+    jti = payload.get("jti")
+    if not jti:
+        return False
+
+    exp = datetime.fromtimestamp(payload["exp"], tz=timezone.utc)
+    remaining = int((exp - datetime.now(timezone.utc)).total_seconds())
+    if remaining <= 0:
+        return True
+
+    _blacklist_token(jti, remaining)
+    return True

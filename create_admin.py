@@ -3,10 +3,6 @@ Script to create a new Admin user manually.
 """
 
 import sys
-from dotenv import load_dotenv
-
-# Load environment variables from .env file
-load_dotenv()
 import getpass
 from pathlib import Path
 
@@ -19,8 +15,8 @@ def _bootstrap_src_layout() -> None:
 
 
 try:
-    from infrastructure.dto.session import get_db_context
-    from infrastructure.dto.models.user import User, UserRole
+    from infrastructure.database.session import get_db_context
+    from models.user import User, UserRole
     from infrastructure.security.auth import get_password_hash
     from utils.log import (
         log_info,
@@ -30,8 +26,8 @@ try:
     )
 except ModuleNotFoundError:
     _bootstrap_src_layout()
-    from infrastructure.dto.session import get_db_context
-    from infrastructure.dto.models.user import User, UserRole
+    from infrastructure.database.session import get_db_context
+    from models.user import User, UserRole
     from infrastructure.security.auth import get_password_hash
     from utils.log import (
         log_info,

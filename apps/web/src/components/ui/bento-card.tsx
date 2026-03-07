@@ -1,7 +1,7 @@
 "use client"
 
-import React, { useRef, useState } from 'react'
-import { motion, useMotionTemplate, useMotionValue, useSpring } from 'framer-motion'
+import React, { useRef } from 'react'
+import { motion, useMotionTemplate, useMotionValue } from 'framer-motion'
 import { cn } from '@/lib/utils'
 
 interface BentoCardProps {
@@ -12,7 +12,7 @@ interface BentoCardProps {
 
 export function BentoCard({ children, className, noHover = false }: BentoCardProps) {
   const ref = useRef<HTMLDivElement>(null)
-  
+
   const mouseX = useMotionValue(0)
   const mouseY = useMotionValue(0)
 
@@ -32,16 +32,19 @@ export function BentoCard({ children, className, noHover = false }: BentoCardPro
       whileHover={noHover ? {} : { scale: 1.02, y: -2 }}
       transition={{ type: "spring", stiffness: 300, damping: 20 }}
       className={cn(
-        "group relative rounded-2xl border p-6 overflow-hidden transition-colors duration-500",
+        "group relative rounded-xl border p-5 overflow-hidden transition-colors duration-500",
         "backdrop-blur-md",
-        "bg-[var(--bento-bg)] border-[var(--bento-border)] hover:bg-[var(--bento-hover-bg)]",
+        "bg-[var(--bento-bg)] border-[var(--bento-edge-border,var(--bento-border))] hover:bg-[var(--bento-hover-bg)]",
         className
       )}
+      style={{
+        boxShadow: 'var(--bento-inset-highlight, inset 0 1px 0 rgba(255,255,255,0.05))',
+      }}
     >
       {/* Glare Effect Layer */}
       {!noHover && (
         <motion.div
-          className="pointer-events-none absolute -inset-px rounded-2xl opacity-0 transition duration-300 group-hover:opacity-100"
+          className="pointer-events-none absolute -inset-px rounded-xl opacity-0 transition duration-300 group-hover:opacity-100"
           style={{
             background: useMotionTemplate`
               radial-gradient(
@@ -53,7 +56,13 @@ export function BentoCard({ children, className, noHover = false }: BentoCardPro
           }}
         />
       )}
-      
+
+      {/* Top-edge highlight line */}
+      <div
+        className="pointer-events-none absolute top-0 left-0 right-0 h-px z-20"
+        style={{ background: 'var(--bento-top-line, linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.06) 50%, transparent 100%))' }}
+      />
+
       {/* Content */}
       <div className="relative z-10">
         {children}

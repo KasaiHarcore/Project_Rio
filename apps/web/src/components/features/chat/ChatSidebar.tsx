@@ -1,50 +1,195 @@
 "use client"
 
-import React from 'react'
+import React, { useMemo } from 'react'
+import { cn } from '@/lib/utils'
+import { useSidebarStore, type SidebarTab } from '@/store/sidebar-store'
+import { useUIStore } from '@/store/ui-store'
+import { CHARACTERS } from '@/types/character'
+import {
+  Bot, FolderKanban, BrainCircuit,
+  Download, Hash, Zap, Clock,
+} from 'lucide-react'
+import type { UIMessage } from 'ai'
 
-export function ChatSidebar() {
+import { AgentsTab } from './sidebar/AgentsTab'
+import { WorkspaceTab } from './sidebar/WorkspaceTab'
+import { MemoryTab } from './sidebar/MemoryTab'
+import { NotePopup } from '@/components/features/notes/NotePopup'
+
+/* ─── Types ──────────────────────────────────────────────────────── */
+
+type HudStatus = 'ready' | 'streaming' | 'submitted' | 'error'
+
+interface ChatSidebarProps {
+  messages: UIMessage[]
+  status: HudStatus
+  threadId: string | null
+}
+
+/* ─── Tab definitions ────────────────────────────────────────────── */
+
+const TABS: { id: SidebarTab; label: string; icon: React.ElementType }[] = [
+  { id: 'agents', label: 'Agents', icon: Bot },
+  { id: 'workspace', label: 'Workspace', icon: FolderKanban },
+  { id: 'memory', label: 'Memory', icon: BrainCircuit },
+]
+
+/* ─── Helpers ────────────────────────────────────────────────────── */
+
+function estimateTokens(text: string): number {
+  return Math.ceil(text.length / 4)
+}
+
+function formatDuration(ms: number): string {
+  const mins = Math.floor(ms / 60000)
+  if (mins < 1) return 'Just started'
+  if (mins < 60) return `${mins}m`
+  const hrs = Math.floor(mins / 60)
+  return `${hrs}h ${mins % 60}m`
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   Component
+   ═══════════════════════════════════════════════════════════════════ */
+
+export function ChatSidebar({ messages, status, threadId }: ChatSidebarProps) {
+  const activeTab = useSidebarStore((s) => s.activeTab)
+  const setActiveTab = useSidebarStore((s) => s.setActiveTab)
+  const character = CHARACTERS[0]
+
+  /* ── Badge counts for tab indicators ── */
+  const logicCount = useSidebarStore((s) => s.logicEntries.length)
+  const notesCount = useSidebarStore((s) => s.stickyNotes.length)
+  const filesCount = useSidebarStore((s) => s.workspaceFiles.length)
+  const refsCount = useSidebarStore((s) => s.searchReferences.length)
+  const memoryCount = useSidebarStore((s) => s.memoryEntries.length + s.persistedMemories.length)
+
+  const tabBadges: Record<SidebarTab, number> = {
+    agents: logicCount + notesCount,
+    workspace: filesCount + refsCount,
+    memory: memoryCount,
+  }
+
+  /* ── Derived session stats for footer ── */
+  const stats = useMemo(() => {
+    const allText = messages.map((m) =>
+      m.parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || (m as any).content || ''
+    ).join('')
+
+    const tokens = estimateTokens(allText)
+
+    const firstMsg = messages[0]
+    const sessionStart = firstMsg ? new Date((firstMsg as any).createdAt ?? Date.now()).getTime() : Date.now()
+    const duration = Date.now() - sessionStart
+
+    return { msgCount: messages.length, tokens, duration }
+  }, [messages])
+
+  const chatSidebarOpen = useUIStore((s) => s.chatSidebarOpen)
+
+  if (!chatSidebarOpen) return null
+
   return (
-    <aside className="relative z-20 hidden w-96 flex-col border-l backdrop-blur-xl 2xl:flex flex-shrink-0 transition-colors bg-[var(--chat-sidebar-bg)] border-[var(--chat-sidebar-border)]">
-      <div className="border-b p-6 border-[var(--chat-sidebar-section-border)]">
-        <h3 className="mb-4 text-[10px] font-black tracking-[0.3em] uppercase text-[var(--chat-sidebar-heading)]">Neural Activity</h3>
+    <>
+      <aside className="relative z-20 hidden w-80 flex-col border-l backdrop-blur-xl 2xl:flex flex-shrink-0 transition-colors overflow-hidden bg-[var(--chat-sidebar-bg)] border-[var(--chat-sidebar-border)]">
 
-        <div className="relative overflow-hidden rounded-2xl border p-5 shadow-sm transition-colors bg-[var(--chat-sidebar-card-bg)] border-[var(--chat-sidebar-card-border)]">
-          <div className="absolute top-0 left-0 h-1 w-full" style={{ background: 'var(--chat-sidebar-card-gradient)' }}></div>
+        {/* ───── Tab bar ───── */}
+        <div className="flex items-center gap-1 border-b px-3 py-2 border-[var(--chat-sidebar-section-border)]">
+          {TABS.map((tab) => {
+            const isActive = activeTab === tab.id
+            const badge = tabBadges[tab.id]
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={cn(
+                  "flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-all",
+                  "text-[9px] font-bold uppercase tracking-wider",
+                  isActive
+                    ? "text-[var(--chat-sidebar-stat-text)] bg-[var(--chat-sidebar-stat-text)]/10"
+                    : "text-[var(--chat-sidebar-stat-label)] hover:text-[var(--chat-sidebar-value)] hover:bg-[var(--chat-sidebar-artifact-bg)]"
+                )}
+              >
+                <tab.icon className="h-3.5 w-3.5" />
+                <span>{tab.label}</span>
+                {badge > 0 && (
+                  <span className={cn(
+                    "min-w-[14px] h-[14px] rounded-full px-1 flex items-center justify-center text-[7px] font-black",
+                    isActive
+                      ? "bg-[var(--chat-sidebar-stat-text)]/20 text-[var(--chat-sidebar-stat-text)]"
+                      : "bg-[var(--chat-sidebar-stat-label)]/20 text-[var(--chat-sidebar-stat-label)]"
+                  )}>
+                    {badge}
+                  </span>
+                )}
+              </button>
+            )
+          })}
 
-          <div className="mb-2 flex items-end justify-between">
-            <span className="text-2xl font-black text-[var(--chat-sidebar-value)]">92%</span>
-            <span className="mb-1 rounded px-2 py-1 text-[10px] font-bold bg-[var(--chat-sidebar-stat-bg)] text-[var(--chat-sidebar-stat-text)]">OPTIMAL</span>
-          </div>
-          <p className="text-[10px] font-bold tracking-wider uppercase text-[var(--chat-sidebar-stat-label)]">Reasoning Capacity</p>
+          {/* Spacer */}
+          <div className="flex-1" />
 
-          <div className="mt-4 flex h-8 items-end space-x-1">
-            <div className="h-[40%] flex-1 rounded-t-sm bg-[var(--chat-sidebar-bar-low)]"></div>
-            <div className="h-[70%] flex-1 rounded-t-sm bg-[var(--chat-sidebar-bar-mid)]"></div>
-            <div className="h-[50%] flex-1 animate-pulse rounded-t-sm bg-[var(--chat-sidebar-bar-pulse)]"></div>
-            <div className="h-[80%] flex-1 rounded-t-sm bg-[var(--chat-sidebar-bar-high)]"></div>
-            <div className="h-[30%] flex-1 rounded-t-sm bg-[var(--chat-sidebar-bar-bg)]"></div>
-          </div>
+          {/* Export button */}
+          {messages.length > 0 && (
+            <button
+              onClick={() => {
+                const md = messages.map(m => {
+                  const content = m.parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || (m as any).content || ''
+                  return `**${m.role === 'user' ? 'You' : character.name}:**\n${content}`
+                }).join('\n\n---\n\n')
+                const blob = new Blob([md], { type: 'text/markdown' })
+                const url = URL.createObjectURL(blob)
+                const a = document.createElement('a')
+                a.href = url
+                a.download = `chat-${threadId?.substring(0, 8) || 'new'}-${new Date().toISOString().split('T')[0]}.md`
+                a.click()
+                URL.revokeObjectURL(url)
+              }}
+              className="p-1.5 rounded-lg transition-colors text-[var(--chat-sidebar-stat-label)] hover:text-[var(--chat-sidebar-stat-text)] hover:bg-[var(--chat-sidebar-artifact-bg)]"
+              title="Export chat"
+            >
+              <Download className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
-      </div>
 
-      <div className="flex-1 overflow-y-auto p-6">
-        <h3 className="mb-4 text-[10px] font-black tracking-[0.3em] uppercase text-[var(--chat-sidebar-heading)]">Active Artifacts</h3>
+        {/* ───── Tab content ───── */}
+        <div className="flex-1 overflow-y-auto custom-scrollbar">
+          {activeTab === 'agents' && <AgentsTab />}
+          {activeTab === 'workspace' && <WorkspaceTab />}
+          {activeTab === 'memory' && <MemoryTab threadId={threadId} />}
+        </div>
 
-        <div className="space-y-3">
-          <div className="group relative cursor-pointer rounded-xl border p-4 transition-all bg-[var(--chat-sidebar-artifact-bg)] border-[var(--chat-sidebar-artifact-border)] hover:border-[var(--chat-sidebar-artifact-hover-border)] hover:bg-[var(--chat-sidebar-artifact-hover-bg)]">
-            <div className="flex items-start">
-              <div className="rounded-lg p-2.5 transition-transform group-hover:scale-110 bg-[var(--chat-sidebar-artifact-icon-bg)] text-[var(--chat-sidebar-artifact-icon-text)]">
-                <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+        {/* ───── Compact session footer ───── */}
+        {messages.length > 0 && (
+          <div className="flex items-center justify-between border-t px-4 py-2 border-[var(--chat-sidebar-section-border)]">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <Hash className="h-2.5 w-2.5 text-[var(--chat-sidebar-stat-label)]" />
+                <span className="text-[8px] font-bold text-[var(--chat-sidebar-stat-label)]">{stats.msgCount}</span>
               </div>
-              <div className="ml-3">
-                <p className="text-xs font-bold text-[var(--chat-sidebar-artifact-name)]">Project_Alice_Protocol.pdf</p>
-                <p className="mt-1 font-mono text-[9px] text-[var(--chat-sidebar-artifact-meta)]">10:24 AM • 2.4MB</p>
+              <div className="flex items-center gap-1">
+                <Zap className="h-2.5 w-2.5 text-[var(--chat-sidebar-stat-label)]" />
+                <span className="text-[8px] font-bold text-[var(--chat-sidebar-stat-label)]">
+                  {stats.tokens > 1000 ? `${(stats.tokens / 1000).toFixed(1)}k` : stats.tokens}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Clock className="h-2.5 w-2.5 text-[var(--chat-sidebar-stat-label)]" />
+                <span className="text-[8px] font-bold text-[var(--chat-sidebar-stat-label)]">{formatDuration(stats.duration)}</span>
               </div>
             </div>
-            <div className="absolute bottom-0 left-0 h-0.5 w-0 transition-all duration-700 group-hover:w-full bg-[var(--chat-sidebar-artifact-line)]"></div>
+            {threadId && (
+              <span className="text-[7px] font-mono text-[var(--chat-sidebar-stat-label)]/50 truncate max-w-[80px]">
+                {threadId.substring(0, 8)}
+              </span>
+            )}
           </div>
-        </div>
-      </div>
-    </aside>
+        )}
+      </aside>
+
+      {/* Note Popup — rendered here so it's above the sidebar */}
+      <NotePopup />
+    </>
   )
 }

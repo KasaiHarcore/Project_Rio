@@ -1,0 +1,195 @@
+"""Note service — CRUD operations for persistent sticky notes.
+
+Handles creation, retrieval, update, deletion, and todo-toggling of notes.
+Notes can be created by the agent (auto-extracted from conversations) or
+manually by the user.  Each note is tied to a thread and auto-deleted when
+the thread is removed (CASCADE).
+
+V2: Supports title, blocks, collections, audio, is_important.
+"""
+
+from __future__ import annotations
+
+from typing import List, Optional, Dict, Any
+from uuid import UUID
+
+from models.note import Note, NoteSource
+from schemas.note import (
+    NoteCreate,
+    NoteUpdate,
+    NoteInDB,
+)
+from repositories.note_repository import NoteRepository
+from utils.log import log_info, log_warning
+
+
+class NoteService:
+    """Service for note CRUD operations."""
+
+    def __init__(self, note_repo: NoteRepository) -> None:
+        self._repo = note_repo
+
+    def _save_note_to_disk(self, note: Note) -> None:
+        try:
+            from core.settings import get_app_config
+            import os
+
+            config = get_app_config()
+            notes_dir = os.path.join(config.storage_dir, "notes")
+            os.makedirs(notes_dir, exist_ok=True)
+
+            filepath = os.path.join(notes_dir, f"{note.id}.md")
+            with open(filepath, "w", encoding="utf-8") as f:
+                f.write(note.content or "")
+        except Exception as e:
+            log_warning(f"Failed to save note to disk: {e}")
+
+    def _delete_note_from_disk(self, note_id: UUID) -> None:
+        try:
+            from core.settings import get_app_config
+            import os
+
+            config = get_app_config()
+            notes_dir = os.path.join(config.storage_dir, "notes")
+            filepath = os.path.join(notes_dir, f"{note_id}.md")
+            if os.path.exists(filepath):
+                os.remove(filepath)
+        except Exception as e:
+            log_warning(f"Failed to delete note from disk: {e}")
+
+    # -- Read --
+
+    def list_notes(
+        self,
+        user_id: UUID,
+        thread_id: Optional[UUID] = None,
+        collection_id: Optional[UUID] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> List[NoteInDB]:
+        """List notes for a user, optionally filtered by thread or collection."""
+        rows = self._repo.list_by_user(
+            user_id=user_id,
+            thread_id=thread_id,
+            collection_id=collection_id,
+            limit=limit,
+            offset=offset,
+        )
+        return [NoteInDB.model_validate(r) for r in rows]
+
+    def get_note(self, user_id: UUID, note_id: UUID) -> Optional[NoteInDB]:
+        """Get a single note by ID (scoped to user)."""
+        row = self._repo.find_by_id(note_id=note_id, user_id=user_id)
+        return NoteInDB.model_validate(row) if row else None
+
+    # -- Create --
+
+    def create_note(self, user_id: UUID, data: NoteCreate) -> NoteInDB:
+        """Create a new note."""
+        note = Note(
+            user_id=user_id,
+            thread_id=UUID(data.thread_id) if data.thread_id else None,
+            title=data.title or "",
+            content=data.content,
+            todos=[t.model_dump() for t in data.todos],
+            blocks=[b.model_dump() for b in data.blocks],
+            pinned=False,
+            is_important=data.is_important,
+            source=data.source,
+            collection_id=UUID(data.collection_id) if data.collection_id else None,
+            audio=data.audio.model_dump() if data.audio else None,
+        )
+        self._repo.create(note)
+        self._save_note_to_disk(note)
+        log_info(f"Created note {note.id} for user {user_id}")
+        return NoteInDB.model_validate(note)
+
+    def create_notes_from_agent(
+        self,
+        user_id: UUID,
+        notes_json: List[Dict[str, Any]],
+        thread_id: Optional[str] = None,
+    ) -> List[NoteInDB]:
+        """Bulk-create notes extracted by the agent.
+
+        Called by the executor when the note worker produces results.
+        """
+        created: List[NoteInDB] = []
+        for n in notes_json[:5]:  # hard-cap
+            content = str(n.get("content", "")).strip()
+            if not content:
+                continue
+
+            todos_raw = n.get("todos", [])
+            todos = []
+            for t in (todos_raw or []):
+                if isinstance(t, dict) and t.get("text"):
+                    todos.append({
+                        "text": str(t["text"]).strip()[:200],
+                        "done": bool(t.get("done", False)),
+                    })
+
+            note = Note(
+                user_id=user_id,
+                thread_id=UUID(thread_id) if thread_id else None,
+                title=content[:80],  # Use first part of content as title
+                content=content[:5000],
+                todos=todos,
+                pinned=False,
+                is_important=False,
+                source=NoteSource.AGENT,
+            )
+            self._repo.create(note)
+            self._save_note_to_disk(note)
+            created.append(NoteInDB.model_validate(note))
+            log_info(f"Agent-created note {note.id}: {content[:80]}")
+        return created
+
+    # -- Update --
+
+    def update_note(self, user_id: UUID, note_id: UUID, data: NoteUpdate) -> Optional[NoteInDB]:
+        """Partially update a note."""
+        note = self._repo.find_by_id(note_id=note_id, user_id=user_id)
+        if not note:
+            return None
+
+        update_data = data.model_dump(exclude_unset=True)
+        for field, value in update_data.items():
+            if field == "todos" and value is not None:
+                value = [t.model_dump() if hasattr(t, "model_dump") else t for t in value]
+            if field == "blocks" and value is not None:
+                value = [b.model_dump() if hasattr(b, "model_dump") else b for b in value]
+            if field == "audio" and value is not None:
+                value = value.model_dump() if hasattr(value, "model_dump") else value
+            if field == "collection_id" and value is not None:
+                value = UUID(value) if value else None
+            setattr(note, field, value)
+
+        self._repo.flush()
+        self._save_note_to_disk(note)
+        return NoteInDB.model_validate(note)
+
+    def toggle_todo(self, user_id: UUID, note_id: UUID, todo_index: int) -> Optional[NoteInDB]:
+        """Toggle a single todo item's done status."""
+        note = self._repo.find_by_id(note_id=note_id, user_id=user_id)
+        if not note or not note.todos:
+            return None
+
+        todos = list(note.todos)  # JSONB — make a mutable copy
+        if todo_index < 0 or todo_index >= len(todos):
+            return None
+
+        todos[todo_index]["done"] = not todos[todo_index].get("done", False)
+        note.todos = todos
+
+        self._repo.flush()
+        return NoteInDB.model_validate(note)
+
+    # -- Delete --
+
+    def delete_note(self, user_id: UUID, note_id: UUID) -> bool:
+        """Delete a note. Returns True if deleted."""
+        deleted = self._repo.delete_by_id(note_id=note_id, user_id=user_id)
+        if deleted > 0:
+            self._delete_note_from_disk(note_id)
+        return deleted > 0

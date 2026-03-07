@@ -8,21 +8,20 @@ Design goals:
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+import redis as _redis
+
 from infrastructure.cache.schemas import (
-	CachedRetrievalResult, 
+	CachedRetrievalResult,
 	CachedWebResult,
 	HotMessage,
 	Role,
-	SessionState,
-	UserShortTermMemory,
 	WarmConversationSummary,
 )
 from infrastructure.cache.utils import make_cache_key
 from core.settings import get_redis_config
-from infrastructure.cache.redis_cache import redis_tool
+from infrastructure.cache.redis_cache import redis_tool, _CONN_ERRORS
 from utils.log import log_debug, log_info, log_warning
 
 
@@ -34,26 +33,23 @@ class CacheService:
 	def append_hot_message(self, *, thread_id: str, role: Role, content: str) -> None:
 		if not thread_id or not content:
 			return
-		if not redis_tool.ping():
-			return
-
 		key = redis_tool._key("hot", thread_id)
 		try:
 			msg = HotMessage(role=role, content=content)
-			# Store as JSON lines in a list.
 			payload = msg.model_dump_json().encode("utf-8")
 			client = redis_tool.client()
 			client.rpush(key, payload)
-			# Keep last N messages.
-			max_messages = int(getattr(self._cfg, "hot_conversation_max_messages", 200) or 200)
+			max_messages = self._cfg.hot_conversation_max_messages
 			if max_messages > 0:
 				client.ltrim(key, -max_messages, -1)
-			client.expire(key, int(getattr(self._cfg, "hot_conversation_ttl_seconds", 6 * 3600) or 21600))
+			client.expire(key, self._cfg.hot_conversation_ttl_seconds)
+		except _CONN_ERRORS as e:
+			log_warning(f"Redis unavailable (hot append): {e}")
 		except Exception as e:
 			log_warning(f"Redis hot append failed: {e}")
 
 	def get_hot_messages(self, *, thread_id: str) -> List[HotMessage]:
-		if not thread_id or not redis_tool.ping():
+		if not thread_id:
 			return []
 		key = redis_tool._key("hot", thread_id)
 		try:
@@ -65,6 +61,8 @@ class CacheService:
 				except Exception:
 					continue
 			return items
+		except _CONN_ERRORS:
+			return []
 		except Exception as e:
 			log_warning(f"Redis hot read failed: {e}")
 			return []
@@ -73,18 +71,18 @@ class CacheService:
 	def set_warm_summary(self, *, thread_id: str, summary: str, ttl_seconds: Optional[int] = None) -> None:
 		if not thread_id or not summary:
 			return
-		if not redis_tool.ping():
-			return
 		key = redis_tool._key("warm_summary", thread_id)
 		try:
 			obj = WarmConversationSummary(thread_id=thread_id, summary=summary)
-			exp = int(ttl_seconds or getattr(self._cfg, "warm_summary_ttl_seconds", 7 * 86400) or 604800)
+			exp = int(ttl_seconds or self._cfg.warm_summary_ttl_seconds)
 			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
+		except _CONN_ERRORS as e:
+			log_warning(f"Redis unavailable (warm summary set): {e}")
 		except Exception as e:
 			log_warning(f"Redis warm summary set failed: {e}")
 
 	def get_warm_summary(self, *, thread_id: str) -> Optional[WarmConversationSummary]:
-		if not thread_id or not redis_tool.ping():
+		if not thread_id:
 			return None
 		key = redis_tool._key("warm_summary", thread_id)
 		try:
@@ -92,131 +90,159 @@ class CacheService:
 			if not raw:
 				return None
 			return WarmConversationSummary.model_validate_json(raw.decode("utf-8"))
+		except _CONN_ERRORS:
+			return None
 		except Exception as e:
 			log_warning(f"Redis warm summary read failed: {e}")
-			return None
-
-
-	# Session full state
-	def set_session_state(self, *, session_id: str, state: Dict[str, Any], ttl_seconds: Optional[int] = None) -> None:
-		if not session_id:
-			return
-		if not redis_tool.ping():
-			return
-		key = redis_tool._key("session", session_id)
-		try:
-			obj = SessionState(session_id=session_id, state=state)
-			exp = int(ttl_seconds or getattr(self._cfg, "session_state_ttl_seconds", 6 * 3600) or 21600)
-			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
-		except Exception as e:
-			log_warning(f"Redis session state set failed: {e}")
-
-	def get_session_state(self, *, session_id: str) -> Optional[SessionState]:
-		if not session_id or not redis_tool.ping():
-			return None
-		key = redis_tool._key("session", session_id)
-		try:
-			raw = redis_tool.client().get(key)
-			if not raw:
-				return None
-			return SessionState.model_validate_json(raw.decode("utf-8"))
-		except Exception as e:
-			log_warning(f"Redis session state read failed: {e}")
-			return None
-
-	# User short-term memory
-	def set_user_memory(self, *, user_id: str, memory: Dict[str, Any], ttl_seconds: Optional[int] = None) -> None:
-		if not user_id:
-			return
-		if not redis_tool.ping():
-			return
-		key = redis_tool._key("user_memory", user_id)
-		try:
-			obj = UserShortTermMemory(user_id=user_id, memory=memory)
-			exp = int(ttl_seconds or getattr(self._cfg, "user_memory_ttl_seconds", 86400) or 86400)
-			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
-		except Exception as e:
-			log_warning(f"Redis user memory set failed: {e}")
-
-	def get_user_memory(self, *, user_id: str) -> Optional[UserShortTermMemory]:
-		if not user_id or not redis_tool.ping():
-			return None
-		key = redis_tool._key("user_memory", user_id)
-		try:
-			raw = redis_tool.client().get(key)
-			if not raw:
-				return None
-			return UserShortTermMemory.model_validate_json(raw.decode("utf-8"))
-		except Exception as e:
-			log_warning(f"Redis user memory read failed: {e}")
 			return None
 
 	# Tool dedup
 	def mark_tool_call(self, *, tool_name: str, params: Dict[str, Any], ttl_seconds: Optional[int] = None) -> bool:
 		"""Return True if this call is NEW within TTL; False if duplicate."""
-		if not redis_tool.ping():
-			return True
-		exp = int(ttl_seconds or getattr(self._cfg, "tool_dedup_ttl_seconds", 600) or 600)
+		exp = int(ttl_seconds or self._cfg.tool_dedup_ttl_seconds)
 		key = make_cache_key(prefix=redis_tool._key("tool_dedup", tool_name), parts={"tool": tool_name, "params": params})
 		try:
-			# SET NX EX
 			ok = redis_tool.client().set(key, b"1", nx=True, ex=exp)
 			return bool(ok)
+		except _CONN_ERRORS:
+			return True
 		except Exception as e:
 			log_warning(f"Redis tool dedup failed: {e}")
 			return True
 
 	# Web search cache
 	def get_web_cache(self, *, query: str, params: Dict[str, Any]) -> Optional[CachedWebResult]:
-		if not redis_tool.ping():
-			return None
 		key = make_cache_key(prefix=redis_tool._key("web", "cache"), parts={"query": query, "params": params})
 		try:
 			raw = redis_tool.client().get(key)
 			if not raw:
 				return None
 			return CachedWebResult.model_validate_json(raw.decode("utf-8"))
+		except _CONN_ERRORS:
+			return None
 		except Exception as e:
 			log_warning(f"Redis web cache read failed: {e}")
 			return None
 
 	def set_web_cache(self, *, query: str, params: Dict[str, Any], result: Dict[str, Any], ttl_seconds: Optional[int] = None) -> None:
-		if not redis_tool.ping():
-			return
-		exp = int(ttl_seconds or getattr(self._cfg, "web_cache_ttl_seconds", 900) or 900)
+		exp = int(ttl_seconds or self._cfg.web_cache_ttl_seconds)
 		key = make_cache_key(prefix=redis_tool._key("web", "cache"), parts={"query": query, "params": params})
 		try:
 			obj = CachedWebResult(query=query, params=params, result=result)
 			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
+		except _CONN_ERRORS as e:
+			log_warning(f"Redis unavailable (web cache set): {e}")
 		except Exception as e:
 			log_warning(f"Redis web cache set failed: {e}")
 
 	# Retrieval cache
 	def get_retrieval_cache(self, *, query: str, k: int) -> Optional[CachedRetrievalResult]:
-		if not redis_tool.ping():
-			return None
 		key = make_cache_key(prefix=redis_tool._key("retrieval", "cache"), parts={"query": query, "k": int(k)})
 		try:
 			raw = redis_tool.client().get(key)
 			if not raw:
 				return None
 			return CachedRetrievalResult.model_validate_json(raw.decode("utf-8"))
+		except _CONN_ERRORS:
+			return None
 		except Exception as e:
 			log_warning(f"Redis retrieval cache read failed: {e}")
 			return None
 
 	def set_retrieval_cache(self, *, query: str, k: int, result_text: str, ttl_seconds: Optional[int] = None) -> None:
-		if not redis_tool.ping():
-			return
-		exp = int(ttl_seconds or getattr(self._cfg, "retrieval_cache_ttl_seconds", 1800) or 1800)
+		exp = int(ttl_seconds or self._cfg.retrieval_cache_ttl_seconds)
 		key = make_cache_key(prefix=redis_tool._key("retrieval", "cache"), parts={"query": query, "k": int(k)})
 		try:
 			obj = CachedRetrievalResult(query=query, k=int(k), result_text=result_text)
 			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
+		except _CONN_ERRORS as e:
+			log_warning(f"Redis unavailable (retrieval cache set): {e}")
 		except Exception as e:
 			log_warning(f"Redis retrieval cache set failed: {e}")
 
-	# Diagnostics
+	# ── Entity L2 cache (Postgres → Redis) ─────────────────────────────────
+
+	_NS_USER = "user"
+	_NS_DASHBOARD = "dashboard"
+	_NS_THREADS = "threads"
+	_NS_XP = "xp"
+	_NS_MISSION_STATS = "mission_stats"
+
+	# -- T0: User auth cache --
+
+	def get_cached_user(self, user_id: str) -> Optional[Dict[str, Any]]:
+		"""Load a cached user dict (id, username, email, role)."""
+		return redis_tool.cache_get_json(namespace=self._NS_USER, key=user_id)
+
+	def set_cached_user(self, user_id: str, user_data: Dict[str, Any]) -> None:
+		"""Cache minimal user data after a Postgres lookup."""
+		redis_tool.cache_set_json(
+			namespace=self._NS_USER, key=user_id,
+			value=user_data, ttl_seconds=self._cfg.user_cache_ttl_seconds,
+		)
+
+	def invalidate_user(self, user_id: str) -> None:
+		"""Evict the cached user (on role change, password reset, etc.)."""
+		redis_tool.cache_delete(namespace=self._NS_USER, key=user_id)
+
+	# -- T1: Dashboard stats cache --
+
+	def get_cached_dashboard(self, user_id: str) -> Optional[Dict[str, Any]]:
+		return redis_tool.cache_get_json(namespace=self._NS_DASHBOARD, key=user_id)
+
+	def set_cached_dashboard(self, user_id: str, data: Dict[str, Any]) -> None:
+		redis_tool.cache_set_json(
+			namespace=self._NS_DASHBOARD, key=user_id,
+			value=data, ttl_seconds=self._cfg.dashboard_cache_ttl_seconds,
+		)
+
+	def invalidate_dashboard(self, user_id: str) -> None:
+		redis_tool.cache_delete(namespace=self._NS_DASHBOARD, key=user_id)
+
+	# -- T2: Thread list cache --
+
+	def get_cached_threads(self, user_id: str) -> Optional[List[Dict[str, Any]]]:
+		return redis_tool.cache_get_json(namespace=self._NS_THREADS, key=user_id)
+
+	def set_cached_threads(self, user_id: str, data: List[Dict[str, Any]]) -> None:
+		redis_tool.cache_set_json(
+			namespace=self._NS_THREADS, key=user_id,
+			value=data, ttl_seconds=self._cfg.thread_list_cache_ttl_seconds,
+		)
+
+	def invalidate_threads(self, user_id: str) -> None:
+		redis_tool.cache_delete(namespace=self._NS_THREADS, key=user_id)
+
+	# -- T3: XP / Level cache --
+
+	def get_cached_xp(self, user_id: str) -> Optional[int]:
+		return redis_tool.cache_get_json(namespace=self._NS_XP, key=user_id)
+
+	def set_cached_xp(self, user_id: str, xp: int) -> None:
+		redis_tool.cache_set_json(
+			namespace=self._NS_XP, key=user_id,
+			value=xp, ttl_seconds=self._cfg.xp_cache_ttl_seconds,
+		)
+
+	def invalidate_xp(self, user_id: str) -> None:
+		redis_tool.cache_delete(namespace=self._NS_XP, key=user_id)
+
+	# -- T4: Mission stats cache --
+
+	def get_cached_mission_stats(self, user_id: str) -> Optional[Dict[str, Any]]:
+		return redis_tool.cache_get_json(namespace=self._NS_MISSION_STATS, key=user_id)
+
+	def set_cached_mission_stats(self, user_id: str, data: Dict[str, Any]) -> None:
+		redis_tool.cache_set_json(
+			namespace=self._NS_MISSION_STATS, key=user_id,
+			value=data, ttl_seconds=self._cfg.mission_stats_cache_ttl_seconds,
+		)
+
+	def invalidate_mission_stats(self, user_id: str) -> None:
+		redis_tool.cache_delete(namespace=self._NS_MISSION_STATS, key=user_id)
+
+	# ── Diagnostics ────────────────────────────────────────────────────────
+
 	def health(self) -> Dict[str, Any]:
 		ok = redis_tool.ping()
 		cfg = self._cfg
@@ -226,64 +252,40 @@ class CacheService:
 			"port": cfg.port,
 			"db": cfg.db,
 			"key_prefix": cfg.key_prefix,
-			"ts": datetime.utcnow().isoformat(),
 		}
 
 	def clear_thread_cache(self, *, thread_id: str) -> Dict[str, bool]:
-		"""
-		Clear all cached data for a specific thread.
-		
-		Useful for debugging stale response issues or forcing fresh data.
-		
-		Args:
-			thread_id: The thread ID to clear cache for
-		
-		Returns:
-			Dictionary showing which caches were cleared
-		"""
+		"""Clear all cached data for a specific thread."""
 		if not thread_id:
 			return {"error": "thread_id required"}
-		
+
 		results = {
 			"hot_messages": False,
 			"warm_summary": False,
-			"session_state": False,
 			"graph_state": False,
 		}
-		
-		if not redis_tool.ping():
+
+		try:
+			client = redis_tool.client()
+		except _CONN_ERRORS:
 			log_warning("Redis unavailable; cannot clear thread cache")
 			return results
-		
-		client = redis_tool.client()
-		
-		# Clear hot messages
+
 		try:
-			key = redis_tool._key("hot", thread_id)
-			results["hot_messages"] = bool(client.delete(key))
+			results["hot_messages"] = bool(client.delete(redis_tool._key("hot", thread_id)))
 		except Exception as e:
 			log_warning(f"Failed to clear hot messages: {e}")
-		
-		# Clear warm summary
+
 		try:
-			key = redis_tool._key("warm_summary", thread_id)
-			results["warm_summary"] = bool(client.delete(key))
+			results["warm_summary"] = bool(client.delete(redis_tool._key("warm_summary", thread_id)))
 		except Exception as e:
 			log_warning(f"Failed to clear warm summary: {e}")
-		
-		# Clear session state
-		try:
-			key = redis_tool._key("session", thread_id)
-			results["session_state"] = bool(client.delete(key))
-		except Exception as e:
-			log_warning(f"Failed to clear session state: {e}")
-		
-		# Clear graph state
+
 		try:
 			results["graph_state"] = redis_tool.delete_graph_state(thread_id=thread_id)
 		except Exception as e:
 			log_warning(f"Failed to clear graph state: {e}")
-		
+
 		log_info(f"Cleared thread cache for {thread_id}: {results}")
 		return results
 

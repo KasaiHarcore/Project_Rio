@@ -1,8 +1,6 @@
 @import "tailwindcss";
-@import "./tokens/light.css";
+@plugin "@tailwindcss/typography";
 @import "./tokens/dark.css";
-
-@custom-variant dark (&:is(.dark *));
 
 @theme inline {
   --color-background: var(--background);
@@ -60,6 +58,16 @@
   --color-nav-active-text: var(--nav-active-text);
   --color-nav-item-text: var(--nav-item-text);
   --color-nav-section-text: var(--nav-section-text);
+
+  /* Page-level semantic tokens */
+  --color-page-title: var(--page-title);
+  --color-page-subtitle: var(--page-subtitle);
+  --color-page-section-label: var(--page-section-label);
+  --color-page-card-title: var(--page-card-title);
+  --color-page-card-subtitle: var(--page-card-subtitle);
+  --color-page-muted: var(--page-muted);
+  --color-page-accent: var(--page-accent);
+  --color-page-loader: var(--page-loader);
 }
 
 ::selection {
@@ -69,7 +77,8 @@
 
 body {
   font-family: ui-sans-serif, system-ui, sans-serif;
-  overflow: hidden; /* Prevent body scroll since we have internal scrolling */
+  overflow: hidden;
+  /* Prevent body scroll since we have internal scrolling */
 }
 
 /* Custom Scrollbar — applied globally to all scrollable elements */
@@ -91,7 +100,7 @@ body {
 .overflow-y-auto::-webkit-scrollbar-thumb,
 .overflow-auto::-webkit-scrollbar-thumb,
 [style*="overflow"]::-webkit-scrollbar-thumb {
-  background-color: #CBD5E1;
+  background-color: rgba(255, 255, 255, 0.1);
   border-radius: 20px;
 }
 
@@ -99,26 +108,29 @@ body {
 .overflow-y-auto::-webkit-scrollbar-thumb:hover,
 .overflow-auto::-webkit-scrollbar-thumb:hover,
 [style*="overflow"]::-webkit-scrollbar-thumb:hover {
-  background-color: #94A3B8;
+  background-color: rgba(255, 255, 255, 0.18);
 }
 
 /* Firefox scrollbar */
 * {
   scrollbar-width: thin;
-  scrollbar-color: #CBD5E1 transparent;
+  scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
 }
 
 @keyframes spin {
   from {
     transform: rotate(0deg);
   }
+
   to {
     transform: rotate(360deg);
   }
 }
 
 @keyframes ping {
-  75%, 100% {
+
+  75%,
+  100% {
     transform: scale(2);
     opacity: 0;
   }
@@ -155,10 +167,19 @@ body {
   left: 0;
 }
 
+/* Gradient text utility */
+.gradient-text {
+  background: linear-gradient(135deg, var(--primary), #fb7185);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
 @layer base {
   * {
     @apply border-border outline-ring/50;
   }
+
   body {
     @apply bg-background text-foreground;
   }

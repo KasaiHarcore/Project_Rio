@@ -6,24 +6,21 @@ import {
   LayoutDashboard,
   MessageSquare,
   Map,
-  Sparkles,
   Clock,
   Database,
   FileText,
   Book,
-  Cpu,
+  Terminal,
   Settings,
   Plus,
   Search,
-  Moon,
-  Sun,
   LogOut,
   ArrowRight,
   Command,
+  StickyNote,
 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
 import { cn } from "@/lib/utils"
-import { useTheme } from "@/components/providers/theme-provider"
 import { useUIStore } from "@/store/ui-store"
 import { Kbd } from "@/components/ui/kbd"
 
@@ -59,8 +56,6 @@ export function CommandPalette() {
   const listRef = useRef<HTMLDivElement>(null)
   const router = useRouter()
   const pathname = usePathname()
-  const { theme, setThemeManual } = useTheme()
-  const setActiveCharacter = useUIStore((state) => state.setActiveCharacter)
   const { startMission, setViewMode } = useUIStore()
 
   // Register global ⌘K / Ctrl+K
@@ -110,15 +105,6 @@ export function CommandPalette() {
         action: () => { close(); setViewMode("dashboard"); navigate("/") },
       },
       {
-        id: "nav-interact",
-        label: "Interact",
-        description: "Character interaction",
-        icon: <Sparkles size={18} />,
-        section: "Navigation",
-        keywords: ["arona", "interact", "character", "spine"],
-        action: () => navigate("/arona"),
-      },
-      {
         id: "nav-operation",
         label: "Operation",
         description: "Chat operations",
@@ -137,15 +123,6 @@ export function CommandPalette() {
         action: () => navigate("/mission"),
       },
       {
-        id: "nav-history",
-        label: "History",
-        description: "Conversation history",
-        icon: <Clock size={18} />,
-        section: "Navigation",
-        keywords: ["history", "past", "conversation", "log"],
-        action: () => navigate("/history"),
-      },
-      {
         id: "nav-knowledge",
         label: "Knowledge",
         description: "Document repository",
@@ -153,6 +130,15 @@ export function CommandPalette() {
         section: "Navigation",
         keywords: ["knowledge", "document", "file", "upload", "rag"],
         action: () => navigate("/knowledge"),
+      },
+      {
+        id: "nav-notes",
+        label: "Notes",
+        description: "Personal note-taking",
+        icon: <StickyNote size={18} />,
+        section: "Navigation",
+        keywords: ["notes", "note", "markdown", "write"],
+        action: () => navigate("/notes"),
       },
       {
         id: "nav-artifacts",
@@ -176,7 +162,7 @@ export function CommandPalette() {
         id: "nav-logs",
         label: "Logs",
         description: "System logs",
-        icon: <Cpu size={18} />,
+        icon: <Terminal size={18} />,
         section: "Navigation",
         keywords: ["logs", "system", "debug", "trace"],
         action: () => navigate("/logs"),
@@ -190,20 +176,6 @@ export function CommandPalette() {
         section: "Actions",
         keywords: ["new", "chat", "conversation", "start"],
         action: () => { close(); startMission() },
-      },
-      {
-        id: "action-toggle-theme",
-        label: theme === "dark" ? "Switch to Day Mode" : "Switch to Night Mode",
-        description: "Toggle between Arona & Plana themes",
-        icon: theme === "dark" ? <Sun size={18} /> : <Moon size={18} />,
-        section: "Actions",
-        keywords: ["theme", "dark", "light", "night", "day", "toggle", "arona", "plana"],
-        action: () => {
-          close();
-          const next = theme === "dark" ? "light" : "dark";
-          setThemeManual(next);
-          setActiveCharacter(next === "dark" ? "plana" : "arona");
-        },
       },
       {
         id: "action-settings",
@@ -221,30 +193,31 @@ export function CommandPalette() {
         icon: <LogOut size={18} />,
         section: "Actions",
         keywords: ["logout", "signout", "disconnect", "exit"],
-        action: () => {
+        action: async () => {
           close()
-          document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
+          const { apiLogout } = require('@/lib/api')
+          await apiLogout()
           router.push("/login")
         },
       },
     ],
-    [close, navigate, startMission, setViewMode, theme, setThemeManual, setActiveCharacter, router]
+    [close, navigate, startMission, setViewMode, router]
   )
 
   // ─── Searchable Content ────────────────────────────────────
   const searchableContent: SearchResult[] = useMemo(() => [
-    // Conversations
-    { id: "s-conv-1", title: "Binary Search Implementation", preview: "Can you help me implement a binary search algorithm in Python?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 5", action: () => { close(); router.push("/?conversation=conv-001") } },
-    { id: "s-conv-2", title: "Machine Learning Study Plan", preview: "I need a 30-day study plan for machine learning fundamentals...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 4", action: () => { close(); router.push("/?conversation=conv-002") } },
-    { id: "s-conv-3", title: "Neural Network Architecture", preview: "Explain the architecture of a convolutional neural network...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 3", action: () => { close(); router.push("/?conversation=conv-003") } },
-    { id: "s-conv-4", title: "API Design Best Practices", preview: "What are the best practices for designing RESTful APIs?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 2", action: () => { close(); router.push("/?conversation=conv-004") } },
+    // Conversations (placeholder — should be replaced with real search results)
+    { id: "s-conv-1", title: "Binary Search Implementation", preview: "Can you help me implement a binary search algorithm in Python?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 5", action: () => { close(); router.push("/operation?new=true") } },
+    { id: "s-conv-2", title: "Machine Learning Study Plan", preview: "I need a 30-day study plan for machine learning fundamentals...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 4", action: () => { close(); router.push("/operation?new=true") } },
+    { id: "s-conv-3", title: "Neural Network Architecture", preview: "Explain the architecture of a convolutional neural network...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 3", action: () => { close(); router.push("/operation?new=true") } },
+    { id: "s-conv-4", title: "API Design Best Practices", preview: "What are the best practices for designing RESTful APIs?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 2", action: () => { close(); router.push("/operation?new=true") } },
     // Documents
     { id: "s-doc-1", title: "Machine Learning Fundamentals.pdf", preview: "Comprehensive guide covering supervised and unsupervised learning", type: "document", icon: <FileText size={16} />, date: "Feb 4", action: () => { close(); router.push("/knowledge") } },
     { id: "s-doc-2", title: "Neural Networks Guide.pdf", preview: "Deep dive into neural network architectures and training", type: "document", icon: <FileText size={16} />, date: "Feb 3", action: () => { close(); router.push("/knowledge") } },
     { id: "s-doc-3", title: "Python Cheatsheet.md", preview: "Quick reference for Python syntax, data structures, and patterns", type: "document", icon: <FileText size={16} />, date: "Feb 2", action: () => { close(); router.push("/knowledge") } },
     // Artifacts
-    { id: "s-art-1", title: "Binary Search Algorithm", preview: "def binary_search(arr, target): lo, hi = 0, len(arr)-1...", type: "artifact", icon: <Cpu size={16} />, date: "Feb 5", action: () => { close(); router.push("/artifacts") } },
-    { id: "s-art-2", title: "Study Plan Template", preview: "Week 1: Linear algebra basics, Week 2: Probability theory...", type: "artifact", icon: <Cpu size={16} />, date: "Feb 4", action: () => { close(); router.push("/artifacts") } },
+    { id: "s-art-1", title: "Binary Search Algorithm", preview: "def binary_search(arr, target): lo, hi = 0, len(arr)-1...", type: "artifact", icon: <FileText size={16} />, date: "Feb 5", action: () => { close(); router.push("/artifacts") } },
+    { id: "s-art-2", title: "Study Plan Template", preview: "Week 1: Linear algebra basics, Week 2: Probability theory...", type: "artifact", icon: <FileText size={16} />, date: "Feb 4", action: () => { close(); router.push("/artifacts") } },
   ], [close, router])
 
   // Filter commands based on query

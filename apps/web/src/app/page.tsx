@@ -14,6 +14,7 @@ export default function Page() {
   const setSplashSeen = useUIStore((state) => state.setSplashSeen)
   const hydrateFromStorage = useUIStore((state) => state.hydrateFromStorage)
   const viewMode = useUIStore((state) => state.viewMode)
+  const activeMissionId = useUIStore((state) => state.activeMissionId)
 
   // Hydrate persisted state from localStorage after mount (avoids SSR mismatch)
   const hydrated = useRef(false)
@@ -24,17 +25,24 @@ export default function Page() {
     }
   }, [hydrateFromStorage])
 
-  const [showSplash, setShowSplash] = useState(true)
+  // null = pending hydration, true = show splash, false = skip
+  const [showSplash, setShowSplash] = useState<boolean | null>(null)
 
-  // Sync showSplash with the hydrated splashSeen value
+  // Once hydration sets splashSeen, decide whether to show the splash
   useEffect(() => {
-    if (splashSeen) setShowSplash(false)
+    if (!hydrated.current) return
+    // splashSeen===true means "already seen / skip" → no splash
+    // splashSeen===false means "should play" → show splash
+    setShowSplash(!splashSeen)
   }, [splashSeen])
 
   const handleSplashComplete = () => {
     setShowSplash(false)
     setSplashSeen(true)
   }
+
+  // Still deciding — render nothing to avoid a flash
+  if (showSplash === null) return null
 
   return (
     <>
@@ -47,7 +55,7 @@ export default function Page() {
       {!showSplash && (
         <DashboardLayout>
            <PageTransition className="flex flex-1 overflow-hidden relative">
-              <AnimatePresence mode="popLayout" initial={false}>
+              <AnimatePresence mode="popLayout">
                   {viewMode === 'dashboard' ? (
                       <motion.div 
                         key="dashboard"
@@ -68,7 +76,7 @@ export default function Page() {
                         transition={{ duration: 0.4, ease: [0.32, 0.72, 0, 1] }}
                         className="flex-1 overflow-hidden flex h-full absolute inset-0 z-20 bg-white/50 backdrop-blur-xl"
                       >
-                          <MissionControl />
+                          <MissionControl threadId={activeMissionId} />
                       </motion.div>
                   )}
               </AnimatePresence>

@@ -1,285 +1,295 @@
 "use client"
 
-import React, { useState } from 'react'
+import * as React from "react"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { Search, Book, FileText, ChevronRight, Shield, Zap, Code, Terminal, ExternalLink, Bookmark } from 'lucide-react'
-import { cn } from "@/lib/utils"
-import { motion, AnimatePresence } from "framer-motion"
-import { useTheme } from '@/components/providers/theme-provider'
-import { getCycleConfig } from '@/lib/cycle-config'
+import { Book, MessageSquare, Map, Database, FileText, StickyNote, Settings, Sparkles, Zap, Shield } from "lucide-react"
+import { motion } from "framer-motion"
+import { BentoCard } from "@/components/ui/bento-card"
 
-// Mock Documentation Structure
-type DocCategory = 'guide' | 'api' | 'system'
-
-interface DocArticle {
-  id: string
-  title: string
-  category: DocCategory
-  readTime: string
-  content: (isNight: boolean) => React.ReactNode
-}
-
-
-const docs: DocArticle[] = [
+const FEATURE_DOCS = [
   {
-    id: 'intro',
-    title: 'System Orientation',
-    category: 'guide',
-    readTime: '2 min',
-    content: (isNight) => (
-      <div className="space-y-4">
-        <div className={cn("rounded-xl border p-4 text-sm", isNight ? "bg-rose-900/20 border-rose-800/40 text-rose-200" : "bg-blue-50 border-blue-100 text-blue-800")}>
-          <strong>Mission Statement:</strong> The Schale Agent System is designed to assist Sensei in managing daily operations, strategic analysis, and student data processing.
-        </div>
-        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
-          Welcome to the <strong>Schale Operating System (OS_VER.3)</strong>. This platform integrates advanced Neural Network processing with a secure, highly intuitive interface for tactical command.
-        </p>
-        <h3 className={cn("text-lg font-bold mt-6", isNight ? "text-slate-100" : "text-slate-800")}>Core Capabilities</h3>
-        <ul className={cn("list-disc pl-5 space-y-2", isNight ? "text-slate-300" : "text-slate-600")}>
-          <li><strong>Natural Language Processing:</strong> Direct neural link for conversational querying.</li>
-          <li><strong>RAG Architecture:</strong> Retrieval-Augmented Generation for accessing archived knowledge bases.</li>
-          <li><strong>Artifact Generation:</strong> Automatic creation of code snippets, study plans, and tactical diagrams.</li>
-        </ul>
-      </div>
-    )
+    title: "Operation (Chat)",
+    icon: MessageSquare,
+    description: "Your primary interface for interacting with Rio, your AI analyst companion.",
+    sections: [
+      {
+        heading: "Starting a Conversation",
+        content: "Click 'Operation' in the sidebar or press Cmd+2. Each conversation is a separate thread that maintains context."
+      },
+      {
+        heading: "Chat Features",
+        content: "• Streaming responses with real-time feedback\n• Mission extraction: Rio automatically detects tasks and creates missions\n• Affinity rewards: +1 affinity per message sent\n• Mood-aware responses: Rio's tone adapts to her current emotional state"
+      },
+      {
+        heading: "Thread Management",
+        content: "All conversations are saved. Use the thread selector in the sidebar to resume previous chats. Threads persist across sessions."
+      }
+    ]
   },
   {
-    id: 'api-keys',
-    title: 'Neural Link Configuration',
-    category: 'api',
-    readTime: '5 min',
-    content: (isNight) => (
-      <div className="space-y-4">
-        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
-          To establish a stable connection with external computation nodes (LLMs), valid security tokens are required.
-        </p>
-        <div className={cn("relative rounded-xl p-4 font-mono text-xs overflow-hidden group", isNight ? "bg-black/40 text-rose-300 border border-rose-900/30" : "bg-slate-900 text-blue-300")}>
-            <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                <button className="text-xs bg-white/10 hover:bg-white/20 px-2 py-1 rounded text-white icon-copy">Copy</button>
-            </div>
-            <span className={cn(isNight ? "text-rose-400" : "text-purple-400")}>export</span> SCHALE_API_KEY=<span className="text-green-400">"sk_live_..."</span><br/>
-            <span className={cn(isNight ? "text-rose-400" : "text-purple-400")}>export</span> ARONA_ENDPOINT=<span className="text-green-400">"https://api.schale.gg/v1"</span>
-        </div>
-        <p className={cn("text-xs italic", isNight ? "text-slate-500" : "text-slate-400")}>
-          WARNING: Do not share your private keys with unauthorized personnel or students from Gehenna Academy.
-        </p>
-      </div>
-    )
+    title: "Mission Control",
+    icon: Map,
+    description: "Task management system powered by AI-driven mission extraction.",
+    sections: [
+      {
+        heading: "Creating Missions",
+        content: "Missions are automatically extracted from your Operation chats when Rio detects actionable tasks. You can also manually create missions in the Mission view."
+      },
+      {
+        heading: "Mission Structure",
+        content: "• Title and description\n• Multiple steps with checkboxes\n• Scheduled start/end dates\n• Priority levels (low, medium, high, critical)\n• Status tracking (pending, in_progress, completed, cancelled)"
+      },
+      {
+        heading: "Affinity Rewards",
+        content: "Complete mission steps to earn +2 affinity per step. This strengthens your relationship with Rio."
+      },
+      {
+        heading: "Calendar View",
+        content: "Switch to calendar view to see your missions organized by date. Perfect for deadline tracking."
+      }
+    ]
   },
   {
-    id: 'troubleshooting',
-    title: 'Emergency Protocols',
-    category: 'system',
-    readTime: '3 min',
-    content: (isNight) => (
-      <div className="space-y-4">
-        <p className={cn(isNight ? "text-slate-300" : "text-slate-600")}>
-          In the event of a system crash or unexpected behavior (AI Hallucinations), follow these steps immediately.
-        </p>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-           <div className={cn("border rounded-xl p-4", isNight ? "border-red-900/40 bg-red-900/20" : "border-red-100 bg-red-50/50")}>
-              <h4 className={cn("font-bold flex items-center gap-2 mb-2", isNight ? "text-red-400" : "text-red-600")}>
-                 <Shield className="h-4 w-4" /> Containment
-              </h4>
-              <p className={cn("text-xs", isNight ? "text-red-300/80" : "text-red-800")}>Immediately disconnect the active session via the "Abort" button in the Mission Control panel.</p>
-           </div>
-           <div className={cn("border rounded-xl p-4", isNight ? "border-amber-900/40 bg-amber-900/20" : "border-amber-100 bg-amber-50/50")}>
-              <h4 className={cn("font-bold flex items-center gap-2 mb-2", isNight ? "text-amber-400" : "text-amber-600")}>
-                 <Zap className="h-4 w-4" /> System Reset
-              </h4>
-              <p className={cn("text-xs", isNight ? "text-amber-300/80" : "text-amber-800")}>Clear local cache and re-authenticate. Artifacts are safely stored in the cloud.</p>
-           </div>
-        </div>
-      </div>
-    )
+    title: "Knowledge Base",
+    icon: Database,
+    description: "Upload and manage documents for context-aware AI assistance.",
+    sections: [
+      {
+        heading: "Uploading Documents",
+        content: "Drag and drop files into the Knowledge page. Supported formats include PDF, TXT, MD, DOCX, and more."
+      },
+      {
+        heading: "Document Processing",
+        content: "Uploaded documents are automatically:\n• Split into chunks for efficient retrieval\n• Embedded with vector representations\n• Indexed in Qdrant vector database\n• Made available to Rio for context-aware responses"
+      },
+      {
+        heading: "Affinity Rewards",
+        content: "+1 affinity per document uploaded. Building your knowledge base shows commitment to the partnership."
+      },
+      {
+        heading: "Using Knowledge",
+        content: "When chatting in Operation, Rio automatically searches your knowledge base for relevant context to provide more accurate answers."
+      }
+    ]
+  },
+  {
+    title: "Notes System",
+    icon: StickyNote,
+    description: "Personal note-taking with collections and rich formatting.",
+    sections: [
+      {
+        heading: "Creating Notes",
+        content: "Click 'New Note' to create a standalone note. Notes support markdown formatting for rich text."
+      },
+      {
+        heading: "Collections",
+        content: "Organize notes into collections (folders). Create collections to group related notes by project, topic, or any category."
+      },
+      {
+        heading: "Note Features",
+        content: "• Markdown editor with live preview\n• Tags for categorization\n• Full-text search across all notes\n• Pinning important notes"
+      }
+    ]
+  },
+  {
+    title: "Artifacts",
+    icon: FileText,
+    description: "View and manage AI-generated code, documents, and structured outputs.",
+    sections: [
+      {
+        heading: "What are Artifacts?",
+        content: "Artifacts are structured outputs created by Rio during conversations. They include code snippets, documents, JSON data, and other formatted content."
+      },
+      {
+        heading: "Artifact Types",
+        content: "• Code (Python, JavaScript, TypeScript, etc.)\n• Markdown documents\n• JSON/YAML data\n• HTML/CSS snippets\n• SQL queries"
+      },
+      {
+        heading: "Using Artifacts",
+        content: "All artifacts are automatically saved and can be viewed, copied, or downloaded from the Artifacts page."
+      }
+    ]
+  },
+  {
+    title: "Emotional System",
+    icon: Sparkles,
+    description: "Rio's mood, affinity, and relationship progression.",
+    sections: [
+      {
+        heading: "Mood States",
+        content: "Rio has 6 mood states: Happy, Excited, Neutral, Sad, Frustrated, Tired. Her mood affects conversation tone and sticker display."
+      },
+      {
+        heading: "Affinity System",
+        content: "Affinity ranges from 0-1000 and increases through interaction:\n• +1 per chat message\n• +1 per document upload\n• +2 per mission step completed\n• +3 for 30+ minute sessions\n• -1 per day of absence (up to -10)"
+      },
+      {
+        heading: "Relationship Tiers",
+        content: "0-99: Stranger (formal, distant)\n100-299: Acquaintance (polite, professional)\n300-599: Friend (friendly, casual)\n600-899: Close Friend (warm, personal)\n900-1000: Bonded (deep connection, protective)"
+      },
+      {
+        heading: "Tier Benefits",
+        content: "Higher tiers unlock:\n• More expressive responses\n• Proactive suggestions and interventions\n• Personalized briefings\n• Unique stickers and animations"
+      }
+    ]
+  },
+  {
+    title: "Settings & Preferences",
+    icon: Settings,
+    description: "Customize your experience and configure API keys.",
+    sections: [
+      {
+        heading: "Model Settings",
+        content: "Configure AI model parameters:\n• Temperature (creativity)\n• Max tokens (response length)\n• Top-p, frequency penalty, presence penalty\n• Choose between OpenAI and OpenRouter models"
+      },
+      {
+        heading: "API Keys",
+        content: "Securely store encrypted API keys:\n• OpenAI API key\n• OpenRouter API key\n• Tavily API key (web search)\n• Cohere API key (reranking)\n\nKeys are encrypted before storage and never exposed in responses."
+      },
+      {
+        heading: "Notifications",
+        content: "Control notification preferences:\n• Mission reminders\n• Chat alerts\n• System updates\n• Weekly summaries\n• Error alerts"
+      },
+      {
+        heading: "Profile",
+        content: "Update your username, email, bio, and study goals. These help Rio personalize her interactions."
+      }
+    ]
+  },
+  {
+    title: "Keyboard Shortcuts",
+    icon: Zap,
+    description: "Navigate faster with keyboard shortcuts.",
+    sections: [
+      {
+        heading: "Global Shortcuts",
+        content: "• Cmd/Ctrl + K: Open command palette\n• Cmd/Ctrl + 1-6: Navigate to pages\n• Cmd/Ctrl + /: Toggle sidebar\n• Cmd/Ctrl + B: Toggle sidebar"
+      },
+      {
+        heading: "Chat Shortcuts",
+        content: "• Enter: Send message\n• Shift + Enter: New line\n• Escape: Clear input"
+      }
+    ]
+  },
+  {
+    title: "Privacy & Security",
+    icon: Shield,
+    description: "How your data is protected.",
+    sections: [
+      {
+        heading: "Data Storage",
+        content: "All data is stored locally in your PostgreSQL database. Messages, missions, notes, and documents never leave your infrastructure."
+      },
+      {
+        heading: "API Key Encryption",
+        content: "API keys are encrypted using Fernet (AES-128 + HMAC) before database storage. Decryption only happens at runtime for API calls."
+      },
+      {
+        heading: "Authentication",
+        content: "JWT-based authentication with:\n• Access tokens (30-minute expiry)\n• Refresh tokens (7-day expiry)\n• Secure httpOnly cookies (when available)\n• CORS protection"
+      }
+    ]
   }
 ]
 
 export default function DocsPage() {
-  const [activeDoc, setActiveDoc] = useState<string>(docs[0].id)
-  const [searchQuery, setSearchQuery] = useState('')
-  
-  const { theme } = useTheme()
-  const isNight = theme === 'dark'
-  const config = getCycleConfig(theme)
-  
-  const currentDoc = docs.find(d => d.id === activeDoc) || docs[0]
+  const [selectedFeature, setSelectedFeature] = React.useState(0)
 
   return (
     <DashboardLayout>
-      <PageTransition className={cn("flex-1 flex flex-col overflow-hidden", isNight ? "bg-[#0f111a]" : "bg-[#F4F9FF]")}>
-        {/* Header */}
-        <header className={cn(
-            "relative flex h-16 items-center justify-between border-b px-8 backdrop-blur-md flex-shrink-0",
-             isNight ? "border-rose-900/40 bg-[#0d1117]/50" : "border-blue-100 bg-white/40"
-        )}>
-          <div className={cn(
-              "absolute bottom-0 left-0 h-[1px] w-full opacity-50 bg-gradient-to-r from-transparent to-transparent",
-              isNight ? "via-rose-500/50" : "via-blue-300"
-          )}></div>
-          
-          <div className="flex items-center gap-4">
-            <div className="flex items-center gap-2">
-              <div className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-xl shadow-lg",
-                  isNight ? "bg-gradient-to-br from-rose-500 to-rose-600 shadow-rose-500/20" : "bg-gradient-to-br from-indigo-500 to-indigo-600 shadow-indigo-500/20"
-              )}>
-                <Book className="h-5 w-5 text-white" />
+      <PageTransition>
+        <div className="flex h-full overflow-hidden">
+          {/* Left navigation */}
+          <aside className="w-72 border-r border-border bg-card/30 backdrop-blur-sm overflow-y-auto custom-scrollbar flex-shrink-0">
+            <div className="p-4 border-b border-border">
+              <div className="flex items-center gap-2 mb-1">
+                <div className="p-1.5 rounded-lg bg-primary/10">
+                  <Book className="w-4 h-4 text-primary" />
+                </div>
+                <h2 className="text-lg font-bold">User Manual</h2>
               </div>
-              <div>
-                <h1 className={cn("text-lg font-black", isNight ? "text-slate-100" : "text-slate-800")}>Operational Manual</h1>
-                <p className={cn("text-[10px] font-bold tracking-wider uppercase", isNight ? "text-slate-500" : "text-slate-400")}>Standard Procedures</p>
-              </div>
+              <p className="text-xs text-muted-foreground">
+                Complete feature guide
+              </p>
             </div>
-          </div>
 
-          <div className="relative w-64">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search protocols..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className={cn(
-                  "w-full pl-10 pr-4 py-2 rounded-xl border text-sm outline-none transition-all",
-                  isNight 
-                    ? "bg-[#0d1117]/60 border-rose-900/40 text-rose-100 placeholder:text-rose-900/50 focus:border-rose-700 focus:ring-2 focus:ring-rose-900/20"
-                    : "bg-white/60 border-blue-100 text-slate-700 placeholder:text-slate-400 focus:border-blue-300 focus:ring-2 focus:ring-blue-100"
-              )}
-            />
-          </div>
-        </header>
+            <nav className="p-3 space-y-1">
+              {FEATURE_DOCS.map((feature, idx) => {
+                const Icon = feature.icon
+                return (
+                  <button
+                    key={idx}
+                    onClick={() => setSelectedFeature(idx)}
+                    className={`w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition-all ${
+                      selectedFeature === idx
+                        ? "bg-primary/10 text-primary border border-primary/20"
+                        : "hover:bg-accent text-muted-foreground"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span className="text-xs font-medium">{feature.title}</span>
+                  </button>
+                )
+              })}
+            </nav>
+          </aside>
 
-        {/* Content Layout */}
-        <div className="flex-1 overflow-hidden flex flex-col md:flex-row">
-            
-            {/* Sidebar Navigation */}
-            <aside className={cn(
-                "w-full md:w-64 lg:w-72 border-r backdrop-blur-sm overflow-y-auto p-4 flex-shrink-0 transition-colors",
-                isNight ? "border-rose-900/30 bg-[#0d1117]/30" : "border-blue-100 bg-white/50"
-            )}>
-                
-                <div className="mb-6">
-                    <p className={cn("text-[10px] font-black uppercase tracking-widest mb-3 px-2", isNight ? "text-rose-900/70" : "text-slate-400")}>Knowledge Domains</p>
-                    <div className="space-y-1">
-                        {docs.map(doc => (
-                            <button
-                                key={doc.id}
-                                onClick={() => setActiveDoc(doc.id)}
-                                className={cn(
-                                    "w-full text-left flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all group",
-                                    activeDoc === doc.id 
-                                        ? isNight 
-                                            ? "bg-rose-500/10 text-rose-400 shadow-sm ring-1 ring-rose-900/40" 
-                                            : "bg-white text-blue-600 shadow-sm ring-1 ring-blue-100" 
-                                        : isNight
-                                            ? "text-slate-400 hover:bg-rose-900/20 hover:text-rose-300"
-                                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                                )}
-                            >
-                                <span className="flex items-center gap-2">
-                                    {doc.category === 'guide' && <Book className="h-3.5 w-3.5 opacity-70" />}
-                                    {doc.category === 'api' && <Code className="h-3.5 w-3.5 opacity-70" />}
-                                    {doc.category === 'system' && <Terminal className="h-3.5 w-3.5 opacity-70" />}
-                                    {doc.title}
-                                </span>
-                                {activeDoc === doc.id && (
-                                    <motion.div layoutId="active-indicator" className={cn("h-1.5 w-1.5 rounded-full", isNight ? "bg-rose-500" : "bg-blue-500")} />
-                                )}
-                            </button>
-                        ))}
+          {/* Main content */}
+          <main className="flex-1 overflow-y-auto custom-scrollbar">
+            <motion.div
+              key={selectedFeature}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.2 }}
+              className="max-w-3xl mx-auto p-6 space-y-6"
+            >
+              {/* Header */}
+              <div className="flex items-center gap-3 mb-4">
+                <div className="p-2.5 rounded-xl bg-primary/10">
+                  {React.createElement(FEATURE_DOCS[selectedFeature].icon, {
+                    className: "w-6 h-6 text-primary"
+                  })}
+                </div>
+                <div>
+                  <h1 className="text-2xl font-bold">{FEATURE_DOCS[selectedFeature].title}</h1>
+                  <p className="text-sm text-muted-foreground mt-0.5">
+                    {FEATURE_DOCS[selectedFeature].description}
+                  </p>
+                </div>
+              </div>
+
+              {/* Sections */}
+              <div className="space-y-4">
+                {FEATURE_DOCS[selectedFeature].sections.map((section, idx) => (
+                  <BentoCard key={idx} className="p-5">
+                    <h3 className="text-lg font-semibold mb-2 text-foreground">
+                      {section.heading}
+                    </h3>
+                    <div className="text-sm text-muted-foreground leading-relaxed whitespace-pre-line">
+                      {section.content}
                     </div>
-                </div>
+                  </BentoCard>
+                ))}
+              </div>
 
-                <div className={cn(
-                    "mt-8 rounded-xl p-5 text-white shadow-lg mx-2",
-                    isNight ? "bg-gradient-to-br from-rose-900 to-red-950 shadow-rose-900/20" : "bg-gradient-to-br from-indigo-500 to-blue-600 shadow-blue-200"
-                )}>
-                    <h4 className="font-bold flex items-center gap-2 mb-2">
-                        <Zap className="h-4 w-4" /> Pro Tip
-                    </h4>
-                    <p className="text-xs opacity-90 leading-relaxed">
-                        You can access the global command palette by pressing <kbd className="bg-white/20 px-1 rounded font-mono">Cmd+K</kbd> anywhere in the system.
+              {/* Footer tip */}
+              <BentoCard className="p-5 bg-primary/5 border-primary/20">
+                <div className="flex items-start gap-3">
+                  <div className="p-2 rounded-lg bg-primary/10 flex-shrink-0">
+                    <Sparkles className="w-4 h-4 text-primary" />
+                  </div>
+                  <div>
+                    <h4 className="font-semibold mb-1 text-sm">Need More Help?</h4>
+                    <p className="text-xs text-muted-foreground">
+                      Ask Rio directly in Operation! She can answer questions about features,
+                      explain workflows, and guide you through any task.
                     </p>
+                  </div>
                 </div>
-            </aside>
-
-            {/* Main Reading Area */}
-            <main className="flex-1 overflow-y-auto p-6 lg:p-12 relative">
-                {/* Background Decoration */}
-                <div className={cn(
-                    "absolute top-0 right-0 w-64 h-64 rounded-full blur-3xl pointer-events-none -z-10 transition-colors",
-                    isNight ? "bg-rose-900/10" : "bg-blue-400/5"
-                )} />
-                
-                <AnimatePresence mode="wait">
-                    <motion.div
-                        key={currentDoc.id}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -10 }}
-                        transition={{ duration: 0.3 }}
-                        className="max-w-3xl mx-auto"
-                    >
-                        {/* Article Header */}
-                        <div className={cn("mb-8 border-b pb-8", isNight ? "border-rose-900/30" : "border-blue-100")}>
-                            <div className="flex items-center gap-2 mb-4">
-                                <span className={cn(
-                                    "px-2.5 py-1 rounded text-[10px] font-black uppercase tracking-wider border",
-                                    currentDoc.category === 'guide' ? (isNight ? "bg-blue-900/20 text-blue-300 border-blue-800/50" : "bg-blue-50 text-blue-600 border-blue-100") :
-                                    currentDoc.category === 'api' ? (isNight ? "bg-purple-900/20 text-purple-300 border-purple-800/50" : "bg-purple-50 text-purple-600 border-purple-100") :
-                                    (isNight ? "bg-slate-800 text-slate-300 border-slate-700" : "bg-slate-100 text-slate-600 border-slate-200")
-                                )}>
-                                    {currentDoc.category}
-                                </span>
-                                <span className={cn("text-xs font-medium flex items-center gap-1", isNight ? "text-slate-500" : "text-slate-400")}>
-                                    <Bookmark className="h-3 w-3" />
-                                    Read time: {currentDoc.readTime}
-                                </span>
-                            </div>
-                            <h1 className={cn("text-3xl font-black tracking-tight mb-2", isNight ? "text-slate-100" : "text-slate-800")}>
-                                {currentDoc.title}
-                            </h1>
-                            <div className="flex items-center gap-2 text-sm text-slate-500">
-                                <span>Last updated: Feb 6, 2026</span>
-                                <span className="h-1 w-1 rounded-full bg-slate-300" />
-                                <span className="flex items-center gap-1 cursor-pointer hover:text-blue-500 transition-colors">
-                                    Open in dedicated view <ExternalLink className="h-3 w-3" />
-                                </span>
-                            </div>
-                        </div>
-
-                        {/* Article Content */}
-                        <div className={cn("prose prose-sm md:prose-base max-w-none", isNight ? "prose-invert" : "prose-slate")}>
-                            {currentDoc.content(isNight)}
-                        </div>
-
-                        {/* Feedback Section */}
-                        <div className={cn("mt-12 pt-8 border-t flex items-center justify-between", isNight ? "border-rose-900/30" : "border-blue-50")}>
-                            <p className={cn("text-sm font-medium", isNight ? "text-slate-400" : "text-slate-500")}>Was this protocol helpful?</p>
-                            <div className="flex gap-2">
-                                <button className={cn(
-                                    "px-4 py-2 rounded-lg border text-sm font-bold transition-all",
-                                    isNight 
-                                        ? "border-rose-900/40 bg-[#0d1117]/60 text-slate-300 hover:bg-rose-900/20 hover:border-rose-700" 
-                                        : "border-blue-100 bg-white text-slate-600 hover:bg-blue-50 hover:border-blue-200"
-                                )}>
-                                    Yes, confirmed
-                                </button>
-                                <button className={cn(
-                                    "px-4 py-2 rounded-lg border text-sm font-bold transition-all",
-                                    isNight 
-                                        ? "border-rose-900/40 bg-[#0d1117]/60 text-slate-300 hover:bg-red-900/20 hover:border-red-800" 
-                                        : "border-blue-100 bg-white text-slate-600 hover:bg-red-50 hover:border-red-200"
-                                )}>
-                                    No, vague
-                                </button>
-                            </div>
-                        </div>
-                    </motion.div>
-                </AnimatePresence>
-            </main>
+              </BentoCard>
+            </motion.div>
+          </main>
         </div>
       </PageTransition>
     </DashboardLayout>

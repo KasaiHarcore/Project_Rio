@@ -1,11 +1,24 @@
 "use client"
 
-import React from 'react'
-import { Bell, Coins, Zap } from 'lucide-react'
-import { useUIStore } from '@/store/ui-store'
+import React, { useEffect, useState, useCallback } from 'react'
+import { Bell } from 'lucide-react'
+import { apiGetDashboardStats, DashboardStats } from '@/lib/api'
 
 export function Header() {
-    const { userLevel, currentAp, maxAp, credits } = useUIStore()
+    const [stats, setStats] = useState<DashboardStats | null>(null)
+
+    const fetchStats = useCallback(async () => {
+        try {
+            const data = await apiGetDashboardStats()
+            setStats(data)
+        } catch { /* silent */ }
+    }, [])
+
+    useEffect(() => { fetchStats() }, [fetchStats])
+
+    const level = stats?.level ?? 1
+    const xpInLevel = stats?.xp_in_level ?? 0
+    const xpForNext = stats?.xp_for_next ?? 100
 
     return (
         <header 
@@ -13,9 +26,9 @@ export function Header() {
             className="h-14 md:h-16 w-full flex items-center justify-between px-3 md:px-6 z-30 transition-colors duration-300 bg-gradient-to-b to-transparent"
             style={{ '--tw-gradient-from': 'var(--header-gradient-from)' } as React.CSSProperties}
         >
-            {/* Left: Page Context */}
+            {/* Left: Level Badge + Identity */}
             <div className="flex items-center gap-4">
-                <LevelBadge level={userLevel} />
+                <LevelBadge level={level} progress={xpForNext > 0 ? xpInLevel / xpForNext : 0} />
                 <div className="flex flex-col">
                     <span className="text-xs font-bold uppercase tracking-widest text-[var(--header-subtitle)]">
                         Sensei
@@ -26,35 +39,18 @@ export function Header() {
                 </div>
             </div>
 
-            {/* Right: Resources & System Status */}
+            {/* Right: XP info + Notifications */}
             <div className="flex items-center gap-3 md:gap-6">
-                
-                {/* AP / Stamina Bar - Hidden on small screens */}
-                <div className="hidden md:block">
-                    <ResourceDisplay 
-                        icon={<Zap size={16} className="text-[var(--header-ap-icon)]" fill="currentColor" />}
-                        value={`${currentAp}/${maxAp}`}
-                        label="AP"
-                    />
+                {/* XP Progress Pill */}
+                <div className="hidden md:flex items-center gap-2 px-4 py-1.5 rounded-full border backdrop-blur-md text-xs font-bold bg-[var(--header-resource-bg)] border-[var(--header-resource-border)] text-[var(--header-resource-text)]">
+                    <span className="font-mono">{xpInLevel} / {xpForNext} XP</span>
+                    <div className="w-16 h-1.5 rounded-full overflow-hidden bg-slate-200/30">
+                        <div
+                            className="h-full rounded-full bg-[var(--header-level-ring)] transition-all duration-500"
+                            style={{ width: `${xpForNext > 0 ? (xpInLevel / xpForNext) * 100 : 0}%` }}
+                        />
+                    </div>
                 </div>
-
-                {/* Credits - Hidden on small screens */}
-                <div className="hidden md:block">
-                    <ResourceDisplay 
-                        icon={<Coins size={16} className="text-[var(--header-credits-icon)]" />}
-                        value={credits.toLocaleString()}
-                        label="CREDITS"
-                    />
-                </div>
-
-                {/* Compact mobile resource display */}
-                <div className="flex md:hidden items-center gap-2 px-3 py-1.5 rounded-full border backdrop-blur-md text-xs font-bold bg-[var(--header-resource-bg)] border-[var(--header-resource-border)] text-[var(--header-resource-text)]">
-                    <Zap size={12} className="text-[var(--header-ap-icon)]" fill="currentColor" />
-                    <span className="font-mono">{currentAp}</span>
-                </div>
-
-                {/* Vertical Divider */}
-                <div className="h-6 w-[1px] bg-slate-200/50 hidden md:block" />
 
                 {/* Notifications */}
                 <button 
@@ -69,7 +65,11 @@ export function Header() {
     )
 }
 
-function LevelBadge({ level }: { level: number }) {
+function LevelBadge({ level, progress }: { level: number; progress: number }) {
+    // SVG ring: circumference = 2π × 26 ≈ 163.36
+    const circumference = 163.36
+    const offset = circumference * (1 - Math.min(progress, 1))
+
     return (
         <div id="level-badge" className="relative group cursor-pointer">
             <div className="w-12 h-12 rounded-full flex items-center justify-center border-2 shadow-lg transition-colors border-[var(--header-level-border)] bg-[var(--header-level-bg)] text-[var(--header-level-text)]">
@@ -77,31 +77,28 @@ function LevelBadge({ level }: { level: number }) {
             </div>
             {/* Exp Ring (SVG) */}
             <svg className="absolute -inset-1 w-[56px] h-[56px] -rotate-90 pointer-events-none">
-                 <circle
-                     cx="28" cy="28" r="26"
-                     fill="none"
-                     stroke="var(--header-level-ring)"
-                     strokeWidth="2"
-                    strokeDasharray="163" 
-                    strokeDashoffset={40}
+                {/* Track */}
+                <circle
+                    cx="28" cy="28" r="26"
+                    fill="none"
+                    stroke="var(--header-level-ring)"
+                    strokeWidth="2"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={0}
+                    className="opacity-20"
+                />
+                {/* Progress */}
+                <circle
+                    cx="28" cy="28" r="26"
+                    fill="none"
+                    stroke="var(--header-level-ring)"
+                    strokeWidth="2"
+                    strokeDasharray={circumference}
+                    strokeDashoffset={offset}
                     strokeLinecap="round"
-                    className="opacity-80"
-                 />
-             </svg>
-        </div>
-    )
-}
-
-function ResourceDisplay({ icon, value, label }: { icon: React.ReactNode, value: string, label: string }) {
-    return (
-        <div className="flex items-center h-9 px-4 rounded-full border backdrop-blur-md shadow-sm gap-3 min-w-[140px] bg-[var(--header-resource-bg)] border-[var(--header-resource-border)] text-[var(--header-resource-text)]">
-            {icon}
-            <div className="flex flex-col items-end flex-1 leading-none">
-                 <span className="font-mono font-bold text-sm tracking-tighter">{value}</span>
-            </div>
-            <div className="w-4 h-4 rounded-full flex items-center justify-center text-[10px] font-bold text-white bg-[var(--header-resource-badge)]">
-                +
-            </div>
+                    className="opacity-80 transition-all duration-700"
+                />
+            </svg>
         </div>
     )
 }

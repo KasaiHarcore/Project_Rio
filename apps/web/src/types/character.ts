@@ -1,4 +1,4 @@
-export type CharacterId = 'arona' | 'plana' | 'kei';
+export type CharacterId = 'rio';
 
 export interface Character {
   id: CharacterId;
@@ -13,23 +13,13 @@ export interface Character {
 
 export const CHARACTERS: Character[] = [
   {
-    id: 'arona',
-    name: 'Arona',
-    role: 'Schale Main AI',
-    themeColor: 'blue',
-    accentColor: '#4BA3F5',
-    avatarUrl: '/assets/arona_avatar.png', // Placeholder
-    greetings: ['Good morning, Sensei!', 'Arona is online!', 'How can I help you today?'],
-    systemPromptId: 'sys-arona-v1'
-  },
-  {
-    id: 'plana',
-    name: 'Plana',
-    role: 'Schale Support AI',
-    themeColor: 'rose', // using 'rose' for red/pinkish red
+    id: 'rio',
+    name: 'Rio Tsukatsuki',
+    role: 'Schale System AI',
+    themeColor: 'rose',
     accentColor: '#FF3B3B',
-    avatarUrl: '/assets/plana_avatar.png', // Placeholder
+    avatarUrl: '/images/rio_avatar.png',
     greetings: ['System online.', 'Awaiting orders, Sensei.', 'I have optimized the schedule.'],
-    systemPromptId: 'sys-plana-v1'
+    systemPromptId: 'sys-rio-v1'
   }
 ];

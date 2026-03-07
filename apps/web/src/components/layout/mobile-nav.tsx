@@ -6,16 +6,16 @@ import {
   LayoutDashboard,
   MessageSquare,
   Map,
-  Sparkles,
   Clock,
   Database,
   FileText,
   Book,
-  Cpu,
+  Terminal,
   Settings,
   LogOut,
   Menu,
   Search,
+  StickyNote,
 } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { useUIStore } from "@/store/ui-store"
@@ -42,17 +42,17 @@ export function MobileNav() {
     handleNav("/")
   }
 
-  const handleLogout = () => {
-    document.cookie = "auth-token=; path=/; expires=Thu, 01 Jan 1970 00:00:01 GMT"
+  const handleLogout = async () => {
+    const { apiLogout } = require('@/lib/api')
+    await apiLogout()
     handleNav("/login")
   }
 
   const navSections = [
     {
-      title: "MAIN",
+      title: "COMMAND",
       items: [
         { label: "Office", icon: <LayoutDashboard size={20} />, action: handleHomeClick, active: pathname === "/" },
-        { label: "Interact", icon: <Sparkles size={20} />, href: "/arona", active: pathname === "/arona" },
         { label: "Operation", icon: <MessageSquare size={20} />, href: "/operation", active: pathname === "/operation" },
         { label: "Mission", icon: <Map size={20} />, href: "/mission", active: pathname === "/mission" },
       ],
@@ -60,16 +60,16 @@ export function MobileNav() {
     {
       title: "ARCHIVE",
       items: [
-        { label: "History", icon: <Clock size={20} />, href: "/history", active: pathname.startsWith("/history") },
         { label: "Knowledge", icon: <Database size={20} />, href: "/knowledge", active: pathname.startsWith("/knowledge") },
+        { label: "Notes", icon: <StickyNote size={20} />, href: "/notes", active: pathname.startsWith("/notes") },
         { label: "Artifacts", icon: <FileText size={20} />, href: "/artifacts", active: pathname.startsWith("/artifacts") },
-        { label: "Manual", icon: <Book size={20} />, href: "/docs", active: pathname.startsWith("/docs") },
       ],
     },
     {
       title: "SYSTEM",
       items: [
-        { label: "Logs", icon: <Cpu size={20} />, href: "/logs", active: pathname.startsWith("/logs") },
+        { label: "Manual", icon: <Book size={20} />, href: "/docs", active: pathname.startsWith("/docs") },
+        { label: "Logs", icon: <Terminal size={20} />, href: "/logs", active: pathname.startsWith("/logs") },
         { label: "Settings", icon: <Settings size={20} />, action: () => setOpen(false) },
       ],
     },
