@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from models.user import User
 from models.user_profile import UserProfile
@@ -34,7 +35,7 @@ class OnboardingResponse(BaseModel):
 # ── Endpoint ────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=OnboardingResponse)
-def save_onboarding(
+async def save_onboarding(
     body: OnboardingRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -44,29 +45,32 @@ def save_onboarding(
     Creates the UserProfile row if it doesn't exist yet, then marks
     onboarding as complete.
     """
-    profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
+    def _query():
+        profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
 
-    if not profile:
-        profile = UserProfile(user_id=user.id)
-        db.add(profile)
+        if not profile:
+            profile = UserProfile(user_id=user.id)
+            db.add(profile)
 
-    # Map form fields → profile columns
-    if body.user_name:
-        profile.full_name = body.user_name
-    if body.specialization:
-        profile.specialization = body.specialization
-    if body.agent_name:
-        profile.agent_name = body.agent_name
-    if body.tone:
-        profile.tone = body.tone
-    if body.directives is not None:
-        profile.directives = body.directives
-    if body.data_sources is not None:
-        profile.data_sources = body.data_sources
+        # Map form fields → profile columns
+        if body.user_name:
+            profile.full_name = body.user_name
+        if body.specialization:
+            profile.specialization = body.specialization
+        if body.agent_name:
+            profile.agent_name = body.agent_name
+        if body.tone:
+            profile.tone = body.tone
+        if body.directives is not None:
+            profile.directives = body.directives
+        if body.data_sources is not None:
+            profile.data_sources = body.data_sources
 
-    profile.onboarding_completed = True
+        profile.onboarding_completed = True
 
-    db.commit()
-    db.refresh(profile)
+        db.commit()
+        db.refresh(profile)
 
-    return OnboardingResponse()
+        return OnboardingResponse()
+
+    return await concurrency_manager.run_in_thread(_query)

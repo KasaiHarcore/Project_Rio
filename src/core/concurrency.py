@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import functools
 from concurrent.futures import ThreadPoolExecutor, ProcessPoolExecutor
-from typing import Any, Callable, TypeVar
+from typing import Any, Callable, List, Tuple, Dict, TypeVar
 
 from core.settings import get_concurrency_config
 from utils.log import log_info, log_debug, log_warning
@@ -96,6 +96,57 @@ class ConcurrencyManager:
 
         loop = asyncio.get_running_loop()
         return await loop.run_in_executor(self._process_pool, fn, *args)
+
+    def run_batch_sync(
+        self,
+        callables: List[Tuple[Callable, tuple, dict]],
+        timeout: float | None = None,
+    ) -> list:
+        """Run multiple blocking callables concurrently from SYNC code.
+
+        Uses ThreadPoolExecutor directly (no event loop required).
+        Each entry is ``(fn, args, kwargs)``.
+        """
+        if not callables:
+            return []
+
+        if not self._started or not self._thread_pool:
+            return [fn(*args, **kwargs) for fn, args, kwargs in callables]
+
+        futures = []
+        for fn, args, kwargs in callables:
+            bound = functools.partial(fn, *args, **kwargs)
+            futures.append(self._thread_pool.submit(bound))
+
+        return [f.result(timeout=timeout) for f in futures]
+
+    async def run_batch_in_threads(
+        self,
+        callables: List[Tuple[Callable, tuple, dict]],
+        timeout: float | None = None,
+    ) -> list:
+        """Run multiple blocking callables concurrently from ASYNC code.
+
+        Uses ``asyncio.gather`` + ``loop.run_in_executor``.
+        Each entry is ``(fn, args, kwargs)``.
+        """
+        if not callables:
+            return []
+
+        if not self._started or not self._thread_pool:
+            return [fn(*args, **kwargs) for fn, args, kwargs in callables]
+
+        loop = asyncio.get_running_loop()
+        coros = []
+        for fn, args, kwargs in callables:
+            bound = functools.partial(fn, *args, **kwargs)
+            coros.append(loop.run_in_executor(self._thread_pool, bound))
+
+        if timeout is not None:
+            return list(await asyncio.wait_for(
+                asyncio.gather(*coros), timeout=timeout,
+            ))
+        return list(await asyncio.gather(*coros))
 
     @property
     def thread_pool(self) -> ThreadPoolExecutor | None:

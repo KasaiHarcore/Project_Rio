@@ -17,6 +17,7 @@ from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 from uuid import UUID
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from models.document import Document, DocumentStatus
 from models.user import User
@@ -54,7 +55,7 @@ def _doc_to_response(doc: Document) -> DocumentResponse:
 # ── Upload ──────────────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
-def upload_document(
+async def upload_document(
     file: UploadFile = File(..., description="Document file to ingest"),
     chunking_strategy: Optional[str] = Query("recursive", description="recursive | character | semantic"),
     user: User = Depends(get_current_user),
@@ -86,117 +87,123 @@ def upload_document(
 
     log_info(f"[Knowledge] upload: user={user.username} file={file.filename} size={size_bytes}")
 
-    # Create tracking record (status=processing)
-    doc = Document(
-        user_id=user.id,
-        name=file.filename,
-        file_type=suffix.lstrip("."),
-        size_bytes=size_bytes,
-        status=DocumentStatus.PROCESSING,
-    )
-    db.add(doc)
-    db.commit()
-    db.refresh(doc)
-
-    # Write to temp file and ingest via VectorDBTool
-    tmp_path = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            suffix=suffix, delete=False, dir=tempfile.gettempdir()
-        ) as tmp:
-            tmp.write(contents)
-            tmp_path = tmp.name
-
-        result_msg = get_vector_db_tool().ingest_file(
-            tmp_path,
-            chunking_strategy=chunking_strategy or "recursive",
-            source_name=file.filename,
-            metadata={
-                "document_id": str(doc.id),
-                "user_id": str(user.id),
-                "source_name": file.filename,
-            },
+    def _query():
+        # Create tracking record (status=processing)
+        doc = Document(
+            user_id=user.id,
+            name=file.filename,
+            file_type=suffix.lstrip("."),
+            size_bytes=size_bytes,
+            status=DocumentStatus.PROCESSING,
         )
-
-        # Parse chunk count from result message (e.g. "Successfully indexed 12 chunks …")
-        chunk_count = 0
-        for word in result_msg.split():
-            if word.isdigit():
-                chunk_count = int(word)
-                break
-
-        doc.status = DocumentStatus.READY
-        doc.chunk_count = chunk_count
+        db.add(doc)
         db.commit()
         db.refresh(doc)
 
-        log_success(f"[Knowledge] ingested: doc_id={doc.id} chunks={chunk_count}")
-
-        # Award +15 XP for uploading a document
+        # Write to temp file and ingest via VectorDBTool
+        tmp_path = None
         try:
-            award_xp(db, user.id, 15, reason="document_upload")
-        except Exception:
-            pass  # XP failure should not block the response
+            with tempfile.NamedTemporaryFile(
+                suffix=suffix, delete=False, dir=tempfile.gettempdir()
+            ) as tmp:
+                tmp.write(contents)
+                tmp_path = tmp.name
 
-        # Invalidate L2 caches
-        try:
-            from infrastructure.cache import cache_service
-            uid_str = str(user.id)
-            cache_service.invalidate_dashboard(uid_str)
-            cache_service.invalidate_xp(uid_str)
-        except Exception:
-            pass
+            result_msg = get_vector_db_tool().ingest_file(
+                tmp_path,
+                chunking_strategy=chunking_strategy or "recursive",
+                source_name=file.filename,
+                metadata={
+                    "document_id": str(doc.id),
+                    "user_id": str(user.id),
+                    "source_name": file.filename,
+                },
+            )
 
-        return DocumentUploadResponse(
-            document=_doc_to_response(doc),
-            message=result_msg,
-        )
+            # Parse chunk count from result message (e.g. "Successfully indexed 12 chunks …")
+            chunk_count = 0
+            for word in result_msg.split():
+                if word.isdigit():
+                    chunk_count = int(word)
+                    break
 
-    except Exception as exc:
-        log_error(f"[Knowledge] ingestion failed: {exc}")
-        doc.status = DocumentStatus.ERROR
-        doc.error_message = str(exc)[:2000]
-        db.commit()
-        db.refresh(doc)
+            doc.status = DocumentStatus.READY
+            doc.chunk_count = chunk_count
+            db.commit()
+            db.refresh(doc)
 
-        payload = DocumentUploadResponse(
-            success=False,
-            document=_doc_to_response(doc),
-            message=f"Ingestion failed: {exc}",
-        ).model_dump()
-        return JSONResponse(status_code=500, content=payload)
+            log_success(f"[Knowledge] ingested: doc_id={doc.id} chunks={chunk_count}")
 
-    finally:
-        if tmp_path and os.path.exists(tmp_path):
+            # Award +15 XP for uploading a document
             try:
-                os.unlink(tmp_path)
-            except OSError:
+                award_xp(db, user.id, 15, reason="document_upload")
+            except Exception:
+                pass  # XP failure should not block the response
+
+            # Invalidate L2 caches
+            try:
+                from infrastructure.cache import cache_service
+                uid_str = str(user.id)
+                cache_service.invalidate_dashboard(uid_str)
+                cache_service.invalidate_xp(uid_str)
+            except Exception:
                 pass
+
+            return DocumentUploadResponse(
+                document=_doc_to_response(doc),
+                message=result_msg,
+            )
+
+        except Exception as exc:
+            log_error(f"[Knowledge] ingestion failed: {exc}")
+            doc.status = DocumentStatus.ERROR
+            doc.error_message = str(exc)[:2000]
+            db.commit()
+            db.refresh(doc)
+
+            payload = DocumentUploadResponse(
+                success=False,
+                document=_doc_to_response(doc),
+                message=f"Ingestion failed: {exc}",
+            ).model_dump()
+            return JSONResponse(status_code=500, content=payload)
+
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 # ── List documents ──────────────────────────────────────────────────────────
 
 @router.get("", response_model=DocumentListResponse)
-def list_documents(
+async def list_documents(
     limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """List all documents uploaded by the authenticated user."""
-    docs = (
-        db.query(Document)
-        .filter(Document.user_id == user.id)
-        .order_by(Document.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-    return DocumentListResponse(documents=[_doc_to_response(d) for d in docs])
+    def _query():
+        docs = (
+            db.query(Document)
+            .filter(Document.user_id == user.id)
+            .order_by(Document.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return DocumentListResponse(documents=[_doc_to_response(d) for d in docs])
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 # ── Delete document ─────────────────────────────────────────────────────────
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_document(
+async def delete_document(
     document_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -207,24 +214,26 @@ def delete_document(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid document ID")
 
-    doc = db.query(Document).filter(Document.id == did, Document.user_id == user.id).first()
-    if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+    def _query():
+        doc = db.query(Document).filter(Document.id == did, Document.user_id == user.id).first()
+        if not doc:
+            raise HTTPException(status_code=404, detail="Document not found")
 
-    try:
-        get_vector_db_tool().delete_document_vectors(str(doc.id), user_id=str(user.id))
-    except Exception as exc:
-        log_error(f"[Knowledge] vector delete failed: {exc}")
-        raise HTTPException(status_code=500, detail="Failed to remove document from vector store")
+        try:
+            get_vector_db_tool().delete_document_vectors(str(doc.id), user_id=str(user.id))
+        except Exception as exc:
+            log_error(f"[Knowledge] vector delete failed: {exc}")
+            raise HTTPException(status_code=500, detail="Failed to remove document from vector store")
 
-    db.delete(doc)
-    db.commit()
+        db.delete(doc)
+        db.commit()
 
-    # Invalidate dashboard (document count changed)
-    try:
-        from infrastructure.cache import cache_service
-        cache_service.invalidate_dashboard(str(user.id))
-    except Exception:
-        pass
+        # Invalidate dashboard (document count changed)
+        try:
+            from infrastructure.cache import cache_service
+            cache_service.invalidate_dashboard(str(user.id))
+        except Exception:
+            pass
 
+    await concurrency_manager.run_in_thread(_query)
     return None

@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from services.settings_service import SettingsService
 from models.user import User
@@ -46,7 +47,7 @@ class UpdateResponse(BaseModel):
 
 
 @router.get("", response_model=SettingsResponse)
-def get_settings(
+async def get_settings(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -54,18 +55,21 @@ def get_settings(
 
     Creates settings/profile with defaults if they don't exist.
     """
-    settings = SettingsService.get_settings(db, user.id)
+    def _query():
+        settings = SettingsService.get_settings(db, user.id)
 
-    # Get profile (with relationship loaded)
-    profile = None
-    if user.profile:
-        profile = UserProfileInDB.model_validate(user.profile)
+        # Get profile (with relationship loaded)
+        profile = None
+        if user.profile:
+            profile = UserProfileInDB.model_validate(user.profile)
 
-    return SettingsResponse(settings=settings, profile=profile)
+        return SettingsResponse(settings=settings, profile=profile)
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.put("", response_model=SettingsResponse)
-def update_settings(
+async def update_settings(
     updates: UserSettingsUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -74,26 +78,29 @@ def update_settings(
 
     Only updates fields that are provided in the request body.
     """
-    success, settings_data, error = SettingsService.update_settings(
-        db, user.id, updates
-    )
-
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error or "Failed to update settings",
+    def _query():
+        success, settings_data, error = SettingsService.update_settings(
+            db, user.id, updates
         )
 
-    # Get profile
-    profile = None
-    if user.profile:
-        profile = UserProfileInDB.model_validate(user.profile)
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error or "Failed to update settings",
+            )
 
-    return SettingsResponse(settings=settings_data, profile=profile)
+        # Get profile
+        profile = None
+        if user.profile:
+            profile = UserProfileInDB.model_validate(user.profile)
+
+        return SettingsResponse(settings=settings_data, profile=profile)
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.put("/profile", response_model=UpdateResponse)
-def update_profile(
+async def update_profile(
     updates: UserProfileUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -102,19 +109,22 @@ def update_profile(
 
     Only updates fields that are provided in the request body.
     """
-    success, error = SettingsService.update_profile(db, user.id, updates)
+    def _query():
+        success, error = SettingsService.update_profile(db, user.id, updates)
 
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error or "Failed to update profile",
-        )
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error or "Failed to update profile",
+            )
 
-    return UpdateResponse(message="Profile updated successfully")
+        return UpdateResponse(message="Profile updated successfully")
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.put("/user-info", response_model=UpdateResponse)
-def update_user_info(
+async def update_user_info(
     updates: UserInfoUpdate,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -123,17 +133,20 @@ def update_user_info(
 
     Only updates fields that are provided in the request body.
     """
-    success, error = SettingsService.update_user_info(
-        db,
-        user.id,
-        username=updates.username,
-        email=updates.email,
-    )
-
-    if not success:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=error or "Failed to update user info",
+    def _query():
+        success, error = SettingsService.update_user_info(
+            db,
+            user.id,
+            username=updates.username,
+            email=updates.email,
         )
 
-    return UpdateResponse(message="User info updated successfully")
+        if not success:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=error or "Failed to update user info",
+            )
+
+        return UpdateResponse(message="User info updated successfully")
+
+    return await concurrency_manager.run_in_thread(_query)

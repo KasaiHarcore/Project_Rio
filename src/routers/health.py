@@ -4,6 +4,7 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Optional
 
+from core.concurrency import concurrency_manager
 from utils.log import log_warning
 
 router = APIRouter(tags=["health"])
@@ -22,26 +23,29 @@ class HealthResponse(BaseModel):
 
 
 @router.get("/health", response_model=HealthResponse)
-def health_check():
+async def health_check():
     """System health probe checking database, Redis, and LLM model."""
-    db_health = _check_database()
-    redis_health = _check_redis()
-    model_health = _check_model()
+    def _query():
+        db_health = _check_database()
+        redis_health = _check_redis()
+        model_health = _check_model()
 
-    # Overall status: unhealthy if DB is down, degraded if redis/model is down
-    if db_health.status == "down":
-        overall = "unhealthy"
-    elif redis_health.status == "down" or model_health.status == "down":
-        overall = "degraded"
-    else:
-        overall = "healthy"
+        # Overall status: unhealthy if DB is down, degraded if redis/model is down
+        if db_health.status == "down":
+            overall = "unhealthy"
+        elif redis_health.status == "down" or model_health.status == "down":
+            overall = "degraded"
+        else:
+            overall = "healthy"
 
-    return HealthResponse(
-        status=overall,
-        database=db_health,
-        redis=redis_health,
-        model=model_health,
-    )
+        return HealthResponse(
+            status=overall,
+            database=db_health,
+            redis=redis_health,
+            model=model_health,
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 def _check_database() -> ComponentHealth:

@@ -10,6 +10,7 @@ from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from models.document import Document, DocumentStatus
 from models.message import Message, MessageRole
@@ -52,7 +53,7 @@ class DashboardStats(BaseModel):
 # ── Endpoint ────────────────────────────────────────────────────────────────
 
 @router.get("/stats", response_model=DashboardStats)
-def get_dashboard_stats(
+async def get_dashboard_stats(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -69,137 +70,140 @@ def get_dashboard_stats(
     if cached:
         return DashboardStats(**cached)
 
-    now = datetime.now(timezone.utc)
+    def _query():
+        now = datetime.now(timezone.utc)
 
-    # Thread counts
-    total_threads: int = (
-        db.query(func.count(Thread.id))
-        .filter(Thread.user_id == uid)
-        .scalar() or 0
-    )
-    active_threads: int = (
-        db.query(func.count(Thread.id))
-        .filter(Thread.user_id == uid, Thread.status == ThreadStatus.ACTIVE)
-        .scalar() or 0
-    )
-
-    # Message counts
-    user_thread_ids = db.query(Thread.id).filter(Thread.user_id == uid).subquery()
-
-    total_messages: int = (
-        db.query(func.count(Message.id))
-        .filter(Message.thread_id.in_(db.query(user_thread_ids)))
-        .scalar() or 0
-    )
-
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    messages_today: int = (
-        db.query(func.count(Message.id))
-        .filter(
-            Message.thread_id.in_(db.query(user_thread_ids)),
-            Message.created_at >= today_start,
+        # Thread counts
+        total_threads: int = (
+            db.query(func.count(Thread.id))
+            .filter(Thread.user_id == uid)
+            .scalar() or 0
         )
-        .scalar() or 0
-    )
-
-    # Messages per day (last 7 days) for sparkline
-    messages_by_day: List[int] = []
-    for days_ago in range(6, -1, -1):
-        day_start = (now - timedelta(days=days_ago)).replace(
-            hour=0, minute=0, second=0, microsecond=0
+        active_threads: int = (
+            db.query(func.count(Thread.id))
+            .filter(Thread.user_id == uid, Thread.status == ThreadStatus.ACTIVE)
+            .scalar() or 0
         )
-        day_end = day_start + timedelta(days=1)
-        count: int = (
+
+        # Message counts
+        user_thread_ids = db.query(Thread.id).filter(Thread.user_id == uid).subquery()
+
+        total_messages: int = (
+            db.query(func.count(Message.id))
+            .filter(Message.thread_id.in_(db.query(user_thread_ids)))
+            .scalar() or 0
+        )
+
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        messages_today: int = (
             db.query(func.count(Message.id))
             .filter(
                 Message.thread_id.in_(db.query(user_thread_ids)),
-                Message.created_at >= day_start,
-                Message.created_at < day_end,
+                Message.created_at >= today_start,
             )
             .scalar() or 0
         )
-        messages_by_day.append(count)
 
-    # Document counts
-    total_documents: int = (
-        db.query(func.count(Document.id))
-        .filter(Document.user_id == uid)
-        .scalar() or 0
-    )
-    ready_documents: int = (
-        db.query(func.count(Document.id))
-        .filter(Document.user_id == uid, Document.status == DocumentStatus.READY)
-        .scalar() or 0
-    )
+        # Messages per day (last 7 days) for sparkline
+        messages_by_day: List[int] = []
+        for days_ago in range(6, -1, -1):
+            day_start = (now - timedelta(days=days_ago)).replace(
+                hour=0, minute=0, second=0, microsecond=0
+            )
+            day_end = day_start + timedelta(days=1)
+            count: int = (
+                db.query(func.count(Message.id))
+                .filter(
+                    Message.thread_id.in_(db.query(user_thread_ids)),
+                    Message.created_at >= day_start,
+                    Message.created_at < day_end,
+                )
+                .scalar() or 0
+            )
+            messages_by_day.append(count)
 
-    # Recent threads with message count (for mission list)
-    threads = (
-        db.query(Thread)
-        .filter(Thread.user_id == uid)
-        .order_by(Thread.updated_at.desc())
-        .limit(6)
-        .all()
-    )
-
-    recent_threads: List[ThreadStat] = []
-    for t in threads:
-        msg_count: int = (
-            db.query(func.count(Message.id))
-            .filter(Message.thread_id == t.id)
+        # Document counts
+        total_documents: int = (
+            db.query(func.count(Document.id))
+            .filter(Document.user_id == uid)
             .scalar() or 0
         )
-        # Heuristic progress: ACTIVE with messages → partial, ARCHIVED → 100
-        if t.status == ThreadStatus.ARCHIVED:
-            progress = 100
-        elif msg_count == 0:
-            progress = 0
-        else:
-            progress = min(90, msg_count * 10)  # cap at 90 for active
-
-        recent_threads.append(
-            ThreadStat(
-                id=str(t.id),
-                title=t.title,
-                status=t.status.value if hasattr(t.status, "value") else str(t.status),
-                progress=progress,
-                updated_at=t.updated_at.isoformat() if t.updated_at else "",
-                message_count=msg_count,
-            )
+        ready_documents: int = (
+            db.query(func.count(Document.id))
+            .filter(Document.user_id == uid, Document.status == DocumentStatus.READY)
+            .scalar() or 0
         )
 
-    # Onboarding + XP check
-    from models.user_profile import UserProfile
-    from services.xp_service import level_progress, get_user_xp
+        # Recent threads with message count (for mission list)
+        threads = (
+            db.query(Thread)
+            .filter(Thread.user_id == uid)
+            .order_by(Thread.updated_at.desc())
+            .limit(6)
+            .all()
+        )
 
-    profile = db.query(UserProfile).filter(UserProfile.user_id == uid).first()
-    onboarding_completed = bool(profile and profile.onboarding_completed)
+        recent_threads: List[ThreadStat] = []
+        for t in threads:
+            msg_count: int = (
+                db.query(func.count(Message.id))
+                .filter(Message.thread_id == t.id)
+                .scalar() or 0
+            )
+            # Heuristic progress: ACTIVE with messages → partial, ARCHIVED → 100
+            if t.status == ThreadStatus.ARCHIVED:
+                progress = 100
+            elif msg_count == 0:
+                progress = 0
+            else:
+                progress = min(90, msg_count * 10)  # cap at 90 for active
 
-    xp = get_user_xp(db, uid)
-    lp = level_progress(xp)
+            recent_threads.append(
+                ThreadStat(
+                    id=str(t.id),
+                    title=t.title,
+                    status=t.status.value if hasattr(t.status, "value") else str(t.status),
+                    progress=progress,
+                    updated_at=t.updated_at.isoformat() if t.updated_at else "",
+                    message_count=msg_count,
+                )
+            )
 
-    result = DashboardStats(
-        total_threads=total_threads,
-        active_threads=active_threads,
-        total_messages=total_messages,
-        total_documents=total_documents,
-        ready_documents=ready_documents,
-        messages_today=messages_today,
-        messages_by_day=messages_by_day,
-        recent_threads=recent_threads,
-        onboarding_completed=onboarding_completed,
-        level=lp["level"],
-        total_xp=lp["total_xp"],
-        xp_in_level=lp["xp_in_level"],
-        xp_for_next=lp["xp_for_next"],
-    )
+        # Onboarding + XP check
+        from models.user_profile import UserProfile
+        from services.xp_service import level_progress, get_user_xp
 
-    # Backfill Redis cache
-    try:
-        cache_service.set_cached_dashboard(uid_str, result.model_dump())
-    except Exception:
-        pass
+        profile = db.query(UserProfile).filter(UserProfile.user_id == uid).first()
+        onboarding_completed = bool(profile and profile.onboarding_completed)
 
-    return result
+        xp = get_user_xp(db, uid)
+        lp = level_progress(xp)
+
+        result = DashboardStats(
+            total_threads=total_threads,
+            active_threads=active_threads,
+            total_messages=total_messages,
+            total_documents=total_documents,
+            ready_documents=ready_documents,
+            messages_today=messages_today,
+            messages_by_day=messages_by_day,
+            recent_threads=recent_threads,
+            onboarding_completed=onboarding_completed,
+            level=lp["level"],
+            total_xp=lp["total_xp"],
+            xp_in_level=lp["xp_in_level"],
+            xp_for_next=lp["xp_for_next"],
+        )
+
+        # Backfill Redis cache
+        try:
+            cache_service.set_cached_dashboard(uid_str, result.model_dump())
+        except Exception:
+            pass
+
+        return result
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 # ── Briefing Response Schemas ──────────────────────────────────────────────
@@ -257,7 +261,7 @@ class DashboardBriefing(BaseModel):
 # ── Briefing Endpoint ──────────────────────────────────────────────────────
 
 @router.get("/briefing", response_model=DashboardBriefing)
-def get_dashboard_briefing(
+async def get_dashboard_briefing(
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -267,137 +271,141 @@ def get_dashboard_briefing(
     Briefing text adapts based on user activity patterns.
     """
     uid = user.id
-    now = datetime.now(timezone.utc)
 
-    # ── Get urgent missions (deadline within 48 hours) ───────────────────
-    deadline_threshold = now + timedelta(hours=48)
-    urgent_missions_rows = (
-        db.query(Mission)
-        .filter(
-            Mission.user_id == uid,
-            Mission.status == MissionStatus.ACTIVE,
-            Mission.deadline.isnot(None),
-            Mission.deadline <= deadline_threshold,
-            Mission.deadline >= now,  # Not overdue
+    def _query():
+        now = datetime.now(timezone.utc)
+
+        # ── Get urgent missions (deadline within 48 hours) ───────────────────
+        deadline_threshold = now + timedelta(hours=48)
+        urgent_missions_rows = (
+            db.query(Mission)
+            .filter(
+                Mission.user_id == uid,
+                Mission.status == MissionStatus.ACTIVE,
+                Mission.deadline.isnot(None),
+                Mission.deadline <= deadline_threshold,
+                Mission.deadline >= now,  # Not overdue
+            )
+            .order_by(Mission.deadline.asc())
+            .limit(5)
+            .all()
         )
-        .order_by(Mission.deadline.asc())
-        .limit(5)
-        .all()
-    )
 
-    urgent_missions = [
-        BriefingMission(
-            id=str(m.id),
-            title=m.title,
-            deadline=m.deadline.isoformat() if m.deadline else None,
-            progress=m.progress,
+        urgent_missions = [
+            BriefingMission(
+                id=str(m.id),
+                title=m.title,
+                deadline=m.deadline.isoformat() if m.deadline else None,
+                progress=m.progress,
+            )
+            for m in urgent_missions_rows
+        ]
+
+        # ── Get last 3 chat threads ─────────────────────────────────────────
+        last_threads_rows = (
+            db.query(Thread)
+            .filter(Thread.user_id == uid, Thread.status == ThreadStatus.ACTIVE)
+            .order_by(Thread.updated_at.desc())
+            .limit(3)
+            .all()
         )
-        for m in urgent_missions_rows
-    ]
 
-    # ── Get last 3 chat threads ─────────────────────────────────────────
-    last_threads_rows = (
-        db.query(Thread)
-        .filter(Thread.user_id == uid, Thread.status == ThreadStatus.ACTIVE)
-        .order_by(Thread.updated_at.desc())
-        .limit(3)
-        .all()
-    )
+        last_chats = [
+            BriefingThread(
+                id=str(t.id),
+                title=t.title,
+                updated_at=t.updated_at.isoformat() if t.updated_at else "",
+            )
+            for t in last_threads_rows
+        ]
 
-    last_chats = [
-        BriefingThread(
-            id=str(t.id),
-            title=t.title,
-            updated_at=t.updated_at.isoformat() if t.updated_at else "",
+        # ── Get emotional state ─────────────────────────────────────────────
+        emotional_state = EmotionalEngine.get_or_create_state(
+            db=db,
+            user_id=uid,
+            character_id="rio",
         )
-        for t in last_threads_rows
-    ]
 
-    # ── Get emotional state ─────────────────────────────────────────────
-    emotional_state = EmotionalEngine.get_or_create_state(
-        db=db,
-        user_id=uid,
-        character_id="rio",
-    )
+        relationship_tier = EmotionalEngine.get_relationship_tier(emotional_state.affinity)
 
-    relationship_tier = EmotionalEngine.get_relationship_tier(emotional_state.affinity)
-
-    emotional_data = EmotionalStateData(
-        mood=emotional_state.mood.value,
-        energy=emotional_state.energy,
-        affinity=emotional_state.affinity,
-        relationship_tier=relationship_tier,
-        streak_days=emotional_state.streak_days,
-        interaction_count=emotional_state.interaction_count,
-    )
-
-    # ── Calculate session stats ─────────────────────────────────────────
-    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-    week_start = now - timedelta(days=7)
-
-    # Messages today
-    user_thread_ids = db.query(Thread.id).filter(Thread.user_id == uid).subquery()
-    messages_today = (
-        db.query(func.count(Message.id))
-        .filter(
-            Message.thread_id.in_(db.query(user_thread_ids)),
-            Message.created_at >= today_start,
+        emotional_data = EmotionalStateData(
+            mood=emotional_state.mood.value,
+            energy=emotional_state.energy,
+            affinity=emotional_state.affinity,
+            relationship_tier=relationship_tier,
+            streak_days=emotional_state.streak_days,
+            interaction_count=emotional_state.interaction_count,
         )
-        .scalar() or 0
-    )
 
-    # Missions completed today
-    missions_completed_today = (
-        db.query(func.count(Mission.id))
-        .filter(
-            Mission.user_id == uid,
-            Mission.status == MissionStatus.COMPLETED,
-            Mission.updated_at >= today_start,
+        # ── Calculate session stats ─────────────────────────────────────────
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        week_start = now - timedelta(days=7)
+
+        # Messages today
+        user_thread_ids = db.query(Thread.id).filter(Thread.user_id == uid).subquery()
+        messages_today = (
+            db.query(func.count(Message.id))
+            .filter(
+                Message.thread_id.in_(db.query(user_thread_ids)),
+                Message.created_at >= today_start,
+            )
+            .scalar() or 0
         )
-        .scalar() or 0
-    )
 
-    # Sessions this week (count days with messages)
-    sessions_this_week = (
-        db.query(func.count(func.distinct(func.date(Message.created_at))))
-        .filter(
-            Message.thread_id.in_(db.query(user_thread_ids)),
-            Message.created_at >= week_start,
+        # Missions completed today
+        missions_completed_today = (
+            db.query(func.count(Mission.id))
+            .filter(
+                Mission.user_id == uid,
+                Mission.status == MissionStatus.COMPLETED,
+                Mission.updated_at >= today_start,
+            )
+            .scalar() or 0
         )
-        .scalar() or 0
-    )
 
-    session_stats = SessionStats(
-        sessions_this_week=sessions_this_week,
-        total_messages_today=messages_today,
-        missions_completed_today=missions_completed_today,
-        streak_days=emotional_state.streak_days,
-    )
+        # Sessions this week (count days with messages)
+        sessions_this_week = (
+            db.query(func.count(func.distinct(func.date(Message.created_at))))
+            .filter(
+                Message.thread_id.in_(db.query(user_thread_ids)),
+                Message.created_at >= week_start,
+            )
+            .scalar() or 0
+        )
 
-    # ── Generate briefing text ──────────────────────────────────────────
-    briefing_text = _generate_briefing_text(
-        urgent_missions=urgent_missions,
-        last_chats=last_chats,
-        session_stats=session_stats,
-        relationship_tier=relationship_tier,
-        mood=emotional_state.mood.value,
-    )
+        session_stats = SessionStats(
+            sessions_this_week=sessions_this_week,
+            total_messages_today=messages_today,
+            missions_completed_today=missions_completed_today,
+            streak_days=emotional_state.streak_days,
+        )
 
-    # ── Generate suggested actions ──────────────────────────────────────
-    suggested_actions = _generate_suggested_actions(
-        urgent_missions=urgent_missions,
-        last_chats=last_chats,
-        messages_today=messages_today,
-    )
+        # ── Generate briefing text ──────────────────────────────────────────
+        briefing_text = _generate_briefing_text(
+            urgent_missions=urgent_missions,
+            last_chats=last_chats,
+            session_stats=session_stats,
+            relationship_tier=relationship_tier,
+            mood=emotional_state.mood.value,
+        )
 
-    return DashboardBriefing(
-        briefing_text=briefing_text,
-        urgent_missions=urgent_missions,
-        last_chats=last_chats,
-        emotional_state=emotional_data,
-        session_stats=session_stats,
-        suggested_actions=suggested_actions,
-    )
+        # ── Generate suggested actions ──────────────────────────────────────
+        suggested_actions = _generate_suggested_actions(
+            urgent_missions=urgent_missions,
+            last_chats=last_chats,
+            messages_today=messages_today,
+        )
+
+        return DashboardBriefing(
+            briefing_text=briefing_text,
+            urgent_missions=urgent_missions,
+            last_chats=last_chats,
+            emotional_state=emotional_data,
+            session_stats=session_stats,
+            suggested_actions=suggested_actions,
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 # ── Helper Functions ────────────────────────────────────────────────────────

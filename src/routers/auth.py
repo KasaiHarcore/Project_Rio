@@ -14,6 +14,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from services.auth_service import AuthService
 from core.exceptions import AuthenticationError, DuplicateError, ValidationError
@@ -101,11 +102,13 @@ class MeResponse(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=AuthResponse)
-def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+async def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """Authenticate and return JWT token pair."""
     _check_rate_limit(request, "login")
 
-    success, user_data, tokens, error = AuthService.login(db, body.username, body.password)
+    success, user_data, tokens, error = await concurrency_manager.run_in_thread(
+        AuthService.login, db, body.username, body.password
+    )
 
     if not success:
         raise AuthenticationError(error or "Authentication failed")
@@ -114,12 +117,12 @@ def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+async def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
     """Create a new user account and return JWT tokens."""
     _check_rate_limit(request, "register")
 
-    success, user_data, error = AuthService.register(
-        db, body.username, body.email, body.password
+    success, user_data, error = await concurrency_manager.run_in_thread(
+        AuthService.register, db, body.username, body.email, body.password
     )
 
     if not success:
@@ -131,18 +134,20 @@ def register(body: RegisterRequest, request: Request, db: Session = Depends(get_
 
 
 @router.get("/me", response_model=MeResponse)
-def me(user: User = Depends(get_current_user)):
+async def me(user: User = Depends(get_current_user)):
     """Return the currently authenticated user's profile."""
     user_data = UserInDB.model_validate(user)
     return MeResponse(user=user_data)
 
 
 @router.post("/refresh")
-def refresh(body: RefreshRequest, request: Request):
+async def refresh(body: RefreshRequest, request: Request):
     """Exchange a refresh token for a new access token."""
     _check_rate_limit(request, "refresh")
 
-    new_access_token = refresh_access_token(body.refresh_token)
+    new_access_token = await concurrency_manager.run_in_thread(
+        refresh_access_token, body.refresh_token
+    )
 
     if new_access_token is None:
         raise AuthenticationError("Invalid or expired refresh token")
@@ -155,7 +160,7 @@ def refresh(body: RefreshRequest, request: Request):
 
 
 @router.post("/reset-password")
-def reset_password(
+async def reset_password(
     body: ResetPasswordRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -164,8 +169,8 @@ def reset_password(
 
     Requires a valid access token — the user resets their **own** password.
     """
-    success, error = AuthService.reset_password(
-        db, user.username, body.new_password
+    success, error = await concurrency_manager.run_in_thread(
+        AuthService.reset_password, db, user.username, body.new_password
     )
 
     if not success:
@@ -182,7 +187,7 @@ def reset_password(
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(
+async def logout(
     body: LogoutRequest | None = None,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -191,10 +196,9 @@ def logout(
     # Revoke tokens via Redis blacklist so they can't be reused
     if body:
         if body.access_token:
-            revoke_token(body.access_token)
+            await concurrency_manager.run_in_thread(revoke_token, body.access_token)
         if body.refresh_token:
-            revoke_token(body.refresh_token)
+            await concurrency_manager.run_in_thread(revoke_token, body.refresh_token)
 
-    AuthService.logout(db, user.id)
+    await concurrency_manager.run_in_thread(AuthService.logout, db, user.id)
     return None
-

@@ -22,6 +22,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from services.agent_service import AgentService
 from services.chat_history_service import chat_history_service
@@ -30,7 +31,7 @@ from services.xp_service import award_xp
 from core.settings import AgentConfig
 from core.exceptions import AuthorizationError, NotFoundError, ValidationError
 from models.message import MessageRole
-from models.user import User
+from models.user import User, UserRole
 from schemas.thread import ThreadInDB
 from schemas.message import MessageInDB
 from infrastructure.security.api_key_resolver import ApiKeyResolver
@@ -213,7 +214,7 @@ async def chat_stream(
     ]
 
     requested_mode = body.mode or "chat"
-    if requested_mode == "sql" and user.role.value != "admin":
+    if requested_mode == "sql" and user.role != UserRole.ADMIN:
         raise AuthorizationError("SQL mode is restricted to admin users only")
 
     config = AgentConfig(
@@ -490,7 +491,7 @@ def _safe_stats(stats: dict | None) -> dict:
 # ── Thread CRUD ─────────────────────────────────────────────────────────────
 
 @router.get("/threads", response_model=ThreadListResponse)
-def list_threads(
+async def list_threads(
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
 ):
@@ -505,33 +506,36 @@ def list_threads(
             threads=[ThreadResponse(**t) for t in cached[:limit]]
         )
 
-    threads = chat_history_service.list_threads(user_id=user.id, limit=limit)
-    thread_list = [
-        ThreadResponse(
-            id=str(t.id),
-            title=t.title,
-            status=t.status.value if hasattr(t.status, "value") else str(t.status),
-            is_starred=getattr(t, "is_starred", False),
-            is_pinned=getattr(t, "is_pinned", False),
-            created_at=t.created_at.isoformat() if t.created_at else "",
-            updated_at=t.updated_at.isoformat() if t.updated_at else "",
-        )
-        for t in threads
-    ]
+    def _query():
+        threads = chat_history_service.list_threads(user_id=user.id, limit=limit)
+        thread_list = [
+            ThreadResponse(
+                id=str(t.id),
+                title=t.title,
+                status=t.status.value if hasattr(t.status, "value") else str(t.status),
+                is_starred=getattr(t, "is_starred", False),
+                is_pinned=getattr(t, "is_pinned", False),
+                created_at=t.created_at.isoformat() if t.created_at else "",
+                updated_at=t.updated_at.isoformat() if t.updated_at else "",
+            )
+            for t in threads
+        ]
 
-    # Backfill Redis cache
-    try:
-        cache_service.set_cached_threads(
-            uid_str, [t.model_dump() for t in thread_list]
-        )
-    except Exception:
-        pass
+        # Backfill Redis cache
+        try:
+            cache_service.set_cached_threads(
+                uid_str, [t.model_dump() for t in thread_list]
+            )
+        except Exception:
+            pass
 
-    return ThreadListResponse(threads=thread_list)
+        return ThreadListResponse(threads=thread_list)
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.get("/threads/{thread_id}/messages", response_model=MessageListResponse)
-def get_thread_messages(
+async def get_thread_messages(
     thread_id: str,
     limit: int = Query(200, ge=1, le=1000),
     user: User = Depends(get_current_user),
@@ -545,27 +549,30 @@ def get_thread_messages(
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
-    thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
-    if not thread:
-        raise NotFoundError("Thread not found")
+    def _query():
+        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        if not thread:
+            raise NotFoundError("Thread not found")
 
-    messages = chat_history_service.get_messages(thread_id=tid, limit=limit)
-    return MessageListResponse(
-        messages=[
-            MessageResponse(
-                id=str(m.id),
-                role=m.role.value if hasattr(m.role, "value") else str(m.role),
-                content=m.content,
-                created_at=m.created_at.isoformat() if m.created_at else "",
-                character_id=getattr(m, "character_id", None),
-            )
-            for m in messages
-        ]
-    )
+        messages = chat_history_service.get_messages(thread_id=tid, limit=limit)
+        return MessageListResponse(
+            messages=[
+                MessageResponse(
+                    id=str(m.id),
+                    role=m.role.value if hasattr(m.role, "value") else str(m.role),
+                    content=m.content,
+                    created_at=m.created_at.isoformat() if m.created_at else "",
+                    character_id=getattr(m, "character_id", None),
+                )
+                for m in messages
+            ]
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.get("/threads/{thread_id}/memories", response_model=MemoryListResponse)
-def get_thread_memories(
+async def get_thread_memories(
     thread_id: str,
     limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_user),
@@ -580,30 +587,33 @@ def get_thread_memories(
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
-    thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
-    if not thread:
-        raise NotFoundError("Thread not found")
+    def _query():
+        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        if not thread:
+            raise NotFoundError("Thread not found")
 
-    try:
-        with memory_store_context() as store:
-            memories = list_memories_by_thread(
-                store,
-                user_id=str(user.id),
-                thread_id=thread_id,
-                limit=limit,
-            )
-    except Exception as e:
-        log_error(f"Failed to fetch memories for thread {thread_id}: {e}")
-        memories = []
+        try:
+            with memory_store_context() as store:
+                memories = list_memories_by_thread(
+                    store,
+                    user_id=str(user.id),
+                    thread_id=thread_id,
+                    limit=limit,
+                )
+        except Exception as e:
+            log_error(f"Failed to fetch memories for thread {thread_id}: {e}")
+            memories = []
 
-    return MemoryListResponse(
-        thread_id=thread_id,
-        memories=[MemoryResponse(**m) for m in memories],
-    )
+        return MemoryListResponse(
+            thread_id=thread_id,
+            memories=[MemoryResponse(**m) for m in memories],
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.delete("/threads/{thread_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_thread(
+async def delete_thread(
     thread_id: str,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -616,21 +626,23 @@ def delete_thread(
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
-    thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
-    if not thread:
-        raise NotFoundError("Thread not found")
+    def _query():
+        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        if not thread:
+            raise NotFoundError("Thread not found")
 
-    chat_history_service.hard_delete_thread(tid)
+        chat_history_service.hard_delete_thread(tid)
 
-    # Invalidate L2 caches
-    try:
-        from infrastructure.cache import cache_service
-        uid_str = str(user.id)
-        cache_service.invalidate_threads(uid_str)
-        cache_service.invalidate_dashboard(uid_str)
-    except Exception:
-        pass
+        # Invalidate L2 caches
+        try:
+            from infrastructure.cache import cache_service
+            uid_str = str(user.id)
+            cache_service.invalidate_threads(uid_str)
+            cache_service.invalidate_dashboard(uid_str)
+        except Exception:
+            pass
 
+    await concurrency_manager.run_in_thread(_query)
     return None
 
 
@@ -645,7 +657,7 @@ class ThreadPatchRequest(BaseModel):
 
 
 @router.patch("/threads/{thread_id}", response_model=ThreadResponse)
-def update_thread(
+async def update_thread(
     thread_id: str,
     body: ThreadPatchRequest,
     user: User = Depends(get_current_user),
@@ -659,38 +671,41 @@ def update_thread(
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
-    thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
-    if not thread:
-        raise NotFoundError("Thread not found")
+    def _query():
+        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        if not thread:
+            raise NotFoundError("Thread not found")
 
-    if body.title is not None:
-        thread.title = body.title
-    if body.status is not None:
+        if body.title is not None:
+            thread.title = body.title
+        if body.status is not None:
+            try:
+                thread.status = ThreadStatus(body.status)
+            except ValueError:
+                raise ValidationError(f"Invalid status: {body.status}")
+        if body.is_starred is not None:
+            thread.is_starred = body.is_starred
+        if body.is_pinned is not None:
+            thread.is_pinned = body.is_pinned
+
+        db.commit()
+        db.refresh(thread)
+
+        # Invalidate L2 caches
         try:
-            thread.status = ThreadStatus(body.status)
-        except ValueError:
-            raise ValidationError(f"Invalid status: {body.status}")
-    if body.is_starred is not None:
-        thread.is_starred = body.is_starred
-    if body.is_pinned is not None:
-        thread.is_pinned = body.is_pinned
+            from infrastructure.cache import cache_service
+            cache_service.invalidate_threads(str(user.id))
+        except Exception:
+            pass
 
-    db.commit()
-    db.refresh(thread)
+        return ThreadResponse(
+            id=str(thread.id),
+            title=thread.title,
+            status=thread.status.value if hasattr(thread.status, "value") else str(thread.status),
+            is_starred=getattr(thread, "is_starred", False),
+            is_pinned=getattr(thread, "is_pinned", False),
+            created_at=thread.created_at.isoformat() if thread.created_at else "",
+            updated_at=thread.updated_at.isoformat() if thread.updated_at else "",
+        )
 
-    # Invalidate L2 caches
-    try:
-        from infrastructure.cache import cache_service
-        cache_service.invalidate_threads(str(user.id))
-    except Exception:
-        pass
-
-    return ThreadResponse(
-        id=str(thread.id),
-        title=thread.title,
-        status=thread.status.value if hasattr(thread.status, "value") else str(thread.status),
-        is_starred=getattr(thread, "is_starred", False),
-        is_pinned=getattr(thread, "is_pinned", False),
-        created_at=thread.created_at.isoformat() if thread.created_at else "",
-        updated_at=thread.updated_at.isoformat() if thread.updated_at else "",
-    )
+    return await concurrency_manager.run_in_thread(_query)

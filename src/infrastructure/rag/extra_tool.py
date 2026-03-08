@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from infrastructure.llm import form
 from infrastructure.tools.qdrant_tool import get_vector_db_tool
+from core.concurrency import concurrency_manager
 from utils.log import log_info, log_success, log_error, log_warning
 
 
@@ -138,10 +139,17 @@ def hyde_search(question: str, k: int = 10, *, user_id: Optional[str] = None) ->
         all_results: List[str] = []
         seen_contents: dict[str, str] = {}
 
-        for i, hypo_doc in enumerate(hypotheses, 1):
-            log_info(f"Searching with hypothesis {i}/3...")
-            results_str = get_vector_db_tool().search_documents(hypo_doc, k=k_per_hypothesis, user_id=user_id)
+        def _search_one(hypo: str) -> str:
+            return get_vector_db_tool().search_documents(hypo, k=k_per_hypothesis, user_id=user_id)
 
+        # Run all 3 hypothesis searches in parallel
+        log_info("Searching with 3 hypotheses in parallel...")
+        raw_results = concurrency_manager.run_batch_sync(
+            [(_search_one, (h,), {}) for h in hypotheses],
+            timeout=30.0,
+        )
+
+        for results_str in raw_results:
             if results_str and results_str != "No query provided.":
                 result_blocks = results_str.split("### Result ")
                 for block in result_blocks:

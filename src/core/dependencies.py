@@ -13,6 +13,8 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
+from core.exceptions import AuthorizationError
+
 from infrastructure.database.session import get_db
 from infrastructure.security.auth import decode_token, TokenData
 from models.user import User, UserRole
@@ -125,16 +127,29 @@ async def get_current_user(
     return user
 
 
-async def require_admin(
-    user: User = Depends(get_current_user),
-) -> User:
-    """Dependency that ensures the authenticated user has admin role."""
-    if user.role != UserRole.ADMIN:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Admin privileges required",
-        )
-    return user
+def require_roles(*allowed: UserRole):
+    """Dependency factory: enforces that the user has one of the allowed roles.
+
+    Usage:
+        @router.get("/admin-only")
+        async def endpoint(user: User = Depends(require_roles(UserRole.ADMIN))):
+            ...
+
+        @router.post("/power-users")
+        async def endpoint(user: User = Depends(require_roles(UserRole.ADMIN, UserRole.MODERATOR))):
+            ...
+    """
+    async def _guard(user: User = Depends(get_current_user)) -> User:
+        if user.role not in allowed:
+            raise AuthorizationError(
+                f"Requires role: {', '.join(r.value for r in allowed)}"
+            )
+        return user
+    return _guard
+
+
+# Convenience alias
+require_admin = require_roles(UserRole.ADMIN)
 
 
 # ═══════════════════════════════════════════════════════════════════════════

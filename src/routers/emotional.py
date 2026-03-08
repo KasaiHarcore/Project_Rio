@@ -12,6 +12,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from services.emotional_engine import EmotionalEngine
 from core.exceptions import ValidationError
@@ -31,7 +32,7 @@ VALID_CHARACTERS = {"rio"}
 
 
 @router.get("/state", response_model=EmotionalStateResponse)
-def get_emotional_state(
+async def get_emotional_state(
     character_id: str = Query("rio", description="Character ID"),
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -40,34 +41,37 @@ def get_emotional_state(
     if character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {character_id}")
 
-    state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
-    tier = EmotionalEngine.get_relationship_tier(state.affinity)
+    def _query():
+        state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
+        tier = EmotionalEngine.get_relationship_tier(state.affinity)
 
-    # Parse mood_history into structured objects
-    mood_history: List[MoodTransition] = []
-    for entry in (state.mood_history or [])[-20:]:
-        try:
-            mood_history.append(MoodTransition(**entry))
-        except Exception:
-            pass
+        # Parse mood_history into structured objects
+        mood_history: List[MoodTransition] = []
+        for entry in (state.mood_history or [])[-20:]:
+            try:
+                mood_history.append(MoodTransition(**entry))
+            except Exception:
+                pass
 
-    return EmotionalStateResponse(
-        character_id=character_id,
-        mood=state.mood,
-        energy=state.energy,
-        affinity=state.affinity,
-        relationship_tier=tier,
-        interaction_count=state.interaction_count,
-        streak_days=state.streak_days,
-        daily_greeting_done=state.daily_greeting_done or False,
-        last_interaction_at=state.last_interaction_at,
-        mood_history=mood_history,
-        preferences_learned=state.preferences_learned or {},
-    )
+        return EmotionalStateResponse(
+            character_id=character_id,
+            mood=state.mood,
+            energy=state.energy,
+            affinity=state.affinity,
+            relationship_tier=tier,
+            interaction_count=state.interaction_count,
+            streak_days=state.streak_days,
+            daily_greeting_done=state.daily_greeting_done or False,
+            last_interaction_at=state.last_interaction_at,
+            mood_history=mood_history,
+            preferences_learned=state.preferences_learned or {},
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.post("/headpat", response_model=HeadpatResponse)
-def record_headpat(
+async def record_headpat(
     body: HeadpatRequest,
     user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -76,33 +80,36 @@ def record_headpat(
     if body.character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {body.character_id}")
 
-    state, affinity_delta, mood_changed = EmotionalEngine.record_headpat(
-        db, user.id, body.character_id,
-    )
+    def _query():
+        state, affinity_delta, mood_changed = EmotionalEngine.record_headpat(
+            db, user.id, body.character_id,
+        )
 
-    # Choose animation cue based on mood
-    animation_map = {
-        "happy": "Pat_01_M",
-        "excited": "Pat_01_A",
-        "neutral": "Pat_01_M",
-        "sad": "Pat_01_M",
-        "frustrated": "Pat_01_M",
-        "tired": "Pat_01_M",
-    }
-    animation_cue = animation_map.get(state.mood.value, "Pat_01_M")
+        # Choose animation cue based on mood
+        animation_map = {
+            "happy": "Pat_01_M",
+            "excited": "Pat_01_A",
+            "neutral": "Pat_01_M",
+            "sad": "Pat_01_M",
+            "frustrated": "Pat_01_M",
+            "tired": "Pat_01_M",
+        }
+        animation_cue = animation_map.get(state.mood.value, "Pat_01_M")
 
-    return HeadpatResponse(
-        mood=state.mood,
-        affinity=state.affinity,
-        affinity_delta=affinity_delta,
-        mood_changed=mood_changed,
-        animation_cue=animation_cue,
-        voice_line=None,
-    )
+        return HeadpatResponse(
+            mood=state.mood,
+            affinity=state.affinity,
+            affinity_delta=affinity_delta,
+            mood_changed=mood_changed,
+            animation_cue=animation_cue,
+            voice_line=None,
+        )
+
+    return await concurrency_manager.run_in_thread(_query)
 
 
 @router.get("/history", response_model=RelationshipHistoryResponse)
-def get_relationship_history(
+async def get_relationship_history(
     character_id: str = Query("rio", description="Character ID"),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
@@ -112,24 +119,27 @@ def get_relationship_history(
     if character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {character_id}")
 
-    events = EmotionalEngine.get_relationship_history(
-        db, user.id, character_id, limit=limit,
-    )
+    def _query():
+        events = EmotionalEngine.get_relationship_history(
+            db, user.id, character_id, limit=limit,
+        )
 
-    state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
+        state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
 
-    return RelationshipHistoryResponse(
-        events=[
-            RelationshipEventResponse(
-                id=e.id,
-                event_type=e.event_type,
-                affinity_delta=e.affinity_delta,
-                mood_before=e.mood_before,
-                mood_after=e.mood_after,
-                context=e.context,
-                created_at=e.created_at,
-            )
-            for e in events
-        ],
-        total_affinity=state.affinity,
-    )
+        return RelationshipHistoryResponse(
+            events=[
+                RelationshipEventResponse(
+                    id=e.id,
+                    event_type=e.event_type,
+                    affinity_delta=e.affinity_delta,
+                    mood_before=e.mood_before,
+                    mood_after=e.mood_after,
+                    context=e.context,
+                    created_at=e.created_at,
+                )
+                for e in events
+            ],
+            total_affinity=state.affinity,
+        )
+
+    return await concurrency_manager.run_in_thread(_query)

@@ -288,8 +288,8 @@ class AppConfig:
 	# Database Configuration
 	database_url: str = None
 	database_echo: bool = False
-	database_pool_size: int = 5
-	database_max_overflow: int = 10
+	database_pool_size: int = 20
+	database_max_overflow: int = 20
 	database_pool_timeout: int = 30
 	database_pool_recycle: int = 3600
 	database_statement_timeout_ms: int = 0
@@ -329,8 +329,8 @@ class AppConfig:
 			tavily_api_key=_env_str("TAVILY_API_KEY"),
 			database_url=database_url,
 			database_echo=_env_bool("DATABASE_ECHO", "False"),
-			database_pool_size=_env_int("DATABASE_POOL_SIZE", "5"),
-			database_max_overflow=_env_int("DATABASE_MAX_OVERFLOW", "10"),
+			database_pool_size=_env_int("DATABASE_POOL_SIZE", "20"),
+			database_max_overflow=_env_int("DATABASE_MAX_OVERFLOW", "20"),
 			database_pool_timeout=_env_int("DATABASE_POOL_TIMEOUT", "30"),
 			database_pool_recycle=_env_int("DATABASE_POOL_RECYCLE", "3600"),
 			database_statement_timeout_ms=_env_int("DATABASE_STATEMENT_TIMEOUT_MS", "0"),
@@ -472,7 +472,7 @@ class CorsConfig:
 class ConcurrencyConfig:
 	"""Thread / process pool sizes for the ConcurrencyManager."""
 
-	thread_pool_size: int = 4
+	thread_pool_size: int = 32
 	process_pool_size: int = 2
 
 	def __post_init__(self):
@@ -484,7 +484,7 @@ class ConcurrencyConfig:
 	@classmethod
 	def from_env(cls) -> "ConcurrencyConfig":
 		return cls(
-			thread_pool_size=_env_int("THREAD_POOL_SIZE", "4"),
+			thread_pool_size=_env_int("THREAD_POOL_SIZE", "32"),
 			process_pool_size=_env_int("PROCESS_POOL_SIZE", "2"),
 		)
 

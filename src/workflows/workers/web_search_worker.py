@@ -21,6 +21,7 @@ from workflows.state import (
     WorkerType,
 )
 from workflows.workers.base import BaseWorker
+from core.concurrency import concurrency_manager
 from core.exceptions import ExternalServiceError
 from infrastructure.tools.web_search_tool import web_search_tool, WebSearchTool
 from utils.log import log_info, log_debug, log_warning
@@ -131,30 +132,45 @@ class WebSearchWorker(BaseWorker):
         
         all_results: List[Dict[str, Any]] = []
         errors: List[str] = []
-        
-        # Execute searches
-        for query in search_queries[:3]:  # Limit to 3 queries
+
+        # Execute searches (parallel when multiple queries)
+        queries_to_run = search_queries[:3]
+
+        def _search_one(q: str) -> Dict[str, Any]:
             try:
                 result = search_tool.search(
-                    query=query,
+                    query=q,
                     max_results=self.max_results,
                     search_depth=self.search_depth,
                 )
-                
-                if result.get("status") == "success":
-                    all_results.append({
-                        "query": query,
-                        "results": result.get("results", []),
-                        "answer": result.get("answer"),
-                    })
-                else:
-                    errors.append(f"Query '{query}': {result.get('error', 'No results')}")
-                    
+                return {"query": q, "result": result, "error": None}
             except ExternalServiceError:
                 raise
             except Exception as e:
-                errors.append(f"Query '{query}': {str(e)}")
-                log_warning(f"Web search failed for '{query}': {e}")
+                log_warning(f"Web search failed for '{q}': {e}")
+                return {"query": q, "result": None, "error": str(e)}
+
+        if len(queries_to_run) > 1:
+            log_info(f"Running {len(queries_to_run)} web searches in parallel...")
+            outcomes = concurrency_manager.run_batch_sync(
+                [(_search_one, (q,), {}) for q in queries_to_run],
+                timeout=30.0,
+            )
+        else:
+            outcomes = [_search_one(queries_to_run[0])]
+
+        for outcome in outcomes:
+            if outcome["error"]:
+                errors.append(f"Query '{outcome['query']}': {outcome['error']}")
+            elif outcome["result"] and outcome["result"].get("status") == "success":
+                all_results.append({
+                    "query": outcome["query"],
+                    "results": outcome["result"].get("results", []),
+                    "answer": outcome["result"].get("answer"),
+                })
+            else:
+                error_msg = outcome["result"].get("error", "No results") if outcome["result"] else "No results"
+                errors.append(f"Query '{outcome['query']}': {error_msg}")
 
         # Format results
         if all_results:

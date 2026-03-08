@@ -19,6 +19,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
+from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db
 from services.mission_service import MissionService
 from models.mission import MissionStatus, MissionPriority
@@ -33,7 +34,7 @@ _svc = MissionService()
 # ── List ────────────────────────────────────────────────────────────────────
 
 @router.get("", response_model=List[MissionInDB])
-def list_missions(
+async def list_missions(
     status_filter: Optional[MissionStatus] = Query(None, alias="status"),
     category: Optional[str] = Query(None),
     priority: Optional[MissionPriority] = Query(None),
@@ -45,7 +46,8 @@ def list_missions(
     user: User = Depends(get_current_user),
 ):
     """List missions for the authenticated user with optional filters."""
-    return _svc.list_missions(
+    return await concurrency_manager.run_in_thread(
+        _svc.list_missions,
         user.id,
         status=status_filter,
         category=category,
@@ -61,20 +63,20 @@ def list_missions(
 # ── Stats ───────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
-def get_mission_stats(user: User = Depends(get_current_user)):
+async def get_mission_stats(user: User = Depends(get_current_user)):
     """Return aggregate mission counts (total, active, completed)."""
-    return _svc.get_stats(user.id)
+    return await concurrency_manager.run_in_thread(_svc.get_stats, user.id)
 
 
 # ── Get one ─────────────────────────────────────────────────────────────────
 
 @router.get("/{mission_id}", response_model=MissionInDB)
-def get_mission(
+async def get_mission(
     mission_id: UUID,
     user: User = Depends(get_current_user),
 ):
     """Get a single mission by ID."""
-    m = _svc.get_mission(user.id, mission_id)
+    m = await concurrency_manager.run_in_thread(_svc.get_mission, user.id, mission_id)
     if not m:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mission not found")
     return m
@@ -83,24 +85,24 @@ def get_mission(
 # ── Create ──────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=MissionInDB, status_code=status.HTTP_201_CREATED)
-def create_mission(
+async def create_mission(
     body: MissionCreate,
     user: User = Depends(get_current_user),
 ):
     """Create a new mission."""
-    return _svc.create_mission(user.id, body)
+    return await concurrency_manager.run_in_thread(_svc.create_mission, user.id, body)
 
 
 # ── Update ──────────────────────────────────────────────────────────────────
 
 @router.patch("/{mission_id}", response_model=MissionInDB)
-def update_mission(
+async def update_mission(
     mission_id: UUID,
     body: MissionUpdate,
     user: User = Depends(get_current_user),
 ):
     """Partially update a mission."""
-    m = _svc.update_mission(user.id, mission_id, body)
+    m = await concurrency_manager.run_in_thread(_svc.update_mission, user.id, mission_id, body)
     if not m:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mission not found")
     return m
@@ -109,13 +111,13 @@ def update_mission(
 # ── Toggle step ─────────────────────────────────────────────────────────────
 
 @router.patch("/{mission_id}/steps/{step_index}/toggle", response_model=MissionInDB)
-def toggle_mission_step(
+async def toggle_mission_step(
     mission_id: UUID,
     step_index: int,
     user: User = Depends(get_current_user),
 ):
     """Toggle the done status of a single step."""
-    m = _svc.toggle_step(user.id, mission_id, step_index)
+    m = await concurrency_manager.run_in_thread(_svc.toggle_step, user.id, mission_id, step_index)
     if not m:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mission or step not found")
     return m
@@ -124,11 +126,11 @@ def toggle_mission_step(
 # ── Delete ──────────────────────────────────────────────────────────────────
 
 @router.delete("/{mission_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_mission(
+async def delete_mission(
     mission_id: UUID,
     user: User = Depends(get_current_user),
 ):
     """Delete a mission."""
-    deleted = _svc.delete_mission(user.id, mission_id)
+    deleted = await concurrency_manager.run_in_thread(_svc.delete_mission, user.id, mission_id)
     if not deleted:
         raise HTTPException(status.HTTP_404_NOT_FOUND, "Mission not found")
