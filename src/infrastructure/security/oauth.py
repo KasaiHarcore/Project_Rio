@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 
 from models.user import AuthProvider
 from core.settings import get_oauth_config
-from utils.log import log_info, log_error
+from utils.log import log_info, log_error, log_debug, log_warning
 
 
 # ── Shared data model ──────────────────────────────────────────────────────
@@ -111,7 +111,39 @@ class GoogleOAuthProvider(OAuthProvider):
             if not access_token:
                 raise OAuthError("Google did not return an access token")
 
-            # Fetch user info
+            # ── OIDC: try parsing the ID token first ──────────────
+            config = get_oauth_config()
+            if config.google_oidc_enabled:
+                raw_id_token = tokens.get("id_token")
+                if raw_id_token:
+                    try:
+                        from infrastructure.security.oidc import (
+                            OIDCDiscovery,
+                            validate_id_token,
+                        )
+
+                        jwks = await OIDCDiscovery.get_jwks(
+                            cache_ttl=config.oidc_jwks_cache_ttl,
+                        )
+                        claims = validate_id_token(
+                            id_token=raw_id_token,
+                            client_id=self._client_id,
+                            jwks=jwks,
+                        )
+                        if claims:
+                            log_info(f"[OAuth] Google user (OIDC): {claims.get('email')}")
+                            return OAuthUserInfo(
+                                provider=AuthProvider.GOOGLE,
+                                oauth_id=str(claims["sub"]),
+                                email=claims["email"],
+                                name=claims.get("name", claims.get("email", "Google User")),
+                                avatar_url=claims.get("picture"),
+                            )
+                        log_debug("OIDC ID token validation failed, falling back to /userinfo")
+                    except Exception as oidc_err:
+                        log_warning(f"OIDC ID token parsing failed, falling back to /userinfo: {oidc_err}")
+
+            # ── Fallback: fetch user info via /userinfo API ───────
             userinfo_resp = await client.get(
                 self.USERINFO_URL,
                 headers={"Authorization": f"Bearer {access_token}"},

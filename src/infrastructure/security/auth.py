@@ -17,6 +17,9 @@ from pydantic import BaseModel
 from infrastructure.security.jwt_config import (
     JWT_SECRET_KEY,
     JWT_ALGORITHM,
+    JWT_SIGNING_KEY,
+    JWT_VERIFY_KEY,
+    JWT_LEGACY_HS256_VERIFY,
     ACCESS_TOKEN_EXPIRE_MINUTES,
     REFRESH_TOKEN_EXPIRE_DAYS,
     TOKEN_TYPE,
@@ -114,7 +117,7 @@ def create_access_token(
         "jti": uuid4().hex,
     }
     
-    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, JWT_SIGNING_KEY, algorithm=JWT_ALGORITHM)
     log_debug("Access token created")
     return token
 
@@ -137,7 +140,7 @@ def create_refresh_token(
         "jti": uuid4().hex,
     }
     
-    token = jwt.encode(payload, JWT_SECRET_KEY, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, JWT_SIGNING_KEY, algorithm=JWT_ALGORITHM)
     log_debug("Refresh token created")
     return token
 
@@ -152,17 +155,32 @@ def create_token_pair(user_id: str | UUID, role: str) -> TokenPair:
 
 def verify_token(token: str) -> Optional[Dict[str, Any]]:
     """Verify and decode a JWT token.
-    
+
     Returns None if the token is expired, invalid, or blacklisted.
+    Supports dual-decode: tries the current algorithm first, then falls back
+    to HS256 if JWT_LEGACY_HS256_VERIFY is enabled (migration period).
     """
+    payload = None
     try:
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_VERIFY_KEY, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         log_warning("Token has expired")
         return None
-    except jwt.InvalidTokenError as e:
-        log_warning(f"Invalid token: {e}")
-        return None
+    except jwt.InvalidTokenError as primary_err:
+        # Fall back to HS256 during migration period
+        if JWT_LEGACY_HS256_VERIFY and JWT_ALGORITHM != "HS256":
+            try:
+                payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+                log_debug("Token verified using legacy HS256 fallback")
+            except jwt.ExpiredSignatureError:
+                log_warning("Token has expired")
+                return None
+            except jwt.InvalidTokenError:
+                log_warning(f"Invalid token: {primary_err}")
+                return None
+        else:
+            log_warning(f"Invalid token: {primary_err}")
+            return None
 
     # Check blacklist
     jti = payload.get("jti", "")
@@ -230,11 +248,20 @@ def revoke_token(token: str) -> bool:
     try:
         # Decode WITHOUT blacklist check — we want to revoke even if it's
         # already in the list (idempotent).
-        payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=[JWT_ALGORITHM])
+        payload = jwt.decode(token, JWT_VERIFY_KEY, algorithms=[JWT_ALGORITHM])
     except jwt.ExpiredSignatureError:
         return True  # already expired, nothing to revoke
     except jwt.InvalidTokenError:
-        return False
+        # Fall back to HS256 during migration period
+        if JWT_LEGACY_HS256_VERIFY and JWT_ALGORITHM != "HS256":
+            try:
+                payload = jwt.decode(token, JWT_SECRET_KEY, algorithms=["HS256"])
+            except jwt.ExpiredSignatureError:
+                return True
+            except jwt.InvalidTokenError:
+                return False
+        else:
+            return False
 
     jti = payload.get("jti")
     if not jti:

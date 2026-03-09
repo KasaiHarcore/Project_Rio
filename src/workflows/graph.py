@@ -93,6 +93,9 @@ NODE_NOTE = "note_worker"
 NODE_MISSION = "mission_worker"
 NODE_SYNTHESIZE = "synthesize"
 NODE_HUMAN_CHECK = "human_check"
+NODE_INPUT_GUARDRAIL = "input_guardrail"
+NODE_OUTPUT_GUARDRAIL = "output_guardrail"
+NODE_GUARDRAIL_REJECT = "guardrail_reject"
 
 
 # =============================================================================
@@ -701,17 +704,22 @@ def build_workflow_graph(
     Returns:
         Compiled LangGraph workflow
     """
+    import os
+    guardrails_enabled = os.getenv("GUARDRAILS_ENABLED", "true").lower() == "true"
+
     log_info("Building multi-agent workflow graph")
-    
+    if guardrails_enabled:
+        log_info("Guardrails enabled")
+
     if store:
         log_info("Long-term memory store enabled")
-    
+
     # Create agents
     supervisor = SupervisorAgent(config=config)
-    
+
     # Create the graph
     graph = StateGraph(AgentState)
-    
+
     # Add nodes (pass store to supervisor and synthesize for memory operations)
     graph.add_node(NODE_SUPERVISOR, create_supervisor_node(supervisor, store=store))
     graph.add_node(NODE_PLANNING, create_worker_node(PlanningWorker, config))
@@ -723,10 +731,36 @@ def build_workflow_graph(
     graph.add_node(NODE_MISSION, create_worker_node(MissionWorker, config))
     graph.add_node(NODE_SYNTHESIZE, create_synthesize_node(supervisor, store=store))
     graph.add_node(NODE_HUMAN_CHECK, human_check_node)
-    
-    # Add edges from START
-    graph.add_edge(START, NODE_SUPERVISOR)
-    
+
+    # Conditionally add guardrail nodes
+    if guardrails_enabled:
+        from workflows.guardrails import (
+            input_guardrail_node,
+            route_after_input_guardrail,
+            output_guardrail_node,
+            route_after_output_guardrail,
+            guardrail_reject_node,
+        )
+        graph.add_node(NODE_INPUT_GUARDRAIL, input_guardrail_node)
+        graph.add_node(NODE_OUTPUT_GUARDRAIL, output_guardrail_node)
+        graph.add_node(NODE_GUARDRAIL_REJECT, guardrail_reject_node)
+
+        # START → input_guardrail (instead of supervisor)
+        graph.add_edge(START, NODE_INPUT_GUARDRAIL)
+
+        # input_guardrail → supervisor (pass) or → reject (fail)
+        graph.add_conditional_edges(
+            NODE_INPUT_GUARDRAIL,
+            route_after_input_guardrail,
+            {
+                NODE_SUPERVISOR: NODE_SUPERVISOR,
+                NODE_GUARDRAIL_REJECT: NODE_GUARDRAIL_REJECT,
+            },
+        )
+    else:
+        # No guardrails: START → supervisor directly
+        graph.add_edge(START, NODE_SUPERVISOR)
+
     # Add conditional edges from supervisor
     graph.add_conditional_edges(
         NODE_SUPERVISOR,
@@ -743,7 +777,7 @@ def build_workflow_graph(
             NODE_HUMAN_CHECK: NODE_HUMAN_CHECK,
         },
     )
-    
+
     # Add edges from workers back to supervisor
     graph.add_conditional_edges(
         NODE_PLANNING,
@@ -775,17 +809,33 @@ def build_workflow_graph(
         route_after_worker,
         {NODE_SUPERVISOR: NODE_SUPERVISOR, NODE_SYNTHESIZE: NODE_SYNTHESIZE},
     )
-    
+
     # SQL worker uses standard routing (interrupt() handles approval internally)
     graph.add_conditional_edges(
         NODE_SQL,
         route_after_sql_worker,
         {NODE_SUPERVISOR: NODE_SUPERVISOR, NODE_SYNTHESIZE: NODE_SYNTHESIZE},
     )
-    
-    # Add edges from synthesize to END
-    graph.add_edge(NODE_SYNTHESIZE, END)
-    
+
+    # Synthesize → output_guardrail (if enabled) or → END
+    if guardrails_enabled:
+        graph.add_edge(NODE_SYNTHESIZE, NODE_OUTPUT_GUARDRAIL)
+
+        # output_guardrail → END (pass) or → reject (fail)
+        graph.add_conditional_edges(
+            NODE_OUTPUT_GUARDRAIL,
+            route_after_output_guardrail,
+            {
+                END: END,
+                NODE_GUARDRAIL_REJECT: NODE_GUARDRAIL_REJECT,
+            },
+        )
+
+        # reject → END
+        graph.add_edge(NODE_GUARDRAIL_REJECT, END)
+    else:
+        graph.add_edge(NODE_SYNTHESIZE, END)
+
     # Add edges from human check
     graph.add_conditional_edges(
         NODE_HUMAN_CHECK,

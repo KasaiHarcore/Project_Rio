@@ -18,6 +18,7 @@ from routers.artifact import router as artifact_router
 from routers.logs import router as logs_router
 from routers.settings import router as settings_router
 from routers.oauth import router as oauth_router
+from routers.jwks import router as jwks_router
 from routers.websocket import router as websocket_router
 
 v1_router = APIRouter()
@@ -38,6 +39,7 @@ v1_router.include_router(sql_approval_router)
 v1_router.include_router(artifact_router)
 v1_router.include_router(logs_router)
 v1_router.include_router(settings_router)
+v1_router.include_router(jwks_router)
 v1_router.include_router(websocket_router)
 
 __all__ = ["v1_router"]

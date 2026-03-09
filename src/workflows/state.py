@@ -275,6 +275,12 @@ class AgentState(TypedDict, total=False):
     # Emotional State (Living AI)
     emotional_context: Optional[Dict[str, Any]]
 
+    # Guardrail State
+    guardrail_passed: Optional[bool]
+    guardrail_rejection: Optional[str]
+    guardrail_output_passed: Optional[bool]
+    guardrail_output_rejection: Optional[str]
+
 
 def create_initial_state(
     *,
@@ -339,6 +345,11 @@ def create_initial_state(
         sql_schema_context=None,
         # Emotional state
         emotional_context=None,
+        # Guardrail state
+        guardrail_passed=None,
+        guardrail_rejection=None,
+        guardrail_output_passed=None,
+        guardrail_output_rejection=None,
     )
 
 
@@ -400,6 +411,11 @@ def reset_execution_state(
         sql_schema_context=state.get("sql_schema_context"),  # Keep cached schema
         # Emotional state - reset per execution (recomputed fresh each turn)
         emotional_context=None,
+        # Guardrail state - reset per execution
+        guardrail_passed=None,
+        guardrail_rejection=None,
+        guardrail_output_passed=None,
+        guardrail_output_rejection=None,
     )
 
 

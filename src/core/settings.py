@@ -384,6 +384,10 @@ class OAuthConfig:
 	github_client_secret: Optional[str] = None
 	redirect_base_url: str = "http://localhost:3000"
 
+	# OIDC settings
+	google_oidc_enabled: bool = True
+	oidc_jwks_cache_ttl: int = 3600
+
 	@property
 	def google_enabled(self) -> bool:
 		return bool(self.google_client_id and self.google_client_secret)
@@ -400,6 +404,8 @@ class OAuthConfig:
 			github_client_id=_env_str("GITHUB_CLIENT_ID"),
 			github_client_secret=_env_str("GITHUB_CLIENT_SECRET"),
 			redirect_base_url=_env_str("OAUTH_REDIRECT_BASE_URL", "http://localhost:3000"),
+			google_oidc_enabled=_env_bool("GOOGLE_OIDC_ENABLED", "True"),
+			oidc_jwks_cache_ttl=_env_int("OIDC_JWKS_CACHE_TTL", "3600"),
 		)
 
 

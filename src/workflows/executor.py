@@ -523,7 +523,23 @@ def stream_workflow(
                     # event is the current state after each node
                     if isinstance(event, dict):
                         final_state = event
-                        
+
+                        # Check for guardrail state changes
+                        if event.get("guardrail_passed") is not None:
+                            yield {
+                                "type": "guardrail",
+                                "guardrail": "input",
+                                "passed": event["guardrail_passed"],
+                                "reason": event.get("guardrail_rejection") or "",
+                            }
+                        if event.get("guardrail_output_passed") is not None:
+                            yield {
+                                "type": "guardrail",
+                                "guardrail": "output",
+                                "passed": event["guardrail_output_passed"],
+                                "reason": event.get("guardrail_output_rejection") or "",
+                            }
+
                         # Check for supervisor decisions
                         decisions = event.get("supervisor_decisions") or []
                         if len(decisions) > seen_decisions:
