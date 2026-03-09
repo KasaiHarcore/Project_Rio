@@ -10,10 +10,9 @@ from __future__ import annotations
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy.orm import Session
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user, get_db
+from core.dependencies import get_current_user, get_emotional_engine
 from services.emotional_engine import EmotionalEngine
 from core.exceptions import ValidationError
 from models.user import User
@@ -35,15 +34,15 @@ VALID_CHARACTERS = {"rio"}
 async def get_emotional_state(
     character_id: str = Query("rio", description="Character ID"),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    engine: EmotionalEngine = Depends(get_emotional_engine),
 ):
     """Get the current emotional state for a user-character pair."""
     if character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {character_id}")
 
     def _query():
-        state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
-        tier = EmotionalEngine.get_relationship_tier(state.affinity)
+        state = engine.get_or_create_state(user.id, character_id)
+        tier = engine.get_relationship_tier(state.affinity)
 
         # Parse mood_history into structured objects
         mood_history: List[MoodTransition] = []
@@ -74,15 +73,15 @@ async def get_emotional_state(
 async def record_headpat(
     body: HeadpatRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    engine: EmotionalEngine = Depends(get_emotional_engine),
 ):
     """Record a headpat interaction — boosts mood and affinity."""
     if body.character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {body.character_id}")
 
     def _query():
-        state, affinity_delta, mood_changed = EmotionalEngine.record_headpat(
-            db, user.id, body.character_id,
+        state, affinity_delta, mood_changed = engine.record_headpat(
+            user.id, body.character_id,
         )
 
         # Choose animation cue based on mood
@@ -113,18 +112,18 @@ async def get_relationship_history(
     character_id: str = Query("rio", description="Character ID"),
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    engine: EmotionalEngine = Depends(get_emotional_engine),
 ):
     """Get recent relationship events for a user-character pair."""
     if character_id not in VALID_CHARACTERS:
         raise ValidationError(f"Unknown character: {character_id}")
 
     def _query():
-        events = EmotionalEngine.get_relationship_history(
-            db, user.id, character_id, limit=limit,
+        events = engine.get_relationship_history(
+            user.id, character_id, limit=limit,
         )
 
-        state = EmotionalEngine.get_or_create_state(db, user.id, character_id)
+        state = engine.get_or_create_state(user.id, character_id)
 
         return RelationshipHistoryResponse(
             events=[

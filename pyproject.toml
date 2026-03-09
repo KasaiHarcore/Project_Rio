@@ -38,6 +38,7 @@ dependencies = [
   "httpx",
   "websockets",
   "cryptography",
+  "prometheus-fastapi-instrumentator",
 ]
 
 [dependency-groups]

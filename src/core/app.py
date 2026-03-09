@@ -44,6 +44,15 @@ async def lifespan(app: FastAPI):
     log_info("FastAPI starting up...")
     run_startup_tasks()
     concurrency_manager.start()
+
+    # Inject cache into singleton services that can't use FastAPI Depends
+    try:
+        from infrastructure.cache import cache_service
+        from services.chat_history_service import chat_history_service
+        chat_history_service.inject_cache(cache_service)
+    except Exception as e:
+        log_warning(f"Cache injection into ChatHistoryService failed: {e}")
+
     yield
     log_info("FastAPI shutting down...")
     concurrency_manager.shutdown()
@@ -94,8 +103,11 @@ def create_app() -> FastAPI:
     )
 
     # 2. Request ID + timing middleware
-    from core.middleware import RequestIdMiddleware
+    from core.middleware import RequestIdMiddleware, SecurityHeadersMiddleware
     app.add_middleware(RequestIdMiddleware)
+
+    # 3. Security headers
+    app.add_middleware(SecurityHeadersMiddleware)
 
     # ── Exception handlers ─────────────────────────────────────────────
 
@@ -163,6 +175,14 @@ def create_app() -> FastAPI:
                 },
             },
         )
+
+    # ── Prometheus metrics ─────────────────────────────────────────────
+
+    from prometheus_fastapi_instrumentator import Instrumentator
+    Instrumentator(
+        should_group_status_codes=True,
+        excluded_handlers=["/metrics", "/api/v1/health"],
+    ).instrument(app).expose(app, endpoint="/metrics")
 
     # ── Mount API routes ───────────────────────────────────────────────
 

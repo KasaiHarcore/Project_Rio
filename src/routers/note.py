@@ -14,17 +14,16 @@ from __future__ import annotations
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_note_service
+from core.exceptions import NotFoundError
 from services.note_service import NoteService
 from models.user import User
 from schemas.note import NoteCreate, NoteUpdate, NoteInDB
 
 router = APIRouter(prefix="/notes", tags=["notes"])
-
-_svc = NoteService()
 
 
 # -- List --
@@ -36,10 +35,11 @@ async def list_notes(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """List notes for the authenticated user, optionally filtered by thread or collection."""
     return await concurrency_manager.run_in_thread(
-        _svc.list_notes,
+        svc.list_notes,
         user.id,
         thread_id=thread_id,
         collection_id=collection_id,
@@ -54,11 +54,12 @@ async def list_notes(
 async def get_note(
     note_id: UUID,
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """Get a single note by ID."""
-    n = await concurrency_manager.run_in_thread(_svc.get_note, user.id, note_id)
+    n = await concurrency_manager.run_in_thread(svc.get_note, user.id, note_id)
     if not n:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Note not found")
+        raise NotFoundError("Note not found")
     return n
 
 
@@ -68,9 +69,10 @@ async def get_note(
 async def create_note(
     body: NoteCreate,
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """Create a new note."""
-    return await concurrency_manager.run_in_thread(_svc.create_note, user.id, body)
+    return await concurrency_manager.run_in_thread(svc.create_note, user.id, body)
 
 
 # -- Update --
@@ -80,11 +82,12 @@ async def update_note(
     note_id: UUID,
     body: NoteUpdate,
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """Partially update a note."""
-    n = await concurrency_manager.run_in_thread(_svc.update_note, user.id, note_id, body)
+    n = await concurrency_manager.run_in_thread(svc.update_note, user.id, note_id, body)
     if not n:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Note not found")
+        raise NotFoundError("Note not found")
     return n
 
 
@@ -95,11 +98,12 @@ async def toggle_note_todo(
     note_id: UUID,
     todo_index: int,
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """Toggle the done status of a single todo item."""
-    n = await concurrency_manager.run_in_thread(_svc.toggle_todo, user.id, note_id, todo_index)
+    n = await concurrency_manager.run_in_thread(svc.toggle_todo, user.id, note_id, todo_index)
     if not n:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Note or todo not found")
+        raise NotFoundError("Note or todo not found")
     return n
 
 
@@ -109,8 +113,9 @@ async def toggle_note_todo(
 async def delete_note(
     note_id: UUID,
     user: User = Depends(get_current_user),
+    svc: NoteService = Depends(get_note_service),
 ):
     """Delete a note."""
-    deleted = await concurrency_manager.run_in_thread(_svc.delete_note, user.id, note_id)
+    deleted = await concurrency_manager.run_in_thread(svc.delete_note, user.id, note_id)
     if not deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Note not found")
+        raise NotFoundError("Note not found")

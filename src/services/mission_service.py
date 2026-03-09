@@ -22,6 +22,7 @@ from schemas.mission import (
     MissionStepSchema,
 )
 from repositories.mission_repository import MissionRepository
+from infrastructure.cache.service import CacheService
 from utils.log import log_info
 
 
@@ -44,16 +45,18 @@ def _parse_iso(val: Any) -> Optional[datetime]:
 class MissionService:
     """Service for mission CRUD operations."""
 
-    def __init__(self, mission_repo: MissionRepository):
+    def __init__(self, mission_repo: MissionRepository, cache_service: Optional[CacheService] = None):
         self.mission_repo = mission_repo
+        self._cache = cache_service
 
     def _invalidate_cache(self, user_id: UUID) -> None:
         """Invalidate mission stats + dashboard cache after any mutation."""
+        if not self._cache:
+            return
         try:
-            from infrastructure.cache import cache_service
             uid_str = str(user_id)
-            cache_service.invalidate_mission_stats(uid_str)
-            cache_service.invalidate_dashboard(uid_str)
+            self._cache.invalidate_mission_stats(uid_str)
+            self._cache.invalidate_dashboard(uid_str)
         except Exception:
             pass
 
@@ -91,13 +94,13 @@ class MissionService:
     def get_stats(self, user_id: UUID) -> Dict[str, Any]:
         """Get aggregate mission stats for dashboard widgets."""
         uid_str = str(user_id)
-        try:
-            from infrastructure.cache import cache_service
-            cached = cache_service.get_cached_mission_stats(uid_str)
-            if cached is not None:
-                return cached
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                cached = self._cache.get_cached_mission_stats(uid_str)
+                if cached is not None:
+                    return cached
+            except Exception:
+                pass
 
         total = self.mission_repo.count_total(user_id)
         active = self.mission_repo.count_by_status(user_id, MissionStatus.ACTIVE)
@@ -113,11 +116,11 @@ class MissionService:
             "categories": categories,
         }
 
-        try:
-            from infrastructure.cache import cache_service as cs
-            cs.set_cached_mission_stats(uid_str, result)
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                self._cache.set_cached_mission_stats(uid_str, result)
+            except Exception:
+                pass
 
         return result
 
@@ -209,7 +212,7 @@ class MissionService:
         return MissionInDB.model_validate(mission)
 
     def toggle_step(self, user_id: UUID, mission_id: UUID, step_index: int) -> Optional[MissionInDB]:
-        mission = self.mission_repo.find_by_id(mission_id, user_id)
+        mission = self.mission_repo.find_by_id_for_update(mission_id, user_id)
         if not mission or not mission.steps:
             return None
 

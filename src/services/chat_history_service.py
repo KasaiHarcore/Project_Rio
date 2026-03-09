@@ -22,7 +22,7 @@ from repositories.message_repository import MessageRepository
 from utils.log import log_debug, log_info, log_warning, log_error
 from infrastructure.llm import form
 from schemas.query import ChatMessageRecord
-from infrastructure.cache import cache_service
+from infrastructure.cache.service import CacheService
 
 
 _EXECUTOR = ThreadPoolExecutor(max_workers=2)
@@ -54,6 +54,13 @@ class ChatHistoryService:
     MessageRepository instances bound to that session.
     """
 
+    def __init__(self) -> None:
+        self._cache: Optional[CacheService] = None
+
+    def inject_cache(self, cache: CacheService) -> None:
+        """Inject the CacheService instance (called at startup)."""
+        self._cache = cache
+
     def _parse_thread_id(self, thread_id: Optional[str]) -> Optional[UUID]:
         if not thread_id:
             return None
@@ -67,6 +74,40 @@ class ChatHistoryService:
         if not thread_uuid:
             return None
         return thread_repo.find_owned(thread_uuid, user_id)
+
+    def get_thread_if_owned(self, thread_id: UUID, user_id: UUID) -> Optional[Thread]:
+        """Get a thread only if it belongs to the given user."""
+        with get_db_context() as session:
+            thread_repo = ThreadRepository(session)
+            return thread_repo.find_owned(thread_id, user_id)
+
+    def update_thread(
+        self,
+        thread_id: UUID,
+        user_id: UUID,
+        title: Optional[str] = None,
+        status: Optional[str] = None,
+        is_starred: Optional[bool] = None,
+        is_pinned: Optional[bool] = None,
+    ) -> Optional[Thread]:
+        """Update a thread if owned by user. Returns updated thread or None."""
+        with get_db_context() as session:
+            thread_repo = ThreadRepository(session)
+            thread = thread_repo.find_owned(thread_id, user_id)
+            if not thread:
+                return None
+
+            if title is not None:
+                thread.title = title
+            if status is not None:
+                thread.status = ThreadStatus(status)
+            if is_starred is not None:
+                thread.is_starred = is_starred
+            if is_pinned is not None:
+                thread.is_pinned = is_pinned
+
+            thread_repo.flush()
+            return thread
 
     def ensure_thread(self, user_id: UUID, thread_id: Optional[str], title: Optional[str]) -> str:
         """Ensure a thread exists and return its ID."""
@@ -140,14 +181,15 @@ class ChatHistoryService:
                     message_repo.create(message)
 
                     # Write-through to Redis hot window (best-effort).
-                    try:
-                        cache_service.append_hot_message(
-                            thread_id=str(thread_uuid),
-                            role=role.value,
-                            content=content,
-                        )
-                    except Exception:
-                        pass
+                    if self._cache:
+                        try:
+                            self._cache.append_hot_message(
+                                thread_id=str(thread_uuid),
+                                role=role.value,
+                                content=content,
+                            )
+                        except Exception:
+                            pass
 
                     self._compact_if_needed(message_repo, thread_uuid)
             except Exception as e:
@@ -171,10 +213,11 @@ class ChatHistoryService:
                 # Context manager will commit on exit -- no manual commit needed.
 
                 # Clear stale Redis hot/warm data (best-effort).
-                try:
-                    cache_service.clear_thread_cache(thread_id=str(thread_id))
-                except Exception:
-                    pass
+                if self._cache:
+                    try:
+                        self._cache.clear_thread_cache(thread_id=str(thread_id))
+                    except Exception:
+                        pass
 
                 return True
             return False
@@ -188,42 +231,43 @@ class ChatHistoryService:
     def get_memory_buffer(self, thread_id: UUID, window_rounds: int = WINDOW_ROUNDS) -> List[ChatMessageRecord]:
         """Return a memory buffer for LLM: latest summary + last window rounds."""
         # Try Redis hot/warm first (fast path). Fallback to Postgres if missing.
-        try:
-            warm = cache_service.get_warm_summary(thread_id=str(thread_id))
-            hot = cache_service.get_hot_messages(thread_id=str(thread_id))
-            if hot:
-                buffer: List[ChatMessageRecord] = []
-                if warm and warm.summary:
-                    buffer.append({"role": "assistant", "content": warm.summary})
-                # Keep last window_rounds user messages (and their surrounding assistant/tool messages)
-                user_seen = 0
-                selected: List[ChatMessageRecord] = []
-                for msg in reversed(hot):
-                    if msg.role == "user":
-                        user_seen += 1
-                    if user_seen > window_rounds:
-                        break
-                    selected.append({"role": msg.role, "content": msg.content})
-                buffer.extend(reversed(selected))
-                return buffer
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                warm = self._cache.get_warm_summary(thread_id=str(thread_id))
+                hot = self._cache.get_hot_messages(thread_id=str(thread_id))
+                if hot:
+                    buffer: List[ChatMessageRecord] = []
+                    if warm and warm.summary:
+                        buffer.append({"role": "assistant", "content": warm.summary})
+                    user_seen = 0
+                    selected: List[ChatMessageRecord] = []
+                    for msg in reversed(hot):
+                        if msg.role == "user":
+                            user_seen += 1
+                        if user_seen > window_rounds:
+                            break
+                        selected.append({"role": msg.role, "content": msg.content})
+                    buffer.extend(reversed(selected))
+                    return buffer
+            except Exception:
+                pass
 
         with get_db_context() as session:
             message_repo = MessageRepository(session)
             messages = message_repo.find_by_thread(thread_id=thread_id, limit=1000, order_asc=True)
 
         # Backfill Redis hot window (best-effort) if empty.
-        try:
-            if not cache_service.get_hot_messages(thread_id=str(thread_id)):
-                for m in messages[-500:]:
-                    cache_service.append_hot_message(
-                        thread_id=str(thread_id),
-                        role=m.role.value,
-                        content=m.content,
-                    )
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                if not self._cache.get_hot_messages(thread_id=str(thread_id)):
+                    for m in messages[-500:]:
+                        self._cache.append_hot_message(
+                            thread_id=str(thread_id),
+                            role=m.role.value,
+                            content=m.content,
+                        )
+            except Exception:
+                pass
 
         summary_message: Optional[Message] = None
         summary_text: Optional[str] = None
@@ -247,10 +291,11 @@ class ChatHistoryService:
         if summary_text:
             buffer.append({"role": "assistant", "content": summary_text})
             # Cache warm summary (best-effort).
-            try:
-                cache_service.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
-            except Exception:
-                pass
+            if self._cache:
+                try:
+                    self._cache.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
+                except Exception:
+                    pass
 
         user_seen = 0
         for msg in reversed(messages):
@@ -294,10 +339,11 @@ class ChatHistoryService:
             return
 
         # Cache warm summary (Redis).
-        try:
-            cache_service.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                self._cache.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
+            except Exception:
+                pass
 
         summary_message = Message(
             thread_id=thread_id,

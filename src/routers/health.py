@@ -63,9 +63,9 @@ def _check_database() -> ComponentHealth:
 def _check_redis() -> ComponentHealth:
     try:
         from infrastructure.cache.redis_cache import redis_tool
-        client = redis_tool._get_client()
-        client.ping()
-        return ComponentHealth(status="ok")
+        if redis_tool.ping():
+            return ComponentHealth(status="ok")
+        return ComponentHealth(status="down", detail="Ping failed")
     except Exception as e:
         log_warning(f"Health: Redis check failed: {e}")
         return ComponentHealth(status="down", detail=str(e)[:200])

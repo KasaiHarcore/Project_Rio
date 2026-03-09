@@ -15,15 +15,25 @@ class UserRole(str, Enum):
     ADMIN = "admin"
 
 
+class AuthProvider(str, Enum):
+    """Authentication provider enumeration."""
+    LOCAL = "local"
+    GOOGLE = "google"
+    GITHUB = "github"
+
+
 class User(Base, TimestampMixin):
     """User model for storing user information and authentication.
-    
+
     Attributes:
         id: UUID primary key
         username: Unique username for authentication
         email: Unique email address
-        hashed_password: Bcrypt hashed password
+        hashed_password: Bcrypt hashed password (nullable for OAuth users)
         role: User role (user or admin)
+        auth_provider: Authentication provider (local, google, github)
+        oauth_id: External OAuth provider user ID
+        avatar_url: User avatar URL from OAuth provider
         created_at: Timestamp when user was created
         updated_at: Timestamp when user was last updated
         threads: Relationship to Thread model
@@ -32,35 +42,52 @@ class User(Base, TimestampMixin):
     """
 
     id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), 
-        primary_key=True, 
+        UUID(as_uuid=True),
+        primary_key=True,
         default=uuid.uuid4,
         index=True
     )
-    
+
     username: Mapped[str] = mapped_column(
-        String(255), 
-        unique=True, 
+        String(255),
+        unique=True,
         nullable=False,
         index=True
     )
-    
+
     email: Mapped[str] = mapped_column(
-        String(255), 
-        unique=True, 
+        String(255),
+        unique=True,
         nullable=False,
         index=True
     )
-    
-    hashed_password: Mapped[str] = mapped_column(
-        String(255), 
-        nullable=False
+
+    hashed_password: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True
     )
-    
+
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole), 
-        nullable=False, 
+        SQLEnum(UserRole),
+        nullable=False,
         default=UserRole.USER
+    )
+
+    auth_provider: Mapped[AuthProvider] = mapped_column(
+        SQLEnum(AuthProvider),
+        nullable=False,
+        default=AuthProvider.LOCAL,
+        server_default="local",
+    )
+
+    oauth_id: Mapped[Optional[str]] = mapped_column(
+        String(255),
+        nullable=True,
+    )
+
+    avatar_url: Mapped[Optional[str]] = mapped_column(
+        String(500),
+        nullable=True,
     )
     
     # Relationships

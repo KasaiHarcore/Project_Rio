@@ -4,14 +4,14 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user, get_db
+from core.dependencies import get_current_user, get_settings_service
+from core.exceptions import ValidationError
 from models.user import User
-from models.user_profile import UserProfile
+from services.settings_service import SettingsService
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
@@ -38,7 +38,7 @@ class OnboardingResponse(BaseModel):
 async def save_onboarding(
     body: OnboardingRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: SettingsService = Depends(get_settings_service),
 ):
     """Persist onboarding data into the user's profile.
 
@@ -46,31 +46,17 @@ async def save_onboarding(
     onboarding as complete.
     """
     def _query():
-        profile = db.query(UserProfile).filter(UserProfile.user_id == user.id).first()
-
-        if not profile:
-            profile = UserProfile(user_id=user.id)
-            db.add(profile)
-
-        # Map form fields → profile columns
-        if body.user_name:
-            profile.full_name = body.user_name
-        if body.specialization:
-            profile.specialization = body.specialization
-        if body.agent_name:
-            profile.agent_name = body.agent_name
-        if body.tone:
-            profile.tone = body.tone
-        if body.directives is not None:
-            profile.directives = body.directives
-        if body.data_sources is not None:
-            profile.data_sources = body.data_sources
-
-        profile.onboarding_completed = True
-
-        db.commit()
-        db.refresh(profile)
-
+        success, error = svc.complete_onboarding(
+            user_id=user.id,
+            full_name=body.user_name,
+            specialization=body.specialization,
+            data_sources=body.data_sources,
+            agent_name=body.agent_name,
+            tone=body.tone,
+            directives=body.directives,
+        )
+        if not success:
+            raise ValidationError(error or "Onboarding failed")
         return OnboardingResponse()
 
     return await concurrency_manager.run_in_thread(_query)

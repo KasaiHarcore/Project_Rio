@@ -12,10 +12,11 @@ from __future__ import annotations
 from typing import List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_collection_service
+from core.exceptions import NotFoundError
 from services.collection_service import CollectionService
 from models.user import User
 from schemas.note_collection import (
@@ -26,8 +27,6 @@ from schemas.note_collection import (
 
 router = APIRouter(prefix="/collections", tags=["collections"])
 
-_svc = CollectionService()
-
 
 # -- List --
 
@@ -36,10 +35,11 @@ async def list_collections(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
+    svc: CollectionService = Depends(get_collection_service),
 ):
     """List collections for the authenticated user."""
     return await concurrency_manager.run_in_thread(
-        _svc.list_collections, user.id, limit=limit, offset=offset
+        svc.list_collections, user.id, limit=limit, offset=offset
     )
 
 
@@ -49,9 +49,10 @@ async def list_collections(
 async def create_collection(
     body: CollectionCreate,
     user: User = Depends(get_current_user),
+    svc: CollectionService = Depends(get_collection_service),
 ):
     """Create a new collection."""
-    return await concurrency_manager.run_in_thread(_svc.create_collection, user.id, body)
+    return await concurrency_manager.run_in_thread(svc.create_collection, user.id, body)
 
 
 # -- Update --
@@ -61,13 +62,14 @@ async def update_collection(
     collection_id: UUID,
     body: CollectionUpdate,
     user: User = Depends(get_current_user),
+    svc: CollectionService = Depends(get_collection_service),
 ):
     """Rename a collection."""
     c = await concurrency_manager.run_in_thread(
-        _svc.update_collection, user.id, collection_id, body
+        svc.update_collection, user.id, collection_id, body
     )
     if not c:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found")
+        raise NotFoundError("Collection not found")
     return c
 
 
@@ -77,10 +79,11 @@ async def update_collection(
 async def delete_collection(
     collection_id: UUID,
     user: User = Depends(get_current_user),
+    svc: CollectionService = Depends(get_collection_service),
 ):
     """Delete a collection. Notes in the collection will have collection_id set to NULL."""
     deleted = await concurrency_manager.run_in_thread(
-        _svc.delete_collection, user.id, collection_id
+        svc.delete_collection, user.id, collection_id
     )
     if not deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Collection not found")
+        raise NotFoundError("Collection not found")

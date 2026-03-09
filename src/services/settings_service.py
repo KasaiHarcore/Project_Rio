@@ -241,6 +241,50 @@ class SettingsService:
             log_error(error_msg)
             return False, error_msg
 
+    def complete_onboarding(
+        self,
+        user_id: UUID,
+        full_name: Optional[str] = None,
+        specialization: Optional[str] = None,
+        data_sources: Optional[list] = None,
+        agent_name: Optional[str] = None,
+        tone: Optional[str] = None,
+        directives: Optional[str] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """Persist onboarding data and mark onboarding as complete.
+
+        Creates the UserProfile row if it doesn't exist yet.
+
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            profile = self._profile_repo.get_or_create(user_id)
+
+            if full_name:
+                profile.full_name = full_name
+            if specialization:
+                profile.specialization = specialization
+            if agent_name:
+                profile.agent_name = agent_name
+            if tone:
+                profile.tone = tone
+            if directives is not None:
+                profile.directives = directives
+            if data_sources is not None:
+                profile.data_sources = data_sources
+
+            profile.onboarding_completed = True
+
+            self._profile_repo.flush()
+            log_info(f"Completed onboarding for user {user_id}")
+            return True, None
+
+        except Exception as e:
+            error_msg = f"Failed to complete onboarding: {str(e)}"
+            log_error(error_msg)
+            return False, error_msg
+
     def update_user_info(
         self,
         user_id: UUID,

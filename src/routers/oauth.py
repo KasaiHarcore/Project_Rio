@@ -10,19 +10,19 @@ from __future__ import annotations
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
+from pydantic import BaseModel
 
-from core.dependencies import get_db
-from core.exceptions import OAuthError
+from core.dependencies import get_auth_service
+from core.exceptions import OAuthError, ValidationError, ExternalServiceError
 from core.settings import get_oauth_config
-from models.user import User, UserRole, AuthProvider
+from models.user import AuthProvider
 from schemas.user import UserInDB, OAuthLoginResponse, TokenPairSchema
+from services.auth_service import AuthService
 from infrastructure.security.auth import create_token_pair, ACCESS_TOKEN_EXPIRE_MINUTES
 from infrastructure.security.oauth import get_oauth_provider, OAuthUserInfo
-from utils.log import log_info, log_error, log_warning
+from utils.log import log_error
 
 router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
@@ -38,14 +38,14 @@ async def oauth_redirect(provider: str):
     config = get_oauth_config()
 
     if provider == "google" and not config.google_enabled:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "Google OAuth is not configured")
+        raise ValidationError("Google OAuth is not configured")
     if provider == "github" and not config.github_enabled:
-        raise HTTPException(status.HTTP_501_NOT_IMPLEMENTED, "GitHub OAuth is not configured")
+        raise ValidationError("GitHub OAuth is not configured")
 
     try:
         oauth = get_oauth_provider(provider)
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider: {provider}")
+        raise ValidationError(f"Unknown provider: {provider}")
 
     state = secrets.token_urlsafe(32)
     url = oauth.get_authorization_url(state=state)
@@ -67,7 +67,7 @@ async def oauth_callback(
     provider: str,
     code: str = Query(..., description="Authorization code from provider"),
     state: Optional[str] = Query(None, description="CSRF state token"),
-    db: Session = Depends(get_db),
+    auth_svc: AuthService = Depends(get_auth_service),
 ):
     """Exchange the authorization code for user info and return JWT tokens.
 
@@ -80,57 +80,26 @@ async def oauth_callback(
     try:
         oauth = get_oauth_provider(provider)
     except ValueError:
-        raise HTTPException(status.HTTP_400_BAD_REQUEST, f"Unknown provider: {provider}")
+        raise ValidationError(f"Unknown provider: {provider}")
 
     # Exchange code for user info from the provider
     try:
         user_info: OAuthUserInfo = await oauth.exchange_code(code)
-    except OAuthError as exc:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, detail=exc.message)
+    except OAuthError:
+        raise
     except Exception as exc:
         log_error(f"OAuth exchange error: {exc}")
-        raise HTTPException(status.HTTP_502_BAD_GATEWAY, "OAuth provider error")
+        raise ExternalServiceError("OAuth provider error")
 
-    # Resolve user
-    is_new_user = False
+    # Resolve user via AuthService
     auth_provider_enum = AuthProvider(user_info.provider.value)
-
-    # Check if user exists by oauth_id + provider
-    user = (
-        db.query(User)
-        .filter(User.oauth_id == user_info.oauth_id, User.auth_provider == auth_provider_enum)
-        .first()
+    user, is_new_user = auth_svc.get_or_create_oauth_user(
+        oauth_id=user_info.oauth_id,
+        provider=auth_provider_enum,
+        email=user_info.email,
+        name=user_info.name,
+        avatar_url=user_info.avatar_url,
     )
-
-    if not user:
-        # Check by email (account linking)
-        user = db.query(User).filter(User.email == user_info.email).first()
-        if user:
-            # Link existing local account to this OAuth provider
-            log_info(f"[OAuth] Linking {user_info.email} to {provider}")
-            user.auth_provider = auth_provider_enum
-            user.oauth_id = user_info.oauth_id
-            if user_info.avatar_url and not user.avatar_url:
-                user.avatar_url = user_info.avatar_url
-            db.commit()
-            db.refresh(user)
-        else:
-            # Create new user
-            log_info(f"[OAuth] Creating new user: {user_info.email} via {provider}")
-            username = _generate_username(db, user_info.name, user_info.email)
-            user = User(
-                username=username,
-                email=user_info.email,
-                hashed_password=None,  # OAuth users have no password
-                role=UserRole.USER,
-                auth_provider=auth_provider_enum,
-                oauth_id=user_info.oauth_id,
-                avatar_url=user_info.avatar_url,
-            )
-            db.add(user)
-            db.commit()
-            db.refresh(user)
-            is_new_user = True
 
     # Generate JWT tokens
     token_pair = create_token_pair(str(user.id), user.role.value)
@@ -146,22 +115,3 @@ async def oauth_callback(
         ),
         is_new_user=is_new_user,
     )
-
-
-# ── Helpers ─────────────────────────────────────────────────────────────────
-
-def _generate_username(db: Session, name: str, email: str) -> str:
-    """Generate a unique username from the OAuth display name or email."""
-    base = name.lower().replace(" ", "_")[:50] if name else email.split("@")[0]
-    # Remove non-alphanumeric characters except underscore
-    base = "".join(c for c in base if c.isalnum() or c == "_")
-    if not base:
-        base = "user"
-
-    username = base
-    counter = 1
-    while db.query(User).filter(User.username == username).first():
-        username = f"{base}_{counter}"
-        counter += 1
-
-    return username

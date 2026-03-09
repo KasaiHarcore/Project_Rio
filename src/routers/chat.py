@@ -17,26 +17,24 @@ import json
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user, get_db
+from core.dependencies import (
+    get_current_user,
+    get_cache_service,
+    get_chat_service,
+)
+from core.exceptions import NotFoundError, ValidationError
+from infrastructure.cache.service import CacheService
+from models.message import MessageRole
+from models.user import User
 from services.agent_service import AgentService
 from services.chat_history_service import chat_history_service
-from services.settings_service import SettingsService
-from services.xp_service import award_xp
-from core.settings import AgentConfig
-from core.exceptions import AuthorizationError, NotFoundError, ValidationError
-from models.message import MessageRole
-from models.user import User, UserRole
-from schemas.thread import ThreadInDB
-from schemas.message import MessageInDB
-from infrastructure.security.api_key_resolver import ApiKeyResolver
-from infrastructure.llm import form
-from utils.log import log_info, log_error, log_debug
+from services.chat_service import ChatService
+from utils.log import log_error
 
 
 router = APIRouter(prefix="/chat", tags=["chat"])
@@ -157,168 +155,38 @@ class MemoryListResponse(BaseModel):
 async def chat_stream(
     body: ChatRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: ChatService = Depends(get_chat_service),
 ):
     """Stream an AI response.
 
     Compatible with Vercel AI SDK ``useChat`` – returns a ``text/plain``
     stream of UTF-8 token chunks that the SDK accumulates on the client.
-
-    The last line is a JSON metadata comment that the client can optionally
-    parse for run_id, thread_id, and stats.
     """
-    if not body.messages:
-        raise ValidationError("messages array is empty")
-
-    # The latest user message is the question
-    last_user_msg = None
-    for msg in reversed(body.messages):
-        if msg.role == "user":
-            last_user_msg = msg.content
-            break
-
-    if not last_user_msg:
-        raise ValidationError("No user message found")
-
-    # Resolve / create thread
-    user_id = user.id
-    is_new_thread = body.thread_id is None
-    thread_id = chat_history_service.ensure_thread(
-        user_id=user_id,
+    prep = svc.prepare_chat(
+        user=user,
+        messages=body.messages,
         thread_id=body.thread_id,
-        title=last_user_msg[:60],
-    )
-
-    # Award XP: +2 per message, +5 bonus for creating a new thread
-    xp_amount = 2 + (5 if is_new_thread else 0)
-    try:
-        award_xp(db, user_id, xp_amount, reason="chat_message")
-    except Exception:
-        pass  # XP award failure should never block chat
-
-    # Invalidate L2 caches that depend on message/thread counts
-    try:
-        from infrastructure.cache import cache_service
-        uid_str = str(user_id)
-        cache_service.invalidate_dashboard(uid_str)
-        cache_service.invalidate_xp(uid_str)
-        if is_new_thread:
-            cache_service.invalidate_threads(uid_str)
-    except Exception:
-        pass
-
-    # Build history for the agent (exclude the latest user message)
-    history = [
-        {"role": m.role, "content": m.content}
-        for m in body.messages[:-1]
-    ]
-
-    requested_mode = body.mode or "chat"
-    if requested_mode == "sql" and user.role != UserRole.ADMIN:
-        raise AuthorizationError("SQL mode is restricted to admin users only")
-
-    config = AgentConfig(
-        mode=requested_mode,
-        character=body.character or "rio",
-        user_role=user.role.value,
-    )
-
-    # Load user settings for API keys and model parameters
-    try:
-        user_settings = SettingsService.get_or_create_settings(db, user.id)
-        api_resolver = ApiKeyResolver(user_settings)
-
-        # Set model name from user settings if available
-        if user_settings.model_name:
-            config.model_name = user_settings.model_name
-
-        log_debug(f"User settings loaded: model={user_settings.model_name}, temp={user_settings.temperature}")
-    except Exception as e:
-        log_error(f"Failed to load user settings: {e}")
-        # Continue with defaults if settings fail to load
-        user_settings = None
-        api_resolver = None
-
-    # Build workspace context string for agent injection
-    workspace_context_str = ""
-    if body.workspace_context and body.workspace_context.chunks:
-        ws = body.workspace_context
-        parts = []
-        if ws.file_trees:
-            parts.append("## Workspace Files")
-            for ft in ws.file_trees:
-                parts.append(f"- {ft.filePath}: {ft.tree}")
-        parts.append("\n## Relevant Code Chunks")
-        for chunk in ws.chunks:
-            parts.append(f"\n### {chunk.filePath} :: {chunk.chunkName} ({chunk.chunkKind}) [L{chunk.startLine}-L{chunk.endLine}]")
-            parts.append(f"```\n{chunk.content}\n```")
-        workspace_context_str = "\n".join(parts)
-
-    log_info(f"[REST] chat_stream: user={user.username} thread={thread_id} q={last_user_msg[:80]}")
-
-    # Persist the user message asynchronously
-    chat_history_service.append_message_async(
-        user_id=user_id,
-        thread_id=thread_id,
-        role=MessageRole.USER,
-        content=last_user_msg,
+        mode=body.mode,
+        character=body.character,
+        workspace_context=body.workspace_context,
     )
 
     def _generate():
-        """Sync generator – emits AI SDK data-stream protocol lines.
-
-        Text tokens → ``0:"…"`` lines
-        Sidebar events → ``2:[{…}]`` lines
-        Finish → ``d:{…}`` line
-        """
+        """Sync generator – emits AI SDK data-stream protocol lines."""
         answer_parts: list[str] = []
         run_id = None
         final_stats = None
 
-        # Prepend workspace context to question if available
-        effective_question = last_user_msg
-        if workspace_context_str:
-            effective_question = f"[Workspace Context]\n{workspace_context_str}\n\n[User Question]\n{last_user_msg}"
-
-        # Resolve user API key based on model name
-        user_api_key = None
-        all_user_api_keys = None
-        if user_settings and api_resolver:
-            model_name = config.model_name or user_settings.model_name
-            if model_name:
-                # Determine provider from model name
-                if "gpt" in model_name.lower() and "openrouter" not in model_name.lower():
-                    user_api_key = api_resolver.get_openai_key()
-                elif "openrouter" in model_name.lower() or "oss" in model_name.lower():
-                    user_api_key = api_resolver.get_openrouter_key()
-
-            # Build all user API keys for external services (workers)
-            all_user_api_keys = {
-                "tavily": api_resolver.get_tavily_key(),
-                "cohere": api_resolver.get_cohere_key(),
-            }
-
-        # Build model parameters dict
-        user_model_params = None
-        if user_settings:
-            user_model_params = {
-                "temperature": user_settings.temperature,
-                "max_tokens": user_settings.max_tokens,
-                "top_p": user_settings.top_p,
-                "frequency_penalty": user_settings.frequency_penalty,
-                "presence_penalty": user_settings.presence_penalty,
-            }
-
         try:
             for event in AgentService.stream_query(
-                question=effective_question,
-                config=config,
-                history=history,
-                thread_id=thread_id,
-                user_id=str(user_id),
-                user_api_key=user_api_key,
-                user_model_params=user_model_params,
-                user_api_keys=all_user_api_keys,
+                question=prep.effective_question,
+                config=prep.config,
+                history=prep.history,
+                thread_id=prep.thread_id,
+                user_id=str(prep.user_id),
+                user_api_key=prep.user_api_key,
+                user_model_params=prep.user_model_params,
+                user_api_keys=prep.user_api_keys,
             ):
                 event_type = event.get("type")
 
@@ -335,7 +203,7 @@ async def chat_stream(
                         "type": "run_started",
                         "run_id": run_id,
                         "thread_id": event.get("thread_id"),
-                        "character": config.character,
+                        "character": prep.config.character,
                     })
 
                 # ── Supervisor decision ─────────────────────────
@@ -454,21 +322,19 @@ async def chat_stream(
 
         # Persist the assistant message asynchronously
         full_answer = "".join(answer_parts)
-        if full_answer:
-            chat_history_service.append_message_async(
-                user_id=user_id,
-                thread_id=thread_id,
-                role=MessageRole.ASSISTANT,
-                content=full_answer,
-                run_id=run_id,
-                character_id=config.character,
-            )
+        svc.persist_assistant_message(
+            user_id=prep.user_id,
+            thread_id=prep.thread_id,
+            content=full_answer,
+            run_id=run_id,
+            character_id=prep.config.character,
+        )
 
     return StreamingResponse(
         _generate(),
         media_type="text/plain; charset=utf-8",
         headers={
-            "X-Thread-Id": thread_id,
+            "X-Thread-Id": prep.thread_id,
             "X-Vercel-AI-Data-Stream": "v1",
             "Cache-Control": "no-cache",
             "Transfer-Encoding": "chunked",
@@ -494,13 +360,13 @@ def _safe_stats(stats: dict | None) -> dict:
 async def list_threads(
     limit: int = Query(20, ge=1, le=100),
     user: User = Depends(get_current_user),
+    cache: CacheService = Depends(get_cache_service),
 ):
     """List the authenticated user's conversation threads."""
     uid_str = str(user.id)
 
     # L2 cache: try Redis first
-    from infrastructure.cache import cache_service
-    cached = cache_service.get_cached_threads(uid_str)
+    cached = cache.get_cached_threads(uid_str)
     if cached is not None:
         return ThreadListResponse(
             threads=[ThreadResponse(**t) for t in cached[:limit]]
@@ -523,7 +389,7 @@ async def list_threads(
 
         # Backfill Redis cache
         try:
-            cache_service.set_cached_threads(
+            cache.set_cached_threads(
                 uid_str, [t.model_dump() for t in thread_list]
             )
         except Exception:
@@ -539,18 +405,15 @@ async def get_thread_messages(
     thread_id: str,
     limit: int = Query(200, ge=1, le=1000),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Retrieve messages for a specific thread (must be owned by user)."""
-    from models.thread import Thread
-
     try:
         tid = UUID(thread_id)
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
     def _query():
-        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        thread = chat_history_service.get_thread_if_owned(tid, user.id)
         if not thread:
             raise NotFoundError("Thread not found")
 
@@ -576,10 +439,8 @@ async def get_thread_memories(
     thread_id: str,
     limit: int = Query(50, ge=1, le=200),
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
 ):
     """Retrieve persisted memories for a specific thread (must be owned by user)."""
-    from models.thread import Thread
     from workflows.memory_store import memory_store_context, list_memories_by_thread
 
     try:
@@ -588,7 +449,7 @@ async def get_thread_memories(
         raise ValidationError("Invalid thread ID")
 
     def _query():
-        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        thread = chat_history_service.get_thread_if_owned(tid, user.id)
         if not thread:
             raise NotFoundError("Thread not found")
 
@@ -616,18 +477,16 @@ async def get_thread_memories(
 async def delete_thread(
     thread_id: str,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache_service),
 ):
     """Delete a conversation thread (soft-archive or hard delete)."""
-    from models.thread import Thread
-
     try:
         tid = UUID(thread_id)
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
     def _query():
-        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        thread = chat_history_service.get_thread_if_owned(tid, user.id)
         if not thread:
             raise NotFoundError("Thread not found")
 
@@ -635,10 +494,9 @@ async def delete_thread(
 
         # Invalidate L2 caches
         try:
-            from infrastructure.cache import cache_service
             uid_str = str(user.id)
-            cache_service.invalidate_threads(uid_str)
-            cache_service.invalidate_dashboard(uid_str)
+            cache.invalidate_threads(uid_str)
+            cache.invalidate_dashboard(uid_str)
         except Exception:
             pass
 
@@ -661,40 +519,29 @@ async def update_thread(
     thread_id: str,
     body: ThreadPatchRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache_service),
 ):
     """Partially update a thread (rename, star, pin, archive)."""
-    from models.thread import Thread, ThreadStatus
-
     try:
         tid = UUID(thread_id)
     except ValueError:
         raise ValidationError("Invalid thread ID")
 
     def _query():
-        thread = db.query(Thread).filter(Thread.id == tid, Thread.user_id == user.id).first()
+        thread = chat_history_service.update_thread(
+            thread_id=tid,
+            user_id=user.id,
+            title=body.title,
+            status=body.status,
+            is_starred=body.is_starred,
+            is_pinned=body.is_pinned,
+        )
         if not thread:
             raise NotFoundError("Thread not found")
 
-        if body.title is not None:
-            thread.title = body.title
-        if body.status is not None:
-            try:
-                thread.status = ThreadStatus(body.status)
-            except ValueError:
-                raise ValidationError(f"Invalid status: {body.status}")
-        if body.is_starred is not None:
-            thread.is_starred = body.is_starred
-        if body.is_pinned is not None:
-            thread.is_pinned = body.is_pinned
-
-        db.commit()
-        db.refresh(thread)
-
         # Invalidate L2 caches
         try:
-            from infrastructure.cache import cache_service
-            cache_service.invalidate_threads(str(user.id))
+            cache.invalidate_threads(str(user.id))
         except Exception:
             pass
 

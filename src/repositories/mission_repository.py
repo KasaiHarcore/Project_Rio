@@ -20,6 +20,15 @@ class MissionRepository(BaseRepository):
             .first()
         )
 
+    def find_by_id_for_update(self, mission_id: UUID, user_id: UUID) -> Optional[Mission]:
+        """Find by ID with SELECT ... FOR UPDATE to prevent concurrent JSONB mutations."""
+        return (
+            self.db.query(Mission)
+            .filter(Mission.id == mission_id, Mission.user_id == user_id)
+            .with_for_update()
+            .first()
+        )
+
     def list_by_user(
         self,
         user_id: UUID,

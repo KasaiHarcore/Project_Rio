@@ -171,7 +171,7 @@ class NoteService:
 
     def toggle_todo(self, user_id: UUID, note_id: UUID, todo_index: int) -> Optional[NoteInDB]:
         """Toggle a single todo item's done status."""
-        note = self._repo.find_by_id(note_id=note_id, user_id=user_id)
+        note = self._repo.find_by_id_for_update(note_id=note_id, user_id=user_id)
         if not note or not note.todos:
             return None
 

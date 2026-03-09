@@ -1,11 +1,11 @@
 """Settings endpoints for managing user preferences and profile."""
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
-from sqlalchemy.orm import Session
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user, get_db
+from core.dependencies import get_current_user, get_settings_service
+from core.exceptions import ValidationError
 from services.settings_service import SettingsService
 from models.user import User
 from schemas.user import UserProfileUpdate, UserProfileInDB
@@ -49,14 +49,14 @@ class UpdateResponse(BaseModel):
 @router.get("", response_model=SettingsResponse)
 async def get_settings(
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: SettingsService = Depends(get_settings_service),
 ):
     """Get current user's settings and profile.
 
     Creates settings/profile with defaults if they don't exist.
     """
     def _query():
-        settings = SettingsService.get_settings(db, user.id)
+        settings = svc.get_settings(user.id)
 
         # Get profile (with relationship loaded)
         profile = None
@@ -72,22 +72,19 @@ async def get_settings(
 async def update_settings(
     updates: UserSettingsUpdate,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: SettingsService = Depends(get_settings_service),
 ):
     """Update user settings.
 
     Only updates fields that are provided in the request body.
     """
     def _query():
-        success, settings_data, error = SettingsService.update_settings(
-            db, user.id, updates
+        success, settings_data, error = svc.update_settings(
+            user.id, updates
         )
 
         if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error or "Failed to update settings",
-            )
+            raise ValidationError(error or "Failed to update settings")
 
         # Get profile
         profile = None
@@ -103,20 +100,17 @@ async def update_settings(
 async def update_profile(
     updates: UserProfileUpdate,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: SettingsService = Depends(get_settings_service),
 ):
     """Update user profile (bio, study goals, etc.).
 
     Only updates fields that are provided in the request body.
     """
     def _query():
-        success, error = SettingsService.update_profile(db, user.id, updates)
+        success, error = svc.update_profile(user.id, updates)
 
         if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error or "Failed to update profile",
-            )
+            raise ValidationError(error or "Failed to update profile")
 
         return UpdateResponse(message="Profile updated successfully")
 
@@ -127,25 +121,21 @@ async def update_profile(
 async def update_user_info(
     updates: UserInfoUpdate,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: SettingsService = Depends(get_settings_service),
 ):
     """Update basic user information (username, email).
 
     Only updates fields that are provided in the request body.
     """
     def _query():
-        success, error = SettingsService.update_user_info(
-            db,
+        success, error = svc.update_user_info(
             user.id,
             username=updates.username,
             email=updates.email,
         )
 
         if not success:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=error or "Failed to update user info",
-            )
+            raise ValidationError(error or "Failed to update user info")
 
         return UpdateResponse(message="User info updated successfully")
 

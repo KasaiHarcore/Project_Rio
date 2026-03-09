@@ -1,21 +1,17 @@
 """Authentication endpoints: login, register, me, refresh, reset-password, logout.
 
 Security measures:
-- Rate limiting on public endpoints (login, register) via in-memory sliding window
+- Rate limiting on public endpoints (login, register) via Redis sliding window
 - Password reset requires authentication (user must be logged in)
 - Logout revokes tokens server-side via Redis blacklist
 """
 
-import time
-from collections import defaultdict
-from threading import Lock
-
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, EmailStr, Field
-from sqlalchemy.orm import Session
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user, get_db
+from core.dependencies import get_current_user, get_auth_service, get_cache_service
+from infrastructure.cache.service import CacheService
 from services.auth_service import AuthService
 from core.exceptions import AuthenticationError, DuplicateError, ValidationError
 from models.user import User
@@ -26,39 +22,15 @@ from infrastructure.security.auth import (
     refresh_access_token,
     revoke_token,
 )
+from infrastructure.security.rate_limiter import RedisRateLimiter
 
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# ── Rate limiter (in-memory sliding window) ─────────────────────────────────
+# ── Rate limiter (Redis sliding window, fails open) ─────────────────────────
 
-_rate_lock = Lock()
-_rate_buckets: dict[str, list[float]] = defaultdict(list)
-
-# Limits: max requests per window (seconds)
-_RATE_AUTH_MAX = 10
-_RATE_AUTH_WINDOW = 60  # 10 requests per 60s per IP
-
-
-def _check_rate_limit(request: Request, action: str = "auth") -> None:
-    """Raise 429 if the client exceeds the rate limit."""
-    client_ip = request.client.host if request.client else "unknown"
-    key = f"{action}:{client_ip}"
-    now = time.monotonic()
-
-    with _rate_lock:
-        bucket = _rate_buckets[key]
-        # Purge entries outside the window
-        cutoff = now - _RATE_AUTH_WINDOW
-        _rate_buckets[key] = bucket = [t for t in bucket if t > cutoff]
-
-        if len(bucket) >= _RATE_AUTH_MAX:
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
-            )
-        bucket.append(now)
+_rate_limiter = RedisRateLimiter(max_requests=10, window_seconds=60)
 
 
 # ── Request / Response schemas ──────────────────────────────────────────────
@@ -102,12 +74,16 @@ class MeResponse(BaseModel):
 # ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=AuthResponse)
-async def login(body: LoginRequest, request: Request, db: Session = Depends(get_db)):
+async def login(
+    body: LoginRequest,
+    request: Request,
+    svc: AuthService = Depends(get_auth_service),
+):
     """Authenticate and return JWT token pair."""
-    _check_rate_limit(request, "login")
+    _rate_limiter.check(request, "login")
 
     success, user_data, tokens, error = await concurrency_manager.run_in_thread(
-        AuthService.login, db, body.username, body.password
+        svc.login, body.username, body.password
     )
 
     if not success:
@@ -117,12 +93,16 @@ async def login(body: LoginRequest, request: Request, db: Session = Depends(get_
 
 
 @router.post("/register", response_model=AuthResponse, status_code=status.HTTP_201_CREATED)
-async def register(body: RegisterRequest, request: Request, db: Session = Depends(get_db)):
+async def register(
+    body: RegisterRequest,
+    request: Request,
+    svc: AuthService = Depends(get_auth_service),
+):
     """Create a new user account and return JWT tokens."""
-    _check_rate_limit(request, "register")
+    _rate_limiter.check(request, "register")
 
     success, user_data, error = await concurrency_manager.run_in_thread(
-        AuthService.register, db, body.username, body.email, body.password
+        svc.register, body.username, body.email, body.password
     )
 
     if not success:
@@ -143,7 +123,7 @@ async def me(user: User = Depends(get_current_user)):
 @router.post("/refresh")
 async def refresh(body: RefreshRequest, request: Request):
     """Exchange a refresh token for a new access token."""
-    _check_rate_limit(request, "refresh")
+    _rate_limiter.check(request, "refresh")
 
     new_access_token = await concurrency_manager.run_in_thread(
         refresh_access_token, body.refresh_token
@@ -163,14 +143,15 @@ async def refresh(body: RefreshRequest, request: Request):
 async def reset_password(
     body: ResetPasswordRequest,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: AuthService = Depends(get_auth_service),
+    cache: CacheService = Depends(get_cache_service),
 ):
     """Reset the authenticated user's password.
 
     Requires a valid access token — the user resets their **own** password.
     """
     success, error = await concurrency_manager.run_in_thread(
-        AuthService.reset_password, db, user.username, body.new_password
+        svc.reset_password, user.username, body.new_password
     )
 
     if not success:
@@ -178,8 +159,7 @@ async def reset_password(
 
     # Invalidate cached user data
     try:
-        from infrastructure.cache import cache_service
-        cache_service.invalidate_user(str(user.id))
+        cache.invalidate_user(str(user.id))
     except Exception:
         pass
 
@@ -190,7 +170,7 @@ async def reset_password(
 async def logout(
     body: LogoutRequest | None = None,
     user: User = Depends(get_current_user),
-    db: Session = Depends(get_db),
+    svc: AuthService = Depends(get_auth_service),
 ):
     """Log out: revoke tokens server-side and record the event."""
     # Revoke tokens via Redis blacklist so they can't be reused
@@ -200,5 +180,5 @@ async def logout(
         if body.refresh_token:
             await concurrency_manager.run_in_thread(revoke_token, body.refresh_token)
 
-    await concurrency_manager.run_in_thread(AuthService.logout, db, user.id)
+    await concurrency_manager.run_in_thread(svc.logout, user.id)
     return None

@@ -17,6 +17,15 @@ class NoteRepository(BaseRepository):
             .first()
         )
 
+    def find_by_id_for_update(self, note_id: UUID, user_id: UUID) -> Optional[Note]:
+        """Find by ID with SELECT ... FOR UPDATE to prevent concurrent JSONB mutations."""
+        return (
+            self.db.query(Note)
+            .filter(Note.id == note_id, Note.user_id == user_id)
+            .with_for_update()
+            .first()
+        )
+
     def list_by_user(
         self,
         user_id: UUID,

@@ -9,11 +9,11 @@ Also provides authentication dependencies:
 
 from uuid import UUID
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.orm import Session
 
-from core.exceptions import AuthorizationError
+from core.exceptions import AuthenticationError, AuthorizationError
 
 from infrastructure.database.session import get_db
 from infrastructure.security.auth import decode_token, TokenData
@@ -34,9 +34,11 @@ from repositories.settings_repository import SettingsRepository
 from repositories.audit_log_repository import AuditLogRepository
 from repositories.document_repository import DocumentRepository
 from repositories.user_profile_repository import UserProfileRepository
+from repositories.dashboard_repository import DashboardRepository
 
 # ── Services ──────────────────────────────────────────────────────────────
 
+from infrastructure.cache.service import CacheService
 from services.auth_service import AuthService
 from services.mission_service import MissionService
 from services.note_service import NoteService
@@ -45,6 +47,19 @@ from services.collection_service import CollectionService
 from services.emotional_engine import EmotionalEngine
 from services.settings_service import SettingsService
 from services.xp_service import XPService
+from services.chat_service import ChatService
+from services.dashboard_service import DashboardService
+from services.document_service import DocumentService
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Cache dependency
+# ═══════════════════════════════════════════════════════════════════════════
+
+def get_cache_service() -> CacheService:
+    """Provide the CacheService singleton via DI."""
+    from infrastructure.cache import cache_service
+    return cache_service
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -59,26 +74,14 @@ async def get_current_user_token(
 ) -> TokenData:
     """Extract and validate the JWT from the Authorization header."""
     if credentials is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Missing authentication token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthenticationError("Missing authentication token")
 
     token_data = decode_token(credentials.credentials)
     if token_data is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or expired token",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthenticationError("Invalid or expired token")
 
     if token_data.token_type != "access":
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid token type – access token required",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise AuthenticationError("Invalid token type – access token required")
 
     return token_data
 
@@ -86,19 +89,16 @@ async def get_current_user_token(
 async def get_current_user(
     token_data: TokenData = Depends(get_current_user_token),
     db: Session = Depends(get_db),
+    cache: CacheService = Depends(get_cache_service),
 ) -> User:
     """Resolve the full User ORM object from the validated JWT."""
     try:
         user_id = UUID(token_data.user_id)
     except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid user ID in token",
-        )
+        raise AuthenticationError("Invalid user ID in token")
 
     # L2 cache: try Redis first
-    from infrastructure.cache import cache_service
-    cached = cache_service.get_cached_user(str(user_id))
+    cached = cache.get_cached_user(str(user_id))
     if cached:
         user = db.get(User, user_id)
         if user is not None:
@@ -108,14 +108,11 @@ async def get_current_user(
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         log_warning(f"Token valid but user not found: {token_data.user_id}")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="User not found",
-        )
+        raise AuthenticationError("User not found")
 
     # Backfill cache
     try:
-        cache_service.set_cached_user(str(user_id), {
+        cache.set_cached_user(str(user_id), {
             "id": str(user.id),
             "username": user.username,
             "email": user.email,
@@ -204,6 +201,10 @@ def get_user_profile_repository(db: Session = Depends(get_db)) -> UserProfileRep
     return UserProfileRepository(db)
 
 
+def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardRepository:
+    return DashboardRepository(db)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Service factories
 # ═══════════════════════════════════════════════════════════════════════════
@@ -217,8 +218,9 @@ def get_auth_service(
 
 def get_mission_service(
     mission_repo: MissionRepository = Depends(get_mission_repository),
+    cache: CacheService = Depends(get_cache_service),
 ) -> MissionService:
-    return MissionService(mission_repo)
+    return MissionService(mission_repo, cache_service=cache)
 
 
 def get_note_service(
@@ -255,5 +257,28 @@ def get_settings_service(
 
 def get_xp_service(
     profile_repo: UserProfileRepository = Depends(get_user_profile_repository),
+    cache: CacheService = Depends(get_cache_service),
 ) -> XPService:
-    return XPService(profile_repo)
+    return XPService(profile_repo, cache_service=cache)
+
+
+def get_dashboard_service(
+    dashboard_repo: DashboardRepository = Depends(get_dashboard_repository),
+    emotional_engine: EmotionalEngine = Depends(get_emotional_engine),
+) -> DashboardService:
+    return DashboardService(dashboard_repo, emotional_engine)
+
+
+def get_document_service(
+    document_repo: DocumentRepository = Depends(get_document_repository),
+) -> DocumentService:
+    return DocumentService(document_repo)
+
+
+def get_chat_service(
+    xp: XPService = Depends(get_xp_service),
+    settings: SettingsService = Depends(get_settings_service),
+    cache: CacheService = Depends(get_cache_service),
+) -> ChatService:
+    from services.chat_history_service import chat_history_service
+    return ChatService(chat_history_service, xp, settings, cache)

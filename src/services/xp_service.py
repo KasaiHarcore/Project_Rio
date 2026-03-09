@@ -22,7 +22,9 @@ XP sources
 from __future__ import annotations
 
 import math
+from typing import Optional
 
+from infrastructure.cache.service import CacheService
 from repositories.user_profile_repository import UserProfileRepository
 from utils.log import log_info
 
@@ -30,8 +32,9 @@ from utils.log import log_info
 class XPService:
     """Service for managing user XP, levels, and progress."""
 
-    def __init__(self, profile_repo: UserProfileRepository) -> None:
+    def __init__(self, profile_repo: UserProfileRepository, cache_service: Optional[CacheService] = None) -> None:
         self._repo = profile_repo
+        self._cache = cache_service
 
     # -- Pure computation helpers (no DB) --
 
@@ -88,11 +91,11 @@ class XPService:
             log_info(f"[XP] user={user_id} leveled up! {old_level} -> {new_level} (+{amount} XP, reason={reason})")
 
         # Write-through: update Redis cache immediately
-        try:
-            from infrastructure.cache import cache_service
-            cache_service.set_cached_xp(str(user_id), profile.xp)
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                self._cache.set_cached_xp(str(user_id), profile.xp)
+            except Exception:
+                pass
 
         return profile.xp
 
@@ -102,22 +105,22 @@ class XPService:
         Uses Redis L2 cache (10 min TTL) to avoid repeated Postgres lookups.
         """
         uid_str = str(user_id)
-        try:
-            from infrastructure.cache import cache_service
-            cached = cache_service.get_cached_xp(uid_str)
-            if cached is not None:
-                return int(cached)
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                cached = self._cache.get_cached_xp(uid_str)
+                if cached is not None:
+                    return int(cached)
+            except Exception:
+                pass
 
         xp = self._repo.get_xp(user_id)
 
         # Backfill cache
-        try:
-            from infrastructure.cache import cache_service as cs
-            cs.set_cached_xp(uid_str, xp)
-        except Exception:
-            pass
+        if self._cache:
+            try:
+                self._cache.set_cached_xp(uid_str, xp)
+            except Exception:
+                pass
 
         return xp
 
@@ -128,6 +131,21 @@ class XPService:
 
 
 # ── Module-level convenience functions (backwards compatibility) ──────────
+
+def award_xp(db, user_id, amount: int, reason: str = "") -> int:
+    """Convenience wrapper: award XP using a raw db session."""
+    from repositories.user_profile_repository import UserProfileRepository
+    repo = UserProfileRepository(db)
+    svc = XPService(repo)
+    return svc.award_xp(user_id, amount, reason)
+
+
+def get_user_xp(db, user_id) -> int:
+    """Convenience wrapper: get user XP using a raw db session."""
+    from repositories.user_profile_repository import UserProfileRepository
+    repo = UserProfileRepository(db)
+    svc = XPService(repo)
+    return svc.get_user_xp(user_id)
 
 def xp_for_level(level: int) -> int:
     """Cumulative XP required to *reach* ``level`` (from level 1)."""

@@ -14,18 +14,17 @@ from __future__ import annotations
 from typing import List, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import Response
 
 from core.concurrency import concurrency_manager
-from core.dependencies import get_current_user
+from core.dependencies import get_current_user, get_artifact_service
+from core.exceptions import NotFoundError
 from services.artifact_service import ArtifactService
 from models.user import User
 from schemas.artifact import ArtifactCreate, ArtifactUpdate, ArtifactInDB
 
 router = APIRouter(prefix="/artifacts", tags=["artifacts"])
-
-_svc = ArtifactService()
 
 # MIME types for download
 _MIME_MAP = {
@@ -45,10 +44,11 @@ async def list_artifacts(
     limit: int = Query(50, ge=1, le=200),
     offset: int = Query(0, ge=0),
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """List artifacts for the authenticated user."""
     return await concurrency_manager.run_in_thread(
-        _svc.list_artifacts,
+        svc.list_artifacts,
         user.id,
         thread_id=thread_id,
         artifact_type=artifact_type,
@@ -63,9 +63,10 @@ async def list_artifacts(
 async def create_artifact(
     body: ArtifactCreate,
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """Create a new artifact."""
-    return await concurrency_manager.run_in_thread(_svc.create_artifact, user.id, body)
+    return await concurrency_manager.run_in_thread(svc.create_artifact, user.id, body)
 
 
 # -- Get --
@@ -74,11 +75,12 @@ async def create_artifact(
 async def get_artifact(
     artifact_id: UUID,
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """Get a single artifact by ID."""
-    a = await concurrency_manager.run_in_thread(_svc.get_artifact, user.id, artifact_id)
+    a = await concurrency_manager.run_in_thread(svc.get_artifact, user.id, artifact_id)
     if not a:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+        raise NotFoundError("Artifact not found")
     return a
 
 
@@ -89,11 +91,12 @@ async def update_artifact(
     artifact_id: UUID,
     body: ArtifactUpdate,
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """Partially update an artifact."""
-    a = await concurrency_manager.run_in_thread(_svc.update_artifact, user.id, artifact_id, body)
+    a = await concurrency_manager.run_in_thread(svc.update_artifact, user.id, artifact_id, body)
     if not a:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+        raise NotFoundError("Artifact not found")
     return a
 
 
@@ -103,11 +106,12 @@ async def update_artifact(
 async def delete_artifact(
     artifact_id: UUID,
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """Delete an artifact."""
-    deleted = await concurrency_manager.run_in_thread(_svc.delete_artifact, user.id, artifact_id)
+    deleted = await concurrency_manager.run_in_thread(svc.delete_artifact, user.id, artifact_id)
     if not deleted:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+        raise NotFoundError("Artifact not found")
 
 
 # -- Download --
@@ -116,11 +120,12 @@ async def delete_artifact(
 async def download_artifact(
     artifact_id: UUID,
     user: User = Depends(get_current_user),
+    svc: ArtifactService = Depends(get_artifact_service),
 ):
     """Download artifact content as a file."""
-    a = await concurrency_manager.run_in_thread(_svc.get_artifact, user.id, artifact_id)
+    a = await concurrency_manager.run_in_thread(svc.get_artifact, user.id, artifact_id)
     if not a:
-        raise HTTPException(status.HTTP_404_NOT_FOUND, "Artifact not found")
+        raise NotFoundError("Artifact not found")
 
     content_type = _MIME_MAP.get(a.artifact_type, "application/octet-stream")
     return Response(
