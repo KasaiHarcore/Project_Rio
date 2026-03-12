@@ -34,7 +34,7 @@ from utils.log import log_info, log_success, log_error, log_warning
 from infrastructure.rag.ingestion import IngestionService
 from infrastructure.rag.retrieval import RetrievalService
 from infrastructure.rag.rerank import RerankService
-from core.settings import get_vectordb_config
+from core.settings import get_vectordb_config, get_neo4j_config
 
 class VectorDBTool:
 	SUPPORTED_EXTENSIONS = {".txt", ".md", ".pdf", ".json", ".csv", ".html", ".htm", ".docx"}
@@ -98,6 +98,7 @@ class VectorDBTool:
 		self._ingestion_service: Optional[IngestionService] = None
 		self._retrieval_service: Optional[RetrievalService] = None
 		self._rerank_service: Optional[RerankService] = None
+		self._graph_db_tool = None  # GraphDBTool (lazy, opt-in)
 		self._initialized = False
 
 		# Storage directory created lazily in _ensure_initialized()
@@ -287,7 +288,7 @@ class VectorDBTool:
 				raise
 
 	def _init_services(self) -> None:
-		"""Initialize ingestion, retrieval, and rerank services."""
+		"""Initialize ingestion, retrieval, rerank, and (optionally) graph services."""
 		self._rerank_service = RerankService(
 			vectorstore=self._vectorstore,
 			score_threshold=self.retrieval_score_threshold,
@@ -305,6 +306,17 @@ class VectorDBTool:
 			supported_extensions=self.SUPPORTED_EXTENSIONS,
 			default_batch_size=self.DEFAULT_BATCH_SIZE,
 		)
+
+		# Initialize Neo4j graph tool if enabled
+		neo4j_config = get_neo4j_config()
+		if neo4j_config.enabled:
+			try:
+				from infrastructure.tools.neo4j_tool import get_graph_db_tool
+				self._graph_db_tool = get_graph_db_tool()
+				log_info("Neo4j GraphDBTool attached to VectorDBTool")
+			except Exception as e:
+				log_warning(f"Neo4j init skipped: {e}")
+				self._graph_db_tool = None
 
 	def get_collection_info(self) -> Dict[str, Any]:
 		"""Return collection metadata for status and diagnostics."""
@@ -367,16 +379,59 @@ class VectorDBTool:
 	) -> str:
 		"""
 		Ingest a document file into the knowledge base.
+		Also triggers Neo4j entity extraction if enabled.
 		"""
 		self._ensure_initialized()
 		if not self._ingestion_service:
 			raise RuntimeError("Ingestion service is not initialized")
-		return self._ingestion_service.ingest_file(
+		result = self._ingestion_service.ingest_file(
 			file_path,
 			chunking_strategy=chunking_strategy,
 			source_name=source_name,
 			metadata=metadata,
 		)
+
+		# Trigger Neo4j graph extraction if enabled
+		if self._graph_db_tool and self._graph_db_tool.enabled:
+			try:
+				self._extract_to_graph(file_path, metadata)
+			except Exception as e:
+				log_warning(f"Graph extraction skipped for {file_path}: {e}")
+
+		return result
+
+	def _extract_to_graph(
+		self,
+		file_path: str,
+		metadata: Optional[Dict[str, Any]] = None,
+	) -> None:
+		"""Extract entities from a file and store in Neo4j graph."""
+		from langchain_core.documents import Document
+		from pathlib import Path
+
+		path = Path(file_path)
+		try:
+			content = path.read_text(encoding="utf-8")
+		except UnicodeDecodeError:
+			content = path.read_text(encoding="utf-8", errors="ignore")
+
+		if not content.strip():
+			return
+
+		# Create LangChain Documents for graph extraction
+		# Use the same chunking as vector ingestion for consistency
+		splitter = self._ingestion_service.get_chunking_strategy("recursive")
+		chunks = splitter.split_text(content)
+
+		base_meta = metadata or {}
+		base_meta.setdefault("source", str(path))
+		documents = [
+			Document(page_content=chunk, metadata={**base_meta, "chunk": i})
+			for i, chunk in enumerate(chunks)
+		]
+
+		graph_result = self._graph_db_tool.extract_and_store(documents, metadata=base_meta)
+		log_info(f"Graph extraction: {graph_result}")
 
 	def ingest_directory(
 		self,
@@ -436,9 +491,20 @@ class VectorDBTool:
 		deleted = getattr(result, "deleted", None)
 		if deleted is None:
 			log_success("Vector deletion request submitted")
-			return 0
-		log_success(f"Deleted {deleted} vectors for document_id={document_id}")
-		return int(deleted)
+			deleted = 0
+		else:
+			deleted = int(deleted)
+			log_success(f"Deleted {deleted} vectors for document_id={document_id}")
+
+		# Also clean up Neo4j graph data if enabled
+		if self._graph_db_tool and self._graph_db_tool.enabled:
+			try:
+				graph_deleted = self._graph_db_tool.delete_document_graph(document_id)
+				log_info(f"Deleted {graph_deleted} graph nodes for document_id={document_id}")
+			except Exception as e:
+				log_warning(f"Graph cleanup failed for document_id={document_id}: {e}")
+
+		return deleted
 
 
 _vector_db_tool_instance: Optional[VectorDBTool] = None

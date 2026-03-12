@@ -39,6 +39,8 @@ dependencies = [
   "websockets",
   "cryptography",
   "prometheus-fastapi-instrumentator",
+  "langchain-neo4j",
+  "langchain-experimental",
 ]
 
 [dependency-groups]

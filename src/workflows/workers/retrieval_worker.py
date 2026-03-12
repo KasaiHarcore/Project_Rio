@@ -24,6 +24,7 @@ from workflows.state import (
 from workflows.workers.base import BaseWorker
 from infrastructure.tools.qdrant_tool import get_vector_db_tool
 from infrastructure.rag.extra_tool import hyde_search, rewrite_search
+from core.settings import get_neo4j_config
 from utils.log import log_info, log_debug, log_warning
 
 
@@ -116,8 +117,23 @@ class RetrievalWorker(BaseWorker):
                 vector_db._rerank_service.set_user_api_key(user_cohere_key)
 
         try:
+            # Check if Neo4j GraphRAG fusion is enabled
+            neo4j_config = get_neo4j_config()
+            use_graph_rag = neo4j_config.enabled and strategy == "standard"
+
             # Route to the appropriate search strategy
-            if strategy == "hyde":
+            if use_graph_rag:
+                log_info("Using GraphRAG hybrid retrieval (Qdrant + Neo4j)")
+                from infrastructure.rag.graph_rag import GraphRAGService
+                from infrastructure.tools.neo4j_tool import get_graph_db_tool
+                graph_rag = GraphRAGService(
+                    vector_db_tool=get_vector_db_tool(),
+                    graph_db_tool=get_graph_db_tool(),
+                )
+                results = graph_rag.hybrid_search(
+                    query=search_query, k=self.top_k, user_id=user_id,
+                )
+            elif strategy == "hyde":
                 log_info("Using HyDE retrieval strategy")
                 results = hyde_search(question=search_query, k=self.top_k, user_id=user_id)
             elif strategy == "rewrite":

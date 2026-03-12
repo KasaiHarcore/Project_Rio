@@ -277,6 +277,28 @@ class RedisConfig:
 
 
 @dataclass
+class Neo4jConfig:
+	"""Neo4j graph database configuration."""
+
+	uri: str = "bolt://localhost:7687"
+	username: str = "neo4j"
+	password: str = "password"
+	database: str = "neo4j"
+	enabled: bool = False  # opt-in, no breaking change
+
+	@classmethod
+	def from_env(cls) -> "Neo4jConfig":
+		"""Create configuration from environment variables."""
+		return cls(
+			uri=_env_str("NEO4J_URI", "bolt://localhost:7687"),
+			username=_env_str("NEO4J_USERNAME", "neo4j"),
+			password=_env_str("NEO4J_PASSWORD", "password"),
+			database=_env_str("NEO4J_DATABASE", "neo4j"),
+			enabled=_env_bool("NEO4J_ENABLED", "False"),
+		)
+
+
+@dataclass
 class AppConfig:
 	"""Application-wide configuration"""
 
@@ -504,6 +526,7 @@ _vectordb_config: Optional[VectorDBConfig] = None
 _redis_config: Optional[RedisConfig] = None
 _oauth_config: Optional[OAuthConfig] = None
 _cors_config: Optional[CorsConfig] = None
+_neo4j_config: Optional[Neo4jConfig] = None
 _concurrency_config: Optional[ConcurrencyConfig] = None
 _dotenv_loaded: bool = False
 
@@ -574,6 +597,15 @@ def get_cors_config() -> CorsConfig:
 		_ensure_dotenv()
 		_cors_config = CorsConfig.from_env()
 	return _cors_config
+
+
+def get_neo4j_config() -> Neo4jConfig:
+	"""Get or create Neo4j configuration."""
+	global _neo4j_config
+	if _neo4j_config is None:
+		_ensure_dotenv()
+		_neo4j_config = Neo4jConfig.from_env()
+	return _neo4j_config
 
 
 def get_concurrency_config() -> ConcurrencyConfig:
