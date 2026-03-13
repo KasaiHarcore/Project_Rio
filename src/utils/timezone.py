@@ -14,14 +14,10 @@ __all__ = [
     "as_local",
 ]
 
-# ── Constants ────────────────────────────────────────────────────────────────
-
 UTC: tzinfo = timezone.utc
 
 _tz_name: str = os.getenv("APP_TIMEZONE", "UTC").strip() or "UTC"
 APP_TZ: tzinfo = ZoneInfo(_tz_name)
-
-# ── Helpers ──────────────────────────────────────────────────────────────────
 
 
 def utc_now() -> datetime:

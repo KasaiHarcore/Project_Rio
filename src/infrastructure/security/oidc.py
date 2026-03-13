@@ -24,8 +24,9 @@ GOOGLE_DISCOVERY_URL = "https://accounts.google.com/.well-known/openid-configura
 class OIDCDiscovery:
     """Fetch and cache OIDC JWKS for a given issuer."""
 
-    @staticmethod
+    @classmethod
     async def get_jwks(
+        cls,
         issuer_url: str = GOOGLE_DISCOVERY_URL,
         cache_ttl: int = 3600,
     ) -> List[Dict[str, Any]]:

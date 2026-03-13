@@ -18,8 +18,8 @@ from utils.log import log_info, log_success, log_error, log_warning
 class MarkdownFormatter:
 	"""Utility for normalizing extracted content into Markdown."""
 
-	@staticmethod
-	def normalize_text(text: str) -> str:
+	@classmethod
+	def normalize_text(cls, text: str) -> str:
 		cleaned = (text or "").replace("\r\n", "\n").replace("\r", "\n").strip()
 		# Collapse excessive blank lines to at most two
 		lines = [line.rstrip() for line in cleaned.split("\n")]
@@ -35,8 +35,8 @@ class MarkdownFormatter:
 				result.append(line)
 		return "\n".join(result).strip()
 
-	@staticmethod
-	def wrap_pages(pages: Iterable[tuple[int, str]], *, source_name: str) -> str:
+	@classmethod
+	def wrap_pages(cls, pages: Iterable[tuple[int, str]], *, source_name: str) -> str:
 		parts = [f"# {source_name}", ""]
 		for page_num, page_text in pages:
 			parts.append(f"## Page {page_num}")
@@ -45,13 +45,13 @@ class MarkdownFormatter:
 			parts.append("")
 		return "\n".join(parts).strip()
 
-	@staticmethod
-	def json_to_markdown(data: Any) -> str:
+	@classmethod
+	def json_to_markdown(cls, data: Any) -> str:
 		payload = json.dumps(data, ensure_ascii=False, indent=2)
 		return f"```json\n{payload}\n```"
 
-	@staticmethod
-	def csv_to_markdown(rows: List[List[str]]) -> str:
+	@classmethod
+	def csv_to_markdown(cls, rows: List[List[str]]) -> str:
 		if not rows:
 			return ""
 		col_count = max(len(r) for r in rows)
@@ -67,16 +67,16 @@ class MarkdownFormatter:
 		parts.extend(row_to_md(r) for r in body)
 		return "\n".join(parts)
 
-	@staticmethod
-	def html_to_markdown(raw_html: str) -> str:
+	@classmethod
+	def html_to_markdown(cls, raw_html: str) -> str:
 		return f"```html\n{raw_html.strip()}\n```"
 
-	@staticmethod
-	def plain_to_markdown(text: str) -> str:
+	@classmethod
+	def plain_to_markdown(cls, text: str) -> str:
 		return MarkdownFormatter.normalize_text(text)
 
-	@staticmethod
-	def docx_to_markdown(paragraphs: List[str]) -> str:
+	@classmethod
+	def docx_to_markdown(cls, paragraphs: List[str]) -> str:
 		return "\n\n".join(MarkdownFormatter.normalize_text(p) for p in paragraphs if p.strip())
 
 
@@ -602,16 +602,14 @@ class IngestionService:
 			log_error(f"File size validation failed for {path.name}: {e}")
 			raise
 
-	@staticmethod
-	def _read_text_utf8(path: Path) -> str:
+	def _read_text_utf8(self, path: Path) -> str:
 		"""Read text using UTF-8 (with BOM support)."""
 		try:
 			return path.read_text(encoding="utf-8-sig")
 		except Exception as e:
 			raise ValueError(f"Unsupported encoding or unreadable file: {e}")
 
-	@staticmethod
-	def _parse_json_lines(text: str) -> Optional[Any]:
+	def _parse_json_lines(self, text: str) -> Optional[Any]:
 		"""Attempt to parse JSON Lines; return None if parsing fails."""
 		lines = [line.strip() for line in text.splitlines() if line.strip()]
 		if not lines:

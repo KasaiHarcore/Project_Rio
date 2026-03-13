@@ -146,8 +146,7 @@ class NoteWorker(BaseWorker):
 
     # ── Helpers ──────────────────────────────────────────────────────────────
 
-    @staticmethod
-    def _recent_history(state: AgentState, max_turns: int = 6) -> str:
+    def _recent_history(self, state: AgentState, max_turns: int = 6) -> str:
         """Build a short text summary of recent conversation turns."""
         msgs: list[BaseMessage] = list(state.get("messages") or [])
         if not msgs:
@@ -161,8 +160,7 @@ class NoteWorker(BaseWorker):
             parts.append(f"[{role}] {content}")
         return "\n".join(parts)
 
-    @staticmethod
-    def _parse_notes(raw: str) -> List[Dict[str, Any]]:
+    def _parse_notes(self, raw: str) -> List[Dict[str, Any]]:
         """Parse the LLM output into a list of note dicts.
 
         Handles markdown code fences and minor formatting issues.

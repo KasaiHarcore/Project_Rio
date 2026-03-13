@@ -45,11 +45,6 @@ from workflows.state import (
 if TYPE_CHECKING:
     from core.settings import AgentConfig
 
-
-# =============================================================================
-# Supervisor Prompts
-# =============================================================================
-
 SUPERVISOR_SYSTEM_PROMPT = """I am the Supervisor agent — the central decision-maker in a multi-agent system. I assist Sensei with their studies, research, and daily tasks.
 
 ## My Role
@@ -205,22 +200,12 @@ RESPONSE_PROMPT = """I will now generate a final answer for Sensei based on the 
 ## My Response
 """
 
-
-# =============================================================================
-# Pydantic Models for Structured Output
-# =============================================================================
-
 class RouterDecision(BaseModel):
     """Structured decision from the supervisor router."""
     action: str = Field(description="Action to take: DELEGATE, RESPOND, or CLARIFY")
     worker: Optional[str] = Field(default=None, description="Worker to delegate to if action is DELEGATE")
     confidence: float = Field(default=1.0, ge=0.0, le=1.0, description="Confidence in decision")
     reasoning: str = Field(default="", description="Explanation for the decision")
-
-
-# =============================================================================
-# Supervisor Agent Class
-# =============================================================================
 
 class SupervisorAgent:
     """
@@ -248,7 +233,6 @@ class SupervisorAgent:
         character_id = config.character if config else None
         self._persona = get_persona(character_id)
 
-    # Prompt templates are now static (no persona formatting needed).
     @property
     def _system_prompt(self) -> str:
         return SUPERVISOR_SYSTEM_PROMPT
@@ -291,8 +275,8 @@ class SupervisorAgent:
             self._llm = form.SELECTED_MODEL.llm
         return self._llm
 
-    @staticmethod
     def _get_history_messages(
+        self,
         state: "AgentState",
         max_messages: int = 20,
     ) -> List[BaseMessage]:

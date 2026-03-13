@@ -178,7 +178,7 @@ async def chat_stream(
         final_stats = None
 
         try:
-            for event in AgentService.stream_query(
+            for event in AgentService().stream_query(
                 question=prep.effective_question,
                 config=prep.config,
                 history=prep.history,

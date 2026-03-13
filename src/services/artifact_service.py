@@ -27,8 +27,6 @@ class ArtifactService:
     def __init__(self, artifact_repo: ArtifactRepository) -> None:
         self._repo = artifact_repo
 
-    # -- Read --
-
     def list_artifacts(
         self,
         user_id: UUID,
@@ -65,8 +63,6 @@ class ArtifactService:
             versions.append(ArtifactInDB.model_validate(row))
             current_id = row.parent_id
         return versions
-
-    # -- Create --
 
     def create_artifact(self, user_id: UUID, data: ArtifactCreate) -> ArtifactInDB:
         """Create a new artifact."""
@@ -121,8 +117,6 @@ class ArtifactService:
             log_info(f"Agent-created artifact {artifact.id}: {name}")
         return created
 
-    # -- Update --
-
     def update_artifact(self, user_id: UUID, artifact_id: UUID, data: ArtifactUpdate) -> Optional[ArtifactInDB]:
         """Partially update an artifact."""
         artifact = self._repo.find_by_id(artifact_id=artifact_id, user_id=user_id)
@@ -135,8 +129,6 @@ class ArtifactService:
 
         self._repo.flush()
         return ArtifactInDB.model_validate(artifact)
-
-    # -- Delete --
 
     def delete_artifact(self, user_id: UUID, artifact_id: UUID) -> bool:
         """Delete an artifact. Returns True if deleted."""

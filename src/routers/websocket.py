@@ -201,7 +201,7 @@ async def _handle_chat_message(
     try:
         # Run the agent in a thread (it's sync/generator-based)
         def _stream_events():
-            return list(AgentService.stream_query(
+            return list(AgentService().stream_query(
                 question=content,
                 config=config,
                 history=[],

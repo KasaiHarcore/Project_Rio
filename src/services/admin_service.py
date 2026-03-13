@@ -10,8 +10,7 @@ import models  # noqa: F401 - register models with Base
 
 
 class AdminService:
-    @staticmethod
-    def reset_database() -> bool:
+    def reset_database(self) -> bool:
         """
         Completely reset the system:
         1. Drop all SQL tables
@@ -25,6 +24,22 @@ class AdminService:
             # 1. Reset SQL Database
             log_info("Dropping all database tables...")
             Base.metadata.drop_all(engine)
+
+            # drop_all removes tables but leaves PostgreSQL enum types behind.
+            # They must be dropped explicitly so create_all can recreate them
+            # with the current Python enum values.
+            from sqlalchemy import text
+            with engine.connect() as conn:
+                rows = conn.execute(text(
+                    "SELECT typname FROM pg_type "
+                    "WHERE typcategory = 'E' "
+                    "AND typnamespace = (SELECT oid FROM pg_namespace WHERE nspname = 'public')"
+                )).fetchall()
+                for (enum_name,) in rows:
+                    log_info(f"Dropping orphaned enum type '{enum_name}'")
+                    conn.execute(text(f'DROP TYPE IF EXISTS "{enum_name}" CASCADE'))
+                conn.commit()
+
             log_info("Recreating all database tables...")
             Base.metadata.create_all(engine)
             log_success("SQL database reset successfully")

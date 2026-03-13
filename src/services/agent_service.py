@@ -31,8 +31,8 @@ class AgentService:
     - Statistics collection
     """
     
-    @staticmethod
     def execute_query(
+        self,
         question: str,
         config: Optional[AgentConfig] = None,
         history: Optional[List[Dict[str, Any]]] = None,
@@ -94,8 +94,8 @@ class AgentService:
             "run_id": stats.get("run_id"),
         }
 
-    @staticmethod
     def stream_query(
+        self,
         question: str,
         config: Optional[AgentConfig] = None,
         history: Optional[List[Dict[str, Any]]] = None,

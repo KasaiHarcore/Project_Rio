@@ -65,7 +65,7 @@ export function Sidebar({ className, ...props }: SidebarProps) {
         {
             title: "SYSTEM",
             items: [
-                { href: '/docs', label: 'Manual', icon: <Book size={20} />, active: pathname.startsWith('/docs') },
+                { id: 'manual', href: '/docs', label: 'Manual', icon: <Book size={20} />, active: pathname.startsWith('/docs') },
                 { href: '/logs', label: 'Logs', icon: <Terminal size={20} />, active: pathname.startsWith('/logs') },
                 { id: 'settings', label: 'Settings', icon: <Settings size={20} />, action: () => setIsSettingsOpen(true) },
             ]

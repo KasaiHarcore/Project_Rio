@@ -20,6 +20,9 @@ from routers.settings import router as settings_router
 from routers.oauth import router as oauth_router
 from routers.jwks import router as jwks_router
 from routers.websocket import router as websocket_router
+from routers.admin import router as admin_router
+from routers.search import router as search_router
+from routers.ingest import router as ingest_router
 
 v1_router = APIRouter()
 
@@ -41,5 +44,8 @@ v1_router.include_router(logs_router)
 v1_router.include_router(settings_router)
 v1_router.include_router(jwks_router)
 v1_router.include_router(websocket_router)
+v1_router.include_router(admin_router)
+v1_router.include_router(search_router)
+v1_router.include_router(ingest_router)
 
 __all__ = ["v1_router"]

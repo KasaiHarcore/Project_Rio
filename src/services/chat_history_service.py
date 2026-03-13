@@ -279,9 +279,6 @@ class ChatHistoryService:
         if summary_message:
             cutoff_time = summary_message.created_at
             messages = [m for m in messages if not cutoff_time or (m.created_at and m.created_at > cutoff_time)]
-        # No summary message exists -- this thread has never been compacted.
-        # We simply continue without a summary prefix; the window-based
-        # selection below will return the most recent messages.
 
         # Keep last window_rounds user messages (and their surrounding assistant/tool messages)
         buffer: List[ChatMessageRecord] = []

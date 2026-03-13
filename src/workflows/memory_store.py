@@ -261,23 +261,23 @@ def get_memory_store(enable_semantic_search: bool = True) -> Any:
 class MemoryNamespace:
     """Standard namespace patterns for organizing memories."""
     
-    @staticmethod
-    def user_memories(user_id: str) -> Tuple[str, str]:
+    @classmethod
+    def user_memories(cls, user_id: str) -> Tuple[str, str]:
         """Namespace for user-specific memories (preferences, facts)."""
         return (user_id, "memories")
-    
-    @staticmethod
-    def user_preferences(user_id: str) -> Tuple[str, str]:
+
+    @classmethod
+    def user_preferences(cls, user_id: str) -> Tuple[str, str]:
         """Namespace for user preferences."""
         return (user_id, "preferences")
-    
-    @staticmethod
-    def conversation_facts(user_id: str, thread_id: str) -> Tuple[str, str, str]:
+
+    @classmethod
+    def conversation_facts(cls, user_id: str, thread_id: str) -> Tuple[str, str, str]:
         """Namespace for facts extracted from a specific conversation."""
         return (user_id, "facts", thread_id)
-    
-    @staticmethod
-    def agent_instructions(agent_name: str = "default") -> Tuple[str, str]:
+
+    @classmethod
+    def agent_instructions(cls, agent_name: str = "default") -> Tuple[str, str]:
         """Namespace for procedural memory (agent instructions)."""
         return ("agent_instructions", agent_name)
 
