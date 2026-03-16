@@ -17,9 +17,6 @@ from pydantic import BaseModel, Field
 
 T = TypeVar("T")
 
-
-# ── Error detail ────────────────────────────────────────────────────────────
-
 class ErrorDetail(BaseModel):
     """Structured error detail returned in API error responses."""
 
@@ -27,9 +24,6 @@ class ErrorDetail(BaseModel):
     message: str = Field(..., description="Human-readable error message")
     details: Optional[dict[str, Any]] = Field(None, description="Additional debug context")
     request_id: Optional[str] = Field(None, description="Request correlation ID")
-
-
-# ── Response metadata ───────────────────────────────────────────────────────
 
 class ResponseMeta(BaseModel):
     """Metadata attached to every API response."""
@@ -40,9 +34,6 @@ class ResponseMeta(BaseModel):
         description="Server-side UTC timestamp",
     )
     duration_ms: Optional[float] = Field(None, description="Request processing time (ms)")
-
-
-# ── Pagination ──────────────────────────────────────────────────────────────
 
 class PaginationMeta(BaseModel):
     """Pagination details for list endpoints."""
@@ -67,9 +58,6 @@ class PaginationMeta(BaseModel):
             has_prev=page > 1,
         )
 
-
-# ── Generic API response ───────────────────────────────────────────────────
-
 class ApiResponse(BaseModel, Generic[T]):
     """Standard API response wrapper.
 
@@ -89,9 +77,6 @@ class ApiResponse(BaseModel, Generic[T]):
     data: Optional[T] = Field(None, description="Response payload")
     error: Optional[ErrorDetail] = Field(None, description="Error details (on failure)")
     meta: Optional[ResponseMeta] = Field(None, description="Request metadata")
-
-
-# ── Paginated response ─────────────────────────────────────────────────────
 
 class PaginatedResponse(BaseModel, Generic[T]):
     """Paginated API response for list endpoints.

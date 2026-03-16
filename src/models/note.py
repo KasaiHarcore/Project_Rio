@@ -3,8 +3,6 @@
 Notes are created either by the agent (auto-extracted from conversations)
 or manually by the user.  Each note links to the conversation thread that
 spawned it and is automatically deleted when the thread is removed.
-
-V2 additions: title, is_important, collection_id, blocks (JSONB), audio (JSONB).
 """
 
 from typing import List, Optional
@@ -95,7 +93,7 @@ class Note(Base, TimestampMixin):
     )
 
     source: Mapped[NoteSource] = mapped_column(
-        SQLEnum(NoteSource),
+        SQLEnum(NoteSource, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=NoteSource.AGENT,
     )

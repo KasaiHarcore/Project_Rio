@@ -23,6 +23,8 @@ from routers.websocket import router as websocket_router
 from routers.admin import router as admin_router
 from routers.search import router as search_router
 from routers.ingest import router as ingest_router
+from routers.note_link import router as note_link_router
+from routers.os_control import router as os_control_router
 
 v1_router = APIRouter()
 
@@ -47,5 +49,7 @@ v1_router.include_router(websocket_router)
 v1_router.include_router(admin_router)
 v1_router.include_router(search_router)
 v1_router.include_router(ingest_router)
+v1_router.include_router(note_link_router)
+v1_router.include_router(os_control_router)
 
 __all__ = ["v1_router"]

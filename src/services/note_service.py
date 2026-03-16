@@ -26,8 +26,13 @@ from utils.log import log_info, log_warning
 class NoteService:
     """Service for note CRUD operations."""
 
-    def __init__(self, note_repo: NoteRepository) -> None:
+    def __init__(
+        self,
+        note_repo: NoteRepository,
+        note_link_service: Optional[object] = None,
+    ) -> None:
         self._repo = note_repo
+        self._link_service = note_link_service
 
     def _save_note_to_disk(self, note: Note) -> None:
         try:
@@ -101,6 +106,7 @@ class NoteService:
         )
         self._repo.create(note)
         self._save_note_to_disk(note)
+        self._sync_links(user_id, note.id, note.content)
         log_info(f"Created note {note.id} for user {user_id}")
         return NoteInDB.model_validate(note)
 
@@ -167,6 +173,9 @@ class NoteService:
 
         self._repo.flush()
         self._save_note_to_disk(note)
+        # Re-sync links if content changed
+        if "content" in update_data:
+            self._sync_links(user_id, note_id, note.content)
         return NoteInDB.model_validate(note)
 
     def toggle_todo(self, user_id: UUID, note_id: UUID, todo_index: int) -> Optional[NoteInDB]:
@@ -186,6 +195,15 @@ class NoteService:
         return NoteInDB.model_validate(note)
 
     # -- Delete --
+
+    def _sync_links(self, user_id: UUID, note_id: UUID, content: str) -> None:
+        """Auto-sync note links from content if link service is available."""
+        if not self._link_service:
+            return
+        try:
+            self._link_service.sync_links_from_content(user_id, note_id, content)
+        except Exception as e:
+            log_warning(f"Failed to sync links for note {note_id}: {e}")
 
     def delete_note(self, user_id: UUID, note_id: UUID) -> bool:
         """Delete a note. Returns True if deleted."""

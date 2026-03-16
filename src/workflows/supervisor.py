@@ -79,6 +79,13 @@ SUPERVISOR_SYSTEM_PROMPT = """I am the Supervisor agent — the central decision
    - Use when Sensei says "create a task", "add a mission", "I need to do…", "my goal is…"
    - Also use when a study plan or project roadmap emerges that should be tracked long-term
    - NOT for transient notes or simple Q&A — only for actionable, trackable goals
+8. **OS_CONTROL** — executes operating system commands:
+   - Shell commands (ls, cat, git, python, etc.) in a persistent PTY session
+   - Browser automation (navigate, click, extract text, screenshot)
+   - GUI desktop control (click, type, hotkey, screenshot)
+   - All actions are risk-classified by tier (1-5) with automatic approval gates
+   - **ADMIN ONLY** — only delegate to OS_CONTROL if user_role is admin
+   - Use when Sensei asks to run a command, check system info, automate a browser task, or control the desktop
 
 ## CRITICAL: Respecting Sensei's Mode Selection
 Sensei has explicitly selected a MODE (rag/web/sql/chat). This is their INTENTIONAL CHOICE:
@@ -403,6 +410,14 @@ class SupervisorAgent:
                     action=SupervisorAction.RESPOND,
                     reasoning="SQL queries are restricted to admin users. Please contact an administrator for database access.",
                 )
+
+            # SECURITY CHECK: Block OS_CONTROL delegation for non-admin users
+            if decision.next_worker == WorkerType.OS_CONTROL and user_role != "admin":
+                log_warning(f"Blocked OS_CONTROL delegation for non-admin user (role={user_role})")
+                return SupervisorDecision(
+                    action=SupervisorAction.RESPOND,
+                    reasoning="OS control operations are restricted to admin users. Please contact an administrator.",
+                )
             
             log_success(f"Supervisor decided: {decision.action.value} -> {decision.next_worker}")
             return decision
@@ -518,6 +533,9 @@ class SupervisorAgent:
             "MEMORY": WorkerType.MEMORY,
             "NOTE": WorkerType.NOTE,
             "MISSION": WorkerType.MISSION,
+            "OS_CONTROL": WorkerType.OS_CONTROL,
+            "OS": WorkerType.OS_CONTROL,
+            "SHELL": WorkerType.OS_CONTROL,
         }
         return worker_map.get(value)
     

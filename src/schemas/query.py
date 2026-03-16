@@ -61,8 +61,8 @@ class ChatMessageRecordModel(BaseModel):
 	metadata: Optional[Dict[str, Any]] = Field(default=None, description="Optional metadata")
 	created_at: Optional[datetime] = Field(default=None, description="Optional timestamp")
 
-	@staticmethod
-	def _clean_content(value: str) -> str:
+	@classmethod
+	def _clean_content(cls, value: str) -> str:
 		return "\n".join([line.rstrip() for line in (value or "").strip().splitlines()]).strip()
 
 	def model_post_init(self, __context: Any) -> None:  # type: ignore[override]

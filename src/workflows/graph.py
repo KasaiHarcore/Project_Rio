@@ -73,6 +73,7 @@ from workflows.workers import (
     MemoryWorker,
     NoteWorker,
     MissionWorker,
+    OSControlWorker,
 )
 
 if TYPE_CHECKING:
@@ -91,6 +92,7 @@ NODE_SQL = "sql_worker"
 NODE_MEMORY = "memory_worker"
 NODE_NOTE = "note_worker"
 NODE_MISSION = "mission_worker"
+NODE_OS_CONTROL = "os_control_worker"
 NODE_SYNTHESIZE = "synthesize"
 NODE_HUMAN_CHECK = "human_check"
 NODE_INPUT_GUARDRAIL = "input_guardrail"
@@ -634,7 +636,9 @@ def route_supervisor(state: AgentState) -> str:
             return NODE_NOTE
         if worker == WorkerType.MISSION:
             return NODE_MISSION
-    
+        if worker == WorkerType.OS_CONTROL:
+            return NODE_OS_CONTROL
+
     # Default: synthesize
     return NODE_SYNTHESIZE
 
@@ -729,6 +733,7 @@ def build_workflow_graph(
     graph.add_node(NODE_MEMORY, create_worker_node(MemoryWorker, config))
     graph.add_node(NODE_NOTE, create_note_worker_node(config))
     graph.add_node(NODE_MISSION, create_worker_node(MissionWorker, config))
+    graph.add_node(NODE_OS_CONTROL, create_worker_node(OSControlWorker, config))
     graph.add_node(NODE_SYNTHESIZE, create_synthesize_node(supervisor, store=store))
     graph.add_node(NODE_HUMAN_CHECK, human_check_node)
 
@@ -773,6 +778,7 @@ def build_workflow_graph(
             NODE_MEMORY: NODE_MEMORY,
             NODE_NOTE: NODE_NOTE,
             NODE_MISSION: NODE_MISSION,
+            NODE_OS_CONTROL: NODE_OS_CONTROL,
             NODE_SYNTHESIZE: NODE_SYNTHESIZE,
             NODE_HUMAN_CHECK: NODE_HUMAN_CHECK,
         },
@@ -806,6 +812,11 @@ def build_workflow_graph(
     )
     graph.add_conditional_edges(
         NODE_MISSION,
+        route_after_worker,
+        {NODE_SUPERVISOR: NODE_SUPERVISOR, NODE_SYNTHESIZE: NODE_SYNTHESIZE},
+    )
+    graph.add_conditional_edges(
+        NODE_OS_CONTROL,
         route_after_worker,
         {NODE_SUPERVISOR: NODE_SUPERVISOR, NODE_SYNTHESIZE: NODE_SYNTHESIZE},
     )
