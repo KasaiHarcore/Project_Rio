@@ -38,7 +38,9 @@ class WorkerType(str, Enum):
     SQL = "sql"
     MEMORY = "memory"
     NOTE = "note"
+    NOTE_RETRIEVAL = "note_retrieval"
     MISSION = "mission"
+    OS_CONTROL = "os_control"
 
 
 class SupervisorAction(str, Enum):

@@ -1,7 +1,7 @@
 "use client"
 
 import React from "react"
-import { cn } from "@/lib/utils"
+import { cn } from "@/shared/lib/utils"
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger" | "outline"
 type ButtonSize = "sm" | "md" | "lg" | "icon"

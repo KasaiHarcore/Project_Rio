@@ -2,7 +2,7 @@
 
 import React, { useRef } from 'react'
 import { motion, useMotionTemplate, useMotionValue } from 'framer-motion'
-import { cn } from '@/lib/utils'
+import { cn } from '@/shared/lib/utils'
 
 interface BentoCardProps {
   children: React.ReactNode

@@ -2,8 +2,8 @@
 
 import React, { useEffect, useState, useRef } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { useUIStore } from '@/store/ui-store'
-import { cn } from '@/lib/utils'
+import { useUIStore } from '@/shared/store/ui-store'
+import { cn } from '@/shared/lib/utils'
 
 interface Step {
     targetId: string // The ID of the element to highlight

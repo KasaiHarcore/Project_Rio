@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { motion } from 'framer-motion'
-import { apiGetDashboardStats, DashboardStats } from '@/lib/api'
+import { apiGetDashboardStats, DashboardStats } from '@/features/dashboard/api'
 
 export function LevelBadgeSidebar() {
     const [stats, setStats] = useState<DashboardStats | null>(null)

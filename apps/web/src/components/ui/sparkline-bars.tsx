@@ -2,7 +2,7 @@
 
 import React, { useRef } from "react"
 import { motion, useInView } from "framer-motion"
-import { cn } from "@/lib/utils"
+import { cn } from "@/shared/lib/utils"
 
 interface SparklineBarsProps {
     /** Array of data points (values) — typically 7 for week view */

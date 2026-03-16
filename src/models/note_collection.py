@@ -45,6 +45,6 @@ class NoteCollection(Base, TimestampMixin):
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     notes: Mapped[list["Note"]] = relationship(
         "Note",
-        back_populates="collection",
-        foreign_keys="Note.collection_id",
+        secondary="note_collection_membership",
+        back_populates="collections",
     )

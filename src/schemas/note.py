@@ -46,7 +46,7 @@ class NoteCreate(BaseModel):
     blocks: List[NoteBlockSchema] = Field(default_factory=list, description="Block-based content")
     source: NoteSource = Field(NoteSource.USER, description="Creation source")
     thread_id: Optional[str] = Field(None, description="Linked thread UUID (optional)")
-    collection_id: Optional[str] = Field(None, description="Collection UUID (optional)")
+    collection_ids: Optional[List[str]] = Field(None, description="Collection UUIDs (optional)")
     is_important: bool = Field(False, description="Whether note is important")
     audio: Optional[NoteAudioSchema] = Field(None, description="Audio metadata")
 
@@ -59,7 +59,7 @@ class NoteUpdate(BaseModel):
     blocks: Optional[List[NoteBlockSchema]] = None
     pinned: Optional[bool] = None
     is_important: Optional[bool] = None
-    collection_id: Optional[str] = None
+    collection_ids: Optional[List[str]] = None
     audio: Optional[NoteAudioSchema] = None
 
 
@@ -77,7 +77,7 @@ class NoteInDB(BaseModel):
     pinned: bool
     is_important: bool = False
     source: NoteSource
-    collection_id: Optional[UUID] = None
+    collection_ids: List[UUID] = Field(default_factory=list)
     audio: Optional[NoteAudioSchema] = None
     created_at: datetime
     updated_at: datetime

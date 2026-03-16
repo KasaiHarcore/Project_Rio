@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useCallback } from 'react'
 import { Bell } from 'lucide-react'
-import { apiGetDashboardStats, DashboardStats } from '@/lib/api'
+import { apiGetDashboardStats, DashboardStats } from '@/features/dashboard/api'
 
 export function Header() {
     const [stats, setStats] = useState<DashboardStats | null>(null)

@@ -7,16 +7,16 @@ import {
   Eye, EyeOff, Download, Archive,
   AlertTriangle, LogOut, Save, Lock, FileText, Settings
 } from 'lucide-react'
-import { cn } from '@/lib/utils'
-import { useUIStore } from '@/store/ui-store'
+import { cn } from '@/shared/lib/utils'
+import { useUIStore } from '@/shared/store/ui-store'
 import {
   apiGetSettings,
   apiUpdateProfile,
-  apiResetPassword,
   UserProfileData,
-  ApiError
-} from '@/lib/api'
-import { ApiModelTab } from '@/components/features/settings/ApiModelTab'
+} from '@/features/settings/api'
+import { apiResetPassword } from '@/features/auth/api'
+import { ApiError } from '@/shared/api/client'
+import { ApiModelTab } from '@/features/settings/components/ApiModelTab'
 
 // ─── Types ──────────────────────────────────────────────────────────
 interface SettingsModalProps {
@@ -90,7 +90,7 @@ function ToggleRow({ label, description, enabled, onChange }: {
 }
 
 function DangerButton({ icon: Icon, label, description, onClick, confirmLabel }: {
-  icon: React.ElementType; label: string; description: string; onClick: () => void; confirmLabel?: string
+  icon: React.ComponentType<Record<string, unknown>>; label: string; description: string; onClick: () => void; confirmLabel?: string
 }) {
   const [confirming, setConfirming] = useState(false)
   const handleClick = () => {
@@ -237,7 +237,7 @@ function NotificationsTab({ settings, onReload }: { settings: any | null; onRelo
     setSaving(true)
     setMessage(null)
     try {
-      const { apiUpdateSettings } = await import('@/lib/api')
+      const { apiUpdateSettings } = await import('@/features/settings/api')
       await apiUpdateSettings({
         mission_reminders: missionReminders,
         chat_alerts: chatAlerts,
@@ -436,7 +436,7 @@ function SecurityTab() {
             <button
               className="px-4 py-2 rounded-xl text-xs font-bold border transition-all text-amber-600 border-amber-200 hover:bg-amber-500 hover:text-white hover:border-amber-500"
               onClick={async () => {
-                const { apiLogout } = await import('@/lib/api')
+                const { apiLogout } = await import('@/features/auth/api')
                 await apiLogout()
                 window.location.href = '/login'
               }}
@@ -452,7 +452,7 @@ function SecurityTab() {
 }
 
 // ─── Tab Registry ───────────────────────────────────────────────────
-const TABS: { id: TabId; label: string; icon: React.ElementType }[] = [
+const TABS: { id: TabId; label: string; icon: React.ComponentType<Record<string, unknown>> }[] = [
   { id: 'profile', label: 'Profile', icon: User },
   { id: 'api-model', label: 'API & Model', icon: Settings },
   { id: 'notifications', label: 'Notifications', icon: Bell },

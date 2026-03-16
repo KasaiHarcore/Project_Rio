@@ -3,7 +3,7 @@
 import React from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Heart } from 'lucide-react'
-import { useEmotionalStore } from '@/store/emotional-store'
+import { useEmotionalStore } from '@/features/emotional/store'
 
 /**
  * AffinityFlashIndicator - Shows a flash animation when affinity increases

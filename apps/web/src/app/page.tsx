@@ -3,11 +3,11 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { MissionBoard } from "@/components/features/dashboard/MissionBoard"
-import { MissionControl } from "@/components/features/mission/MissionControl"
+import { MissionBoard } from "@/features/dashboard/components/MissionBoard"
+import { MissionControl } from "@/features/mission/components/MissionControl"
 import { SplashScreen } from "@/components/layout/splash-screen"
 import { AnimatePresence, motion } from "framer-motion"
-import { useUIStore } from '@/store/ui-store'
+import { useUIStore } from '@/shared/store/ui-store'
 
 export default function Page() {
   const splashSeen = useUIStore((state) => state.splashSeen)

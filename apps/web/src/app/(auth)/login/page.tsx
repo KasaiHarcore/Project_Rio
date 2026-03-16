@@ -4,8 +4,8 @@ import React, { useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PageTransition } from '@/components/layout/page-transition'
-import { cn } from '@/lib/utils'
-import { apiLogin, setTokens } from '@/lib/api'
+import { cn } from '@/shared/lib/utils'
+import { apiLogin, setTokens } from '@/features/auth/api'
 
 export default function LoginPage() {
   return (

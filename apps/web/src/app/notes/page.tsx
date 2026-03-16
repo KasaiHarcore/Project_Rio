@@ -3,16 +3,16 @@
 import React, { useEffect, useCallback, Suspense } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { cn } from '@/lib/utils'
-import { useNoteStore, noteUid, blockUid } from '@/store/note-store'
-import { apiListNotes, apiCreateNote, apiDeleteNote } from '@/lib/api'
+import { cn } from '@/shared/lib/utils'
+import { useNoteStore, noteUid, blockUid } from '@/features/notes/store'
+import { apiListNotes, apiCreateNote, apiDeleteNote, apiListCollections } from '@/features/notes/api'
 import { useSearchParams } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
-import { NoteList } from '@/components/features/notes/NoteList'
-import { NoteEditor } from '@/components/features/notes/NoteEditor'
-import { NoteCollections } from '@/components/features/notes/NoteCollections'
-import { NoteSidePanel } from '@/components/features/notes/NoteSidePanel'
+import { NoteList } from '@/features/notes/components/NoteList'
+import { NoteEditor } from '@/features/notes/components/NoteEditor'
+import { NoteCollections } from '@/features/notes/components/NoteCollections'
+import { NoteSidePanel } from '@/features/notes/components/NoteSidePanel'
 
 /* ═══════════════════════════════════════════════════════════════════ */
 
@@ -22,34 +22,46 @@ function NotesPageContent() {
     const setActiveNoteId = useNoteStore((s) => s.setActiveNoteId)
     const addNote = useNoteStore((s) => s.addNote)
     const setNotes = useNoteStore((s) => s.setNotes)
+    const setCollections = useNoteStore((s) => s.setCollections)
     const setLoading = useNoteStore((s) => s.setLoading)
     const loading = useNoteStore((s) => s.loading)
 
     const searchParams = useSearchParams()
 
-    // Fetch notes on mount
+    // Fetch notes and collections on mount
     useEffect(() => {
         let cancelled = false
         async function load() {
             setLoading(true)
             try {
-                const records = await apiListNotes()
+                const [noteRecords, colRecords] = await Promise.all([
+                    apiListNotes(),
+                    apiListCollections(),
+                ])
                 if (!cancelled) {
-                    const notes = records.map((r) => ({
+                    const notes = noteRecords.map((r) => ({
                         id: r.id,
                         title: r.title,
                         content: r.content,
                         blocks: [],
-                        collectionId: r.collection_id,
+                        collectionIds: r.collection_ids ?? [],
                         threadId: r.thread_id,
-                        isPinned: r.is_pinned,
+                        isPinned: r.pinned,
                         isImportant: r.is_important,
-                        author: r.author,
+                        author: (r.source === 'agent' ? 'agent' : 'user') as 'agent' | 'user',
                         createdAt: r.created_at,
                         updatedAt: r.updated_at,
                         todos: r.todos ?? [],
                     }))
                     setNotes(notes)
+
+                    const collections = colRecords.map((c) => ({
+                        id: c.id,
+                        name: c.name,
+                        noteCount: c.note_count,
+                        createdAt: c.created_at,
+                    }))
+                    setCollections(collections)
                 }
             } catch {
                 // Backend unavailable — keep empty state
@@ -59,7 +71,7 @@ function NotesPageContent() {
         }
         load()
         return () => { cancelled = true }
-    }, [setNotes, setLoading])
+    }, [setNotes, setCollections, setLoading])
 
     // Deep-link: ?note=<id>
     useEffect(() => {
@@ -69,11 +81,14 @@ function NotesPageContent() {
         }
     }, [searchParams, setActiveNoteId])
 
+    const updateNote = useNoteStore((s) => s.updateNote)
+
     // Create a new note
     const handleNewNote = useCallback(() => {
         const now = new Date().toISOString()
+        const tempId = noteUid()
         const newNote = {
-            id: noteUid(),
+            id: tempId,
             title: '',
             content: '',
             blocks: [
@@ -87,13 +102,23 @@ function NotesPageContent() {
             todos: [],
         }
         addNote(newNote)
-        setActiveNoteId(newNote.id)
+        setActiveNoteId(tempId)
 
-        // Try persisting to backend (fire & forget)
+        // Persist to backend and replace temp ID with the real one
         apiCreateNote({
             title: newNote.title,
             content: '',
-            author: 'user',
+            source: 'user',
+        }).then((saved) => {
+            // Swap the temp ID with the backend ID in local state
+            const store = useNoteStore.getState()
+            const updated = store.notes.map((n) =>
+                n.id === tempId ? { ...n, id: saved.id } : n,
+            )
+            useNoteStore.setState({
+                notes: updated,
+                activeNoteId: store.activeNoteId === tempId ? saved.id : store.activeNoteId,
+            })
         }).catch(() => { })
     }, [addNote, setActiveNoteId])
 

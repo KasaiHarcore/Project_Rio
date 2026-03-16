@@ -34,22 +34,29 @@ class CollectionRepository(BaseRepository):
 
     def get_note_counts(self, user_id: UUID) -> Dict[UUID, int]:
         """Get note count per collection for a user."""
+        from models.note_collection_membership import NoteCollectionMembership
         count_sq = (
             self.db.query(
-                Note.collection_id,
-                func.count(Note.id).label("cnt"),
+                NoteCollectionMembership.collection_id,
+                func.count(NoteCollectionMembership.note_id).label("cnt"),
             )
+            .join(Note, Note.id == NoteCollectionMembership.note_id)
             .filter(Note.user_id == user_id)
-            .group_by(Note.collection_id)
+            .group_by(NoteCollectionMembership.collection_id)
             .subquery()
         )
         rows = self.db.query(count_sq.c.collection_id, count_sq.c.cnt).all()
         return {row[0]: row[1] for row in rows if row[0]}
 
     def count_notes_in(self, collection_id: UUID, user_id: UUID) -> int:
+        from models.note_collection_membership import NoteCollectionMembership
         return (
-            self.db.query(func.count(Note.id))
-            .filter(Note.collection_id == collection_id, Note.user_id == user_id)
+            self.db.query(func.count(NoteCollectionMembership.note_id))
+            .join(Note, Note.id == NoteCollectionMembership.note_id)
+            .filter(
+                NoteCollectionMembership.collection_id == collection_id,
+                Note.user_id == user_id,
+            )
             .scalar() or 0
         )
 

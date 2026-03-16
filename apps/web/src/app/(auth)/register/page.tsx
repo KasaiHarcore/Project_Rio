@@ -5,8 +5,8 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { UserPlus, Loader2, Check, X } from 'lucide-react'
 import { PageTransition } from "@/components/layout/page-transition"
-import { cn } from '@/lib/utils'
-import { apiRegister, setTokens } from '@/lib/api'
+import { cn } from '@/shared/lib/utils'
+import { apiRegister, setTokens } from '@/features/auth/api'
 
 export default function RegisterPage() {
   const router = useRouter()

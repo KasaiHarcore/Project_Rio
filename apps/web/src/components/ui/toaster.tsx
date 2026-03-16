@@ -3,9 +3,9 @@
 import React, { useEffect } from "react"
 import { motion, AnimatePresence } from "framer-motion"
 import { X, CheckCircle2, AlertCircle, AlertTriangle, Info } from "lucide-react"
-import { useToastStore, type ToastVariant } from "@/hooks/use-toast"
+import { useToastStore, type ToastVariant } from "@/shared/hooks/use-toast"
 
-const variantConfig: Record<ToastVariant, { icon: React.ElementType; className: string }> = {
+const variantConfig: Record<ToastVariant, { icon: React.ComponentType<Record<string, unknown>>; className: string }> = {
   default: {
     icon: Info,
     className: "bg-[var(--surface-elevated)] border-border text-foreground",

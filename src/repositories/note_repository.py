@@ -38,7 +38,11 @@ class NoteRepository(BaseRepository):
         if thread_id:
             q = q.filter(Note.thread_id == thread_id)
         if collection_id:
-            q = q.filter(Note.collection_id == collection_id)
+            from models.note_collection_membership import NoteCollectionMembership
+            q = q.join(
+                NoteCollectionMembership,
+                NoteCollectionMembership.note_id == Note.id,
+            ).filter(NoteCollectionMembership.collection_id == collection_id)
         return (
             q.order_by(Note.pinned.desc(), Note.created_at.desc())
             .offset(offset)

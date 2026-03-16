@@ -1,15 +1,16 @@
 import React, { useEffect } from 'react'
 import { Sidebar } from './sidebar'
 import { MobileNav } from './mobile-nav'
-import { useUIStore } from '@/store/ui-store'
-import { useEmotionalStore } from '@/store/emotional-store'
-import { cn } from '@/lib/utils'
+import { useUIStore } from '@/shared/store/ui-store'
+import { useEmotionalStore } from '@/features/emotional/store'
+import { cn } from '@/shared/lib/utils'
 import { TutorialOverlay } from '@/components/features/tutorial/TutorialOverlay'
 import { AffinityFlashIndicator } from '@/components/ui/affinity-flash'
 import { PageTransition } from './page-transition'
-import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts'
-import { apiGetMe } from '@/lib/api'
-import { RioGuardian } from '@/components/features/rio/RioGuardian'
+import { useKeyboardShortcuts } from '@/shared/hooks/use-keyboard-shortcuts'
+import { apiGetMe } from '@/features/auth/api'
+import { RioGuardian } from '@/features/rio/components/RioGuardian'
+import { MusicEngine } from '@/features/music/components/MusicEngine'
 
 interface DashboardLayoutProps {
   children: React.ReactNode
@@ -75,6 +76,9 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
           {children}
         </PageTransition>
       </main>
+
+      {/* Headless audio engine — keeps music playing across page navigation */}
+      <MusicEngine />
 
       {/* Overlays */}
       <TutorialOverlay />

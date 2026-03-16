@@ -2,9 +2,9 @@
 
 import React, { useState, useEffect, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { agentConfig } from '@/lib/agent-config'
-import { cn } from '@/lib/utils'
-import { useUIStore } from '@/store/ui-store'
+import { agentConfig } from '@/shared/lib/agent-config'
+import { cn } from '@/shared/lib/utils'
+import { useUIStore } from '@/shared/store/ui-store'
 
 // ==========================================
 // CONFIGURATION — Dark mode only

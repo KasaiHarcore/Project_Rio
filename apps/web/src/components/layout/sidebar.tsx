@@ -14,10 +14,12 @@ import {
     Settings,
     StickyNote,
     Terminal,
+    Share2,
+    MonitorSmartphone,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
+import { cn } from "@/shared/lib/utils"
 import { SettingsModal } from "./settings-modal"
-import { useUIStore } from "@/store/ui-store"
+import { useUIStore } from "@/shared/store/ui-store"
 
 import { LevelBadgeSidebar } from "./LevelBadgeSidebar"
 import { ActiveBeam } from "@/components/ui/tracing-beam"
@@ -33,6 +35,7 @@ export function Sidebar({ className, ...props }: SidebarProps) {
     const startMission = useUIStore((state) => state.startMission)
     const setViewMode = useUIStore((state) => state.setViewMode)
     const sidebarOpen = useUIStore((state) => state.sidebarOpen)
+    const userRole = useUIStore((state) => state.userRole)
 
     const handleHomeClick = () => {
         setViewMode('dashboard')
@@ -40,7 +43,7 @@ export function Sidebar({ className, ...props }: SidebarProps) {
     }
 
     const handleLogout = async () => {
-        const { apiLogout } = require('@/lib/api')
+        const { apiLogout } = require('@/features/auth/api')
         await apiLogout()
         router.push('/login')
     }
@@ -60,6 +63,7 @@ export function Sidebar({ className, ...props }: SidebarProps) {
                 { href: '/knowledge', label: 'Knowledge', icon: <Database size={20} />, active: pathname.startsWith('/knowledge') },
                 { href: '/notes', label: 'Notes', icon: <StickyNote size={20} />, active: pathname.startsWith('/notes') },
                 { href: '/artifacts', label: 'Artifacts', icon: <FileText size={20} />, active: pathname.startsWith('/artifacts') },
+                { href: '/graph', label: 'Note Graph', icon: <Share2 size={20} />, active: pathname.startsWith('/graph') },
             ]
         },
         {
@@ -67,6 +71,7 @@ export function Sidebar({ className, ...props }: SidebarProps) {
             items: [
                 { id: 'manual', href: '/docs', label: 'Manual', icon: <Book size={20} />, active: pathname.startsWith('/docs') },
                 { href: '/logs', label: 'Logs', icon: <Terminal size={20} />, active: pathname.startsWith('/logs') },
+                ...(userRole === 'admin' ? [{ href: '/terminal', label: 'OS Control', icon: <MonitorSmartphone size={20} />, active: pathname.startsWith('/terminal') }] : []),
                 { id: 'settings', label: 'Settings', icon: <Settings size={20} />, action: () => setIsSettingsOpen(true) },
             ]
         }

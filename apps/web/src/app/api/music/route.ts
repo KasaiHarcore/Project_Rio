@@ -45,6 +45,7 @@ function scanDirectory(dir: string): { id: string; name: string; fileName: strin
         url: useDefault
           ? `/music/${encodeURIComponent(fileName)}`
           : `/api/music/stream?file=${encodeURIComponent(fileName)}`,
+        artworkUrl: `/api/music/artwork?file=${encodeURIComponent(fileName)}`,
       }
     })
 }

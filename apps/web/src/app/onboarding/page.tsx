@@ -19,8 +19,9 @@ import {
   File,
   X
 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { apiSaveOnboarding, apiUploadDocument } from '@/lib/api';
+import { cn } from '@/shared/lib/utils';
+import { apiSaveOnboarding } from '@/features/onboarding/api';
+import { apiUploadDocument } from '@/features/knowledge/api';
 
 export default function OnboardingPage() {
   const router = useRouter();

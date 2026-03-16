@@ -18,7 +18,7 @@ export const CHARACTERS: Character[] = [
     role: 'Schale System AI',
     themeColor: 'rose',
     accentColor: '#FF3B3B',
-    avatarUrl: '/images/rio_avatar.png',
+    avatarUrl: '/images/avatar.png',
     greetings: ['System online.', 'Awaiting orders, Sensei.', 'I have optimized the schedule.'],
     systemPromptId: 'sys-rio-v1'
   }

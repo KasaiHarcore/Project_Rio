@@ -33,7 +33,7 @@ class Note(Base, TimestampMixin):
         pinned:         Whether the note is pinned to the top
         is_important:   Whether the note is marked as important
         source:         agent or user
-        collection_id:  FK -> note_collection (SET NULL on delete)
+        collections:    M2M relationship via note_collection_membership
         blocks:         JSONB array of block objects [{id, type, content, checked}, ...]
         audio:          JSONB audio metadata {id, url, duration, transcript}
     """
@@ -98,12 +98,6 @@ class Note(Base, TimestampMixin):
         default=NoteSource.AGENT,
     )
 
-    collection_id: Mapped[Optional[uuid.UUID]] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("note_collection.id", ondelete="SET NULL"),
-        nullable=True,
-    )
-
     blocks: Mapped[list] = mapped_column(
         JSONB,
         nullable=False,
@@ -120,14 +114,13 @@ class Note(Base, TimestampMixin):
     # -- Relationships --
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
-    collection: Mapped[Optional["NoteCollection"]] = relationship(
+    collections: Mapped[list["NoteCollection"]] = relationship(
         "NoteCollection",
+        secondary="note_collection_membership",
         back_populates="notes",
-        foreign_keys=[collection_id],
     )
 
     # -- Composite indexes --
     __table_args__ = (
         Index("ix_note_user_thread", "user_id", "thread_id"),
-        Index("ix_note_collection_id_fk", "collection_id"),
     )

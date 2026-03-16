@@ -1,13 +1,13 @@
 "use client"
 
 import React from 'react'
-import { cn } from '@/lib/utils'
+import { cn } from '@/shared/lib/utils'
 import { CHARACTERS, CharacterId } from '@/types/character'
 import Image from 'next/image'
 
 /** Icon paths matching the actual files in /public/images/ */
 const CHARACTER_ICONS: Record<string, string> = {
-  rio: '/images/avatar.jpg',
+  rio: '/images/avatar.png',
 }
 
 function useActiveCharacter() {

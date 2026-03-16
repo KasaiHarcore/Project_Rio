@@ -18,10 +18,11 @@ import {
   ArrowRight,
   Command,
   StickyNote,
+  Share2,
 } from "lucide-react"
 import { useRouter, usePathname } from "next/navigation"
-import { cn } from "@/lib/utils"
-import { useUIStore } from "@/store/ui-store"
+import { cn } from "@/shared/lib/utils"
+import { useUIStore } from "@/shared/store/ui-store"
 import { Kbd } from "@/components/ui/kbd"
 
 interface CommandItem {
@@ -150,6 +151,15 @@ export function CommandPalette() {
         action: () => navigate("/artifacts"),
       },
       {
+        id: "nav-graph",
+        label: "Note Graph",
+        description: "Knowledge visualization",
+        icon: <Share2 size={18} />,
+        section: "Navigation",
+        keywords: ["graph", "links", "visualization", "connections", "network"],
+        action: () => navigate("/graph"),
+      },
+      {
         id: "nav-manual",
         label: "Manual",
         description: "Documentation",
@@ -195,7 +205,7 @@ export function CommandPalette() {
         keywords: ["logout", "signout", "disconnect", "exit"],
         action: async () => {
           close()
-          const { apiLogout } = require('@/lib/api')
+          const { apiLogout } = require('@/features/auth/api')
           await apiLogout()
           router.push("/login")
         },

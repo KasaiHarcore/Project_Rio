@@ -16,9 +16,10 @@ import {
   Menu,
   Search,
   StickyNote,
+  MonitorSmartphone,
 } from "lucide-react"
-import { cn } from "@/lib/utils"
-import { useUIStore } from "@/store/ui-store"
+import { cn } from "@/shared/lib/utils"
+import { useUIStore } from "@/shared/store/ui-store"
 import { Sheet } from "@/components/ui/sheet"
 import { LevelBadgeSidebar } from "@/components/layout/LevelBadgeSidebar"
 import { AnimatePresence } from "framer-motion"
@@ -30,6 +31,7 @@ export function MobileNav() {
   const router = useRouter()
   const pathname = usePathname()
   const setViewMode = useUIStore((state) => state.setViewMode)
+  const userRole = useUIStore((state) => state.userRole)
 
   const handleNav = (path: string, action?: () => void) => {
     setOpen(false)
@@ -43,7 +45,7 @@ export function MobileNav() {
   }
 
   const handleLogout = async () => {
-    const { apiLogout } = require('@/lib/api')
+    const { apiLogout } = require('@/features/auth/api')
     await apiLogout()
     handleNav("/login")
   }
@@ -70,6 +72,7 @@ export function MobileNav() {
       items: [
         { label: "Manual", icon: <Book size={20} />, href: "/docs", active: pathname.startsWith("/docs") },
         { label: "Logs", icon: <Terminal size={20} />, href: "/logs", active: pathname.startsWith("/logs") },
+        ...(userRole === 'admin' ? [{ label: "OS Control", icon: <MonitorSmartphone size={20} />, href: "/terminal", active: pathname.startsWith("/terminal") }] : []),
         { label: "Settings", icon: <Settings size={20} />, action: () => setOpen(false) },
       ],
     },
