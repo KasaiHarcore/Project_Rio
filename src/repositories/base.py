@@ -1,8 +1,8 @@
 """Base repository providing common data access patterns.
 
 All repositories inherit from this class and receive a SQLAlchemy
-session via __init__. No @staticmethod — every method is an instance
-method that uses self.db for database access.
+session via __init__. Every method is an instance method that uses
+self.db for database access.
 """
 
 from typing import TypeVar, Type, Optional, List

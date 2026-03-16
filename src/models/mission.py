@@ -86,20 +86,20 @@ class Mission(Base, TimestampMixin):
     )
 
     status: Mapped[MissionStatus] = mapped_column(
-        SQLEnum(MissionStatus),
+        SQLEnum(MissionStatus, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=MissionStatus.ACTIVE,
         index=True,
     )
 
     priority: Mapped[MissionPriority] = mapped_column(
-        SQLEnum(MissionPriority),
+        SQLEnum(MissionPriority, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=MissionPriority.NORMAL,
     )
 
     source: Mapped[MissionSource] = mapped_column(
-        SQLEnum(MissionSource),
+        SQLEnum(MissionSource, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=MissionSource.AGENT,
     )

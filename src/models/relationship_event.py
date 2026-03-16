@@ -63,7 +63,7 @@ class RelationshipEvent(Base):
     )
 
     event_type: Mapped[RelationshipEventType] = mapped_column(
-        SQLEnum(RelationshipEventType),
+        SQLEnum(RelationshipEventType, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         index=True,
     )

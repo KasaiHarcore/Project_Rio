@@ -1,17 +1,17 @@
 """User profile model."""
 
-from typing import Optional
-from sqlalchemy import String, ForeignKey
+from typing import Optional, List
+from sqlalchemy import String, Boolean, Integer, ForeignKey, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 import uuid
 from models.base import Base, TimestampMixin
 
 
 class UserProfile(Base, TimestampMixin):
 	"""
-	User profile for optional personal information.
- 
+	User profile for personal information, onboarding data, and XP tracking.
+
 	Attributes:
 		id: UUID primary key
 		user_id: UUID foreign key to User
@@ -21,6 +21,16 @@ class UserProfile(Base, TimestampMixin):
 		company: Optional company name
 		job_title: Optional job title
 		locale: Optional locale
+		specialization: Agent specialization chosen during onboarding
+		agent_name: Custom agent name
+		tone: Agent tone preference
+		directives: Prime directives for the agent
+		data_sources: Selected data sources (cloud, repo, local)
+		onboarding_completed: Whether onboarding has been completed
+		bio: User bio
+		study_goal: Study goals
+		xp: Experience points
+		level: Current level (derived from XP)
 	"""
 
 	id: Mapped[uuid.UUID] = mapped_column(
@@ -44,6 +54,22 @@ class UserProfile(Base, TimestampMixin):
 	company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 	job_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 	locale: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+
+	# Onboarding fields
+	specialization: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+	agent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+	tone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+	directives: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+	data_sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+	onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+
+	# Profile fields
+	bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+	study_goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+	# XP / Leveling
+	xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+	level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 
 	user = relationship("User", back_populates="profile")
 

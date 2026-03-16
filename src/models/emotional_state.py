@@ -62,7 +62,7 @@ class EmotionalState(Base, TimestampMixin):
     )
 
     mood: Mapped[Mood] = mapped_column(
-        SQLEnum(Mood),
+        SQLEnum(Mood, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=Mood.NEUTRAL,
     )

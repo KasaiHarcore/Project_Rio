@@ -59,10 +59,6 @@ async def lifespan(app: FastAPI):
     run_shutdown_tasks()
 
 
-# ---------------------------------------------------------------------------
-# Exception → HTTP status mapping
-# ---------------------------------------------------------------------------
-
 _STATUS_MAP: dict[type, int] = {
     AuthenticationError: 401,
     AuthorizationError: 403,
@@ -75,10 +71,6 @@ _STATUS_MAP: dict[type, int] = {
     OAuthError:         401,
 }
 
-
-# ---------------------------------------------------------------------------
-# App factory
-# ---------------------------------------------------------------------------
 
 def create_app() -> FastAPI:
     """Create and configure the FastAPI application."""
@@ -108,8 +100,6 @@ def create_app() -> FastAPI:
 
     # 3. Security headers
     app.add_middleware(SecurityHeadersMiddleware)
-
-    # ── Exception handlers ─────────────────────────────────────────────
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request: Request, exc: AppException):
@@ -176,15 +166,11 @@ def create_app() -> FastAPI:
             },
         )
 
-    # ── Prometheus metrics ─────────────────────────────────────────────
-
     from prometheus_fastapi_instrumentator import Instrumentator
     Instrumentator(
         should_group_status_codes=True,
         excluded_handlers=["/metrics", "/api/v1/health"],
     ).instrument(app).expose(app, endpoint="/metrics")
-
-    # ── Mount API routes ───────────────────────────────────────────────
 
     from routers import v1_router
     app.include_router(v1_router, prefix="/api/v1")

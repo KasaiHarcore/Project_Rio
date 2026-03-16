@@ -33,7 +33,7 @@ from infrastructure.cache.redis_cache import redis_tool
 def create_database_tables() -> None:
     """
     Ensure all database tables exist.
-    
+
     Only runs if enable_db_autocreate is True in AppConfig.
     This is typically used in development; production should
     use migrations (Alembic).

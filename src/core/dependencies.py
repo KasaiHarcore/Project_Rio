@@ -20,8 +20,6 @@ from infrastructure.security.auth import decode_token, TokenData
 from models.user import User, UserRole
 from utils.log import log_warning
 
-# ── Repositories ──────────────────────────────────────────────────────────
-
 from repositories.user_repository import UserRepository
 from repositories.thread_repository import ThreadRepository
 from repositories.message_repository import MessageRepository
@@ -35,8 +33,7 @@ from repositories.audit_log_repository import AuditLogRepository
 from repositories.document_repository import DocumentRepository
 from repositories.user_profile_repository import UserProfileRepository
 from repositories.dashboard_repository import DashboardRepository
-
-# ── Services ──────────────────────────────────────────────────────────────
+from repositories.note_link_repository import NoteLinkRepository
 
 from infrastructure.cache.service import CacheService
 from services.auth_service import AuthService
@@ -50,21 +47,12 @@ from services.xp_service import XPService
 from services.chat_service import ChatService
 from services.dashboard_service import DashboardService
 from services.document_service import DocumentService
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Cache dependency
-# ═══════════════════════════════════════════════════════════════════════════
+from services.note_link_service import NoteLinkService
 
 def get_cache_service() -> CacheService:
     """Provide the CacheService singleton via DI."""
     from infrastructure.cache import cache_service
     return cache_service
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Authentication dependencies
-# ═══════════════════════════════════════════════════════════════════════════
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -149,10 +137,6 @@ def require_roles(*allowed: UserRole):
 require_admin = require_roles(UserRole.ADMIN)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Repository factories
-# ═══════════════════════════════════════════════════════════════════════════
-
 def get_user_repository(db: Session = Depends(get_db)) -> UserRepository:
     return UserRepository(db)
 
@@ -205,9 +189,8 @@ def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardReposito
     return DashboardRepository(db)
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Service factories
-# ═══════════════════════════════════════════════════════════════════════════
+def get_note_link_repository(db: Session = Depends(get_db)) -> NoteLinkRepository:
+    return NoteLinkRepository(db)
 
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
@@ -225,8 +208,10 @@ def get_mission_service(
 
 def get_note_service(
     note_repo: NoteRepository = Depends(get_note_repository),
+    link_repo: NoteLinkRepository = Depends(get_note_link_repository),
 ) -> NoteService:
-    return NoteService(note_repo)
+    link_service = NoteLinkService(link_repo, note_repo)
+    return NoteService(note_repo, note_link_service=link_service)
 
 
 def get_artifact_service(
@@ -267,6 +252,13 @@ def get_dashboard_service(
     emotional_engine: EmotionalEngine = Depends(get_emotional_engine),
 ) -> DashboardService:
     return DashboardService(dashboard_repo, emotional_engine)
+
+
+def get_note_link_service(
+    link_repo: NoteLinkRepository = Depends(get_note_link_repository),
+    note_repo: NoteRepository = Depends(get_note_repository),
+) -> NoteLinkService:
+    return NoteLinkService(link_repo, note_repo)
 
 
 def get_document_service(

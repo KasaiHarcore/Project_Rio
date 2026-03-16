@@ -22,7 +22,7 @@ from typing import Any, Callable, List, Tuple, Dict, TypeVar
 from core.settings import get_concurrency_config
 from utils.log import log_info, log_debug, log_warning
 
-T = TypeVar("T")
+T = TypeVar("T") # Generic Type Variable - No restrict output
 
 
 class ConcurrencyManager:
@@ -33,7 +33,6 @@ class ConcurrencyManager:
         self._process_pool: ProcessPoolExecutor | None = None
         self._started = False
 
-    # ── Lifecycle ───────────────────────────────────────────────────────
 
     def start(self) -> None:
         """Initialize pools. Called during FastAPI lifespan startup."""
@@ -68,7 +67,6 @@ class ConcurrencyManager:
         self._started = False
         log_info("ConcurrencyManager shut down")
 
-    # ── Dispatch helpers ────────────────────────────────────────────────
 
     async def run_in_thread(self, fn: Callable[..., T], *args: Any, **kwargs: Any) -> T:
         """Run a blocking callable in the thread pool.

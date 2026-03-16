@@ -392,10 +392,6 @@ class AppConfig:
 		return len(errors) == 0, errors
 
 
-# =============================================================================
-# OAuth2 Configuration
-# =============================================================================
-
 @dataclass
 class OAuthConfig:
 	"""OAuth2 provider configuration (Google + GitHub)."""
@@ -430,10 +426,6 @@ class OAuthConfig:
 			oidc_jwks_cache_ttl=_env_int("OIDC_JWKS_CACHE_TTL", "3600"),
 		)
 
-
-# =============================================================================
-# CORS Configuration
-# =============================================================================
 
 @dataclass
 class CorsConfig:
@@ -492,10 +484,6 @@ class CorsConfig:
 		)
 
 
-# =============================================================================
-# Concurrency Configuration
-# =============================================================================
-
 @dataclass
 class ConcurrencyConfig:
 	"""Thread / process pool sizes for the ConcurrencyManager."""
@@ -516,10 +504,6 @@ class ConcurrencyConfig:
 			process_pool_size=_env_int("PROCESS_POOL_SIZE", "2"),
 		)
 
-
-# =============================================================================
-# Global configuration instances
-# =============================================================================
 
 _app_config: Optional[AppConfig] = None
 _vectordb_config: Optional[VectorDBConfig] = None

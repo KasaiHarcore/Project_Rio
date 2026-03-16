@@ -55,7 +55,7 @@ class Document(Base, TimestampMixin):
     chunk_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     status: Mapped[DocumentStatus] = mapped_column(
-        SQLEnum(DocumentStatus),
+        SQLEnum(DocumentStatus, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=DocumentStatus.PROCESSING,
     )

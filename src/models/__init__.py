@@ -1,18 +1,4 @@
-"""SQLAlchemy ORM Models for Application Entities.
-
-Model Hierarchy:
-    User
-    ├── UserProfile (1:1)
-    ├── Thread (1:N)
-    │   └── Message (1:N)
-    ├── EmotionalState (1:N, per character)
-    │   └── RelationshipEvent (audit trail)
-    ├── Mission (1:N)
-    ├── Note (1:N, via Thread CASCADE)
-    │   └── NoteCollection (N:1)
-    ├── Document (1:N)
-    └── AuditLog (1:N)
-"""
+"""SQLAlchemy ORM Models for Application Entities."""
 
 from models.user import User, UserRole, AuthProvider
 from models.thread import Thread, ThreadStatus
@@ -27,6 +13,10 @@ from models.note_collection import NoteCollection
 from models.emotional_state import EmotionalState, Mood
 from models.relationship_event import RelationshipEvent, RelationshipEventType
 from models.artifact import Artifact
+from models.note_link import NoteLink, NoteLinkTargetType
+
+from sqlalchemy.orm import configure_mappers
+configure_mappers()
 
 __all__ = [
     "User",
@@ -53,4 +43,6 @@ __all__ = [
     "RelationshipEvent",
     "RelationshipEventType",
     "Artifact",
+    "NoteLink",
+    "NoteLinkTargetType",
 ]

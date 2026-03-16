@@ -68,13 +68,13 @@ class User(Base, TimestampMixin):
     )
 
     role: Mapped[UserRole] = mapped_column(
-        SQLEnum(UserRole),
+        SQLEnum(UserRole, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=UserRole.USER
     )
 
     auth_provider: Mapped[AuthProvider] = mapped_column(
-        SQLEnum(AuthProvider),
+        SQLEnum(AuthProvider, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=AuthProvider.LOCAL,
         server_default="local",
@@ -105,6 +105,13 @@ class User(Base, TimestampMixin):
 
     profile: Mapped[Optional["UserProfile"]] = relationship(
         "UserProfile",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    settings: Mapped[Optional["UserSettings"]] = relationship(
+        "UserSettings",
         back_populates="user",
         uselist=False,
         cascade="all, delete-orphan",

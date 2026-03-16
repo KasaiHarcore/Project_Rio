@@ -51,7 +51,7 @@ class Thread(Base, TimestampMixin):
     )
     
     status: Mapped[ThreadStatus] = mapped_column(
-        SQLEnum(ThreadStatus),
+        SQLEnum(ThreadStatus, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
         default=ThreadStatus.ACTIVE,
         index=True
