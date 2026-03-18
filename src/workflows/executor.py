@@ -59,10 +59,6 @@ from workflows.state import (
 )
 
 
-# =============================================================================
-# Main Execution Functions
-# =============================================================================
-
 def run_workflow(
     *,
     question: str,
@@ -499,6 +495,7 @@ def stream_workflow(
                 seen_workers = set()
                 seen_decisions = 0
                 event_count = 0
+                answer_streamed = False
                 
                 log_info("Starting graph.stream() iteration...")
                 log_debug(f"Initial state: original_question={initial_state.get('original_question')[:100] if initial_state.get('original_question') else 'None'}")
@@ -596,33 +593,93 @@ def stream_workflow(
                                     except Exception:
                                         pass
                                 
-                                # Emit mission_result for mission worker (frontend renders on Mission Page)
-                                # Also persist to DB so missions survive page reloads.
+                                # Emit mission events for mission worker.
+                                # Handles both creation (mission_result) and
+                                # interaction actions (mission_action).
                                 if result.worker_type.value == "mission" and result.success and result.content:
                                     try:
                                         import json as _json2
-                                        missions = _json2.loads(result.content)
-                                        if isinstance(missions, list) and missions:
-                                            # Persist to database
+                                        payload = _json2.loads(result.content)
+                                        action = (result.metadata or {}).get("action", "create")
+
+                                        if action == "create" and isinstance(payload, list) and payload:
+                                            # Original flow — persist new missions
                                             persisted_ids: list[str] = []
                                             if user_id:
                                                 try:
                                                     from services.mission_service import MissionService
+                                                    from repositories.mission_repository import MissionRepository
+                                                    from models.mission import MissionStatus
+                                                    from infrastructure.database.session import get_session_factory
                                                     from uuid import UUID as _UUID
-                                                    saved = MissionService.create_missions_from_agent(
-                                                        user_id=_UUID(user_id),
-                                                        missions_json=missions,
-                                                        thread_id=thread_id,
-                                                    )
-                                                    persisted_ids = [str(m.id) for m in saved]
-                                                    log_info(f"Persisted {len(saved)} agent missions to DB")
+                                                    _SL = get_session_factory()
+                                                    _db = _SL()
+                                                    try:
+                                                        _repo = MissionRepository(_db)
+                                                        _svc = MissionService(_repo)
+
+                                                        # Dedup: skip missions whose title already exists
+                                                        existing = _svc.list_missions(
+                                                            _UUID(user_id),
+                                                            status=MissionStatus.ACTIVE,
+                                                            limit=100,
+                                                        )
+                                                        existing_titles = {
+                                                            m.title.strip().lower() for m in existing
+                                                        }
+                                                        new_payload = [
+                                                            m for m in payload
+                                                            if m.get("title", "").strip().lower()
+                                                            not in existing_titles
+                                                        ]
+                                                        skipped = len(payload) - len(new_payload)
+                                                        if skipped:
+                                                            log_warning(
+                                                                f"Dedup: skipped {skipped} duplicate mission(s) "
+                                                                f"(title already exists)"
+                                                            )
+                                                        if not new_payload:
+                                                            log_info("Dedup: all missions already exist — nothing to persist")
+                                                            payload = []
+                                                        else:
+                                                            saved = _svc.create_missions_from_agent(
+                                                                user_id=_UUID(user_id),
+                                                                missions_json=new_payload,
+                                                                thread_id=thread_id,
+                                                            )
+                                                            persisted_ids = [str(m.id) for m in saved]
+                                                            _db.commit()
+                                                            log_info(f"Persisted {len(saved)} agent missions to DB")
+                                                    except Exception as db_err:
+                                                        _db.rollback()
+                                                        log_warning(f"Failed to persist agent missions: {db_err}")
+                                                    finally:
+                                                        _db.close()
                                                 except Exception as db_err:
                                                     log_warning(f"Failed to persist agent missions: {db_err}")
 
                                             yield {
                                                 "type": "mission_result",
-                                                "missions": missions,
+                                                "missions": payload,
                                                 "persisted_ids": persisted_ids,
+                                            }
+
+                                        elif action in ("toggle_step", "complete_mission", "update_mission") and isinstance(payload, dict):
+                                            # Interaction actions — already persisted by MissionTool
+                                            yield {
+                                                "type": "mission_action",
+                                                "action": action,
+                                                "mission": payload.get("mission", {}),
+                                                "step_index": payload.get("step_index"),
+                                            }
+
+                                        elif action == "delete_mission" and isinstance(payload, dict):
+                                            # Delete action — already persisted by MissionTool
+                                            yield {
+                                                "type": "mission_action",
+                                                "action": "delete_mission",
+                                                "mission": {"id": payload.get("mission_id"), "title": payload.get("title")},
+                                                "step_index": None,
                                             }
                                     except Exception:
                                         pass
@@ -635,9 +692,11 @@ def stream_workflow(
                                     "content_preview": (result.content or "")[:TOOL_PREVIEW_LENGTH],
                                 }
                         
-                        # Check for final response
+                        # Check for final response (only stream once —
+                        # subsequent nodes re-emit the same state value)
                         final_response = event.get("final_response")
-                        if final_response:
+                        if final_response and not answer_streamed:
+                            answer_streamed = True
                             # Stream the final response token by token
                             for char in final_response:
                                 token_buffer += char
@@ -743,10 +802,6 @@ def stream_workflow(
         log_error(f"Streaming workflow failed at {current_stage}: {e}")
         yield {"type": "error", "error": str(e), "run_id": run_id}
 
-
-# =============================================================================
-# Checkpoint Management Functions
-# =============================================================================
 
 def list_checkpoints(
     *,

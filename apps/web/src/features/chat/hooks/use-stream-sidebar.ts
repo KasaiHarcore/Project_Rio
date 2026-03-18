@@ -13,25 +13,20 @@
  *   useStreamSidebarReset(isNewChat)
  */
 
-import { useEffect, useRef } from 'react'
+import { useEffect } from 'react'
 import { useSidebarStore } from '@/features/chat/store'
-import { setCapturedThreadId } from '@/features/chat/lib/chat-transport'
 
 /**
- * Reset the sidebar store + captured thread ID when a new chat session starts.
+ * Reset the sidebar store when a new chat session starts.
  *
  * @param isNewChat  `true` when the current session is a brand-new chat (no threadId).
  */
 export function useStreamSidebarReset(isNewChat: boolean) {
   const resetSession = useSidebarStore((s) => s.resetSession)
-  const prevRef = useRef(isNewChat)
 
   useEffect(() => {
-    // Reset when transitioning into a new-chat state, or on first mount if new
     if (isNewChat) {
       resetSession()
-      setCapturedThreadId(null)
     }
-    prevRef.current = isNewChat
   }, [isNewChat, resetSession])
 }

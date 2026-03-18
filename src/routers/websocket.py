@@ -43,7 +43,6 @@ async def websocket_chat(websocket: WebSocket):
     user_id: Optional[str] = None
 
     try:
-        # Accept the raw connection first (before auth)
         await websocket.accept()
 
         # ── Step 1: Authenticate ────────────────────────────────────────
@@ -84,7 +83,6 @@ async def websocket_chat(websocket: WebSocket):
         user_id = token_data.user_id
         log_info(f"[WS] Authenticated: user={user_id}")
 
-        # Register with manager (don't call accept again — already accepted)
         async with ws_manager._lock:
             ws_manager._connections.setdefault(user_id, []).append(websocket)
 
@@ -124,7 +122,6 @@ async def websocket_chat(websocket: WebSocket):
                     mode = msg.get("mode", "chat")
                     character = msg.get("character", "rio")
 
-                    # Process the chat message using AgentService
                     await _handle_chat_message(
                         websocket=websocket,
                         user_id=user_id,

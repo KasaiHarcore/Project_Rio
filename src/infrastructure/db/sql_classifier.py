@@ -246,7 +246,6 @@ class SQLClassifier:
             matches = re.findall(pattern, sql, re.IGNORECASE)
             tables.update(t.lower() for t in matches)
         
-        # Remove common SQL keywords that might be false positives
         keywords = {"select", "from", "where", "and", "or", "not", "null", "true", "false"}
         tables -= keywords
         
@@ -262,7 +261,6 @@ class SQLClassifier:
 
     def _is_multi_statement(self, sql: str) -> bool:
         """Check if SQL contains multiple statements."""
-        # Remove string literals to avoid false positives
         clean_sql = re.sub(r"'[^']*'", "", sql)
         clean_sql = re.sub(r'"[^"]*"', "", clean_sql)
         return clean_sql.count(";") > 1
@@ -281,7 +279,6 @@ class SQLClassifier:
             return "unknown"
         
         if op_type in {SQLOperationType.INSERT}:
-            # Check for VALUES clauses
             values_count = sql.upper().count("VALUES")
             if values_count == 1:
                 return "single"
@@ -295,7 +292,6 @@ class SQLClassifier:
         if op_type in {SQLOperationType.UPDATE, SQLOperationType.DELETE}:
             if not has_where:
                 return "all"
-            # Check for specific ID conditions
             if re.search(r'\b(id|pk)\s*=\s*\d+', sql, re.IGNORECASE):
                 return "single"
             return "multiple"
@@ -339,7 +335,6 @@ class SQLClassifier:
             warnings.append("Multiple statements detected")
             return DangerLevel.HIGH, warnings
         
-        # Check for sensitive tables
         sensitive_affected = [t for t in affected_tables if t in self._sensitive_tables]
         if sensitive_affected:
             warnings.append(f"Affects sensitive table(s): {', '.join(sensitive_affected)}")
@@ -348,7 +343,6 @@ class SQLClassifier:
                 return DangerLevel.CRITICAL, warnings
             return DangerLevel.HIGH, warnings
         
-        # DELETE operations
         if op_type == SQLOperationType.DELETE:
             if not has_where:
                 warnings.append("DELETE without WHERE clause affects all rows")
@@ -359,7 +353,6 @@ class SQLClassifier:
                 return DangerLevel.MEDIUM, warnings
             return DangerLevel.HIGH, warnings
         
-        # UPDATE operations
         if op_type == SQLOperationType.UPDATE:
             if not has_where:
                 warnings.append("UPDATE without WHERE clause affects all rows")
@@ -368,13 +361,11 @@ class SQLClassifier:
                 return DangerLevel.LOW, warnings
             return DangerLevel.MEDIUM, warnings
         
-        # INSERT operations
         if op_type == SQLOperationType.INSERT:
             if rows_affected == "single":
                 return DangerLevel.LOW, warnings
             return DangerLevel.MEDIUM, warnings
         
-        # Default for unknown operations
         warnings.append(f"Unknown operation type: {op_type.value}")
         return DangerLevel.HIGH, warnings
 

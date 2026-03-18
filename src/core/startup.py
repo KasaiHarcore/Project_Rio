@@ -25,7 +25,7 @@ from utils.log import (
     log_error,
     configure_logging_from_env,
 )
-import models  # noqa: F401 - imports for side effects (model registration)
+import models  # noqa: F401
 from infrastructure.tools.qdrant_tool import get_vector_db_tool
 from infrastructure.cache.redis_cache import redis_tool
 
@@ -80,7 +80,6 @@ def run_startup_tasks() -> None:
     # 3. Configure logging
     configure_logging_from_env()
     
-    # 4. Create database tables (if enabled)
     create_database_tables()
     
     # 5. Initialize vector DB
@@ -99,5 +98,4 @@ def run_shutdown_tasks() -> None:
     Call this when the application is shutting down gracefully.
     """
     log_info("Running shutdown tasks...")
-    # Add cleanup tasks here as needed
     log_success("Shutdown tasks completed")

@@ -55,7 +55,6 @@ def create_admin():
 
     try:
         with get_db_context() as session:
-            # Check if user exists
             existing = session.query(User).filter(
                 (User.username == username) | (User.email == email)
             ).first()
@@ -70,7 +69,6 @@ def create_admin():
                     log_success(f"User '{existing.username}' promoted to ADMIN.")
                 return
 
-            # Create new admin
             new_admin = User(
                 username=username,
                 email=email,

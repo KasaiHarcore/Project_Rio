@@ -118,7 +118,6 @@ function TerminalPanel() {
   const scrollRef = React.useRef<HTMLDivElement>(null)
   const inputRef = React.useRef<HTMLInputElement>(null)
 
-  // Auto-scroll on new output
   React.useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight

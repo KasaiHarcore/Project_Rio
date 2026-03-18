@@ -26,12 +26,6 @@ from infrastructure.database.session import get_engine
 from utils.log import log_debug, log_error, log_info, log_success, log_warning
 from utils.timezone import utc_now
 
-
-# =============================================================================
-# Configuration
-# =============================================================================
-
-# Tables to exclude from schema discovery (sensitive/internal)
 DEFAULT_EXCLUDED_TABLES: Set[str] = {
     "alembic_version",
     "checkpoints",
@@ -39,13 +33,8 @@ DEFAULT_EXCLUDED_TABLES: Set[str] = {
     "checkpoint_blobs",
 }
 
-# Schema cache TTL (in seconds)
 SCHEMA_CACHE_TTL_SECONDS = int(os.getenv("SQL_SCHEMA_CACHE_TTL", "300"))
 
-
-# =============================================================================
-# Data Classes for Schema Information
-# =============================================================================
 
 @dataclass
 class ColumnInfo:
@@ -137,10 +126,6 @@ class SchemaSnapshot:
         return None
 
 
-# =============================================================================
-# Schema Service
-# =============================================================================
-
 class SQLSchemaService:
     """Service for discovering and caching database schema information.
     
@@ -151,14 +136,8 @@ class SQLSchemaService:
     
     Usage:
         schema_service = SQLSchemaService()
-        
-        # For initial LLM context (minimal)
         overview = schema_service.get_schema_overview()
-        
-        # For specific table details
         table_info = schema_service.get_table_schema("user")
-        
-        # For SQL generation context
         context = schema_service.get_llm_context(["user", "thread"])
     """
 
@@ -192,7 +171,6 @@ class SQLSchemaService:
         """Check if a table should be included in schema discovery."""
         if table_name in self._excluded_tables:
             return False
-        # Exclude tables starting with underscore (internal)
         if table_name.startswith("_"):
             return False
         return True
@@ -219,7 +197,6 @@ class SQLSchemaService:
         pk_constraint = inspector.get_pk_constraint(table_name)
         pk_columns = set(pk_constraint.get("constrained_columns", []))
         
-        # Get foreign keys for this table
         fk_info = inspector.get_foreign_keys(table_name)
         fk_map: Dict[str, str] = {}  # column -> "table.column"
         for fk in fk_info:
@@ -229,7 +206,6 @@ class SQLSchemaService:
                 if ref_cols and len(ref_cols) > i:
                     fk_map[col] = f"{ref_table}.{ref_cols[i]}"
         
-        # Get columns
         for col in inspector.get_columns(table_name):
             col_name = col["name"]
             col_type = str(col.get("type", "UNKNOWN"))
@@ -246,7 +222,6 @@ class SQLSchemaService:
                 default=str(col.get("default", "")) if col.get("default") else None,
             ))
         
-        # Get indexes
         indexes = []
         for idx in inspector.get_indexes(table_name):
             idx_cols = ", ".join(idx.get("column_names", []))
@@ -270,7 +245,6 @@ class SQLSchemaService:
         Returns:
             SchemaSnapshot with all discovered tables
         """
-        # Check cache
         if not force_refresh and self._cached_snapshot:
             if not self._cached_snapshot.is_expired(self._cache_ttl):
                 log_debug("Returning cached schema snapshot")
@@ -279,7 +253,6 @@ class SQLSchemaService:
         log_info("Discovering database schema...")
         inspector = inspect(self.engine)
         
-        # Get database info
         db_name = None
         db_version = None
         try:
@@ -309,7 +282,6 @@ class SQLSchemaService:
             database_version=db_version,
         )
         
-        # Update cache
         self._cached_snapshot = snapshot
         log_success(f"Schema discovery complete: {len(tables)} tables found")
         
@@ -373,7 +345,6 @@ class SQLSchemaService:
             "",
         ]
         
-        # Add detailed table info
         for table_name in detail_tables:
             table = snapshot.get_table(table_name)
             if not table:
@@ -407,7 +378,6 @@ class SQLSchemaService:
             
             lines.append("")
         
-        # Add overview of other tables
         other_tables = [t for t in snapshot.get_table_names() if t not in detail_tables]
         if other_tables:
             lines.append("### Other Available Tables")
@@ -504,9 +474,5 @@ class SQLSchemaService:
         self._cached_snapshot = None
         log_debug("Schema cache cleared")
 
-
-# =============================================================================
-# Singleton Instance
-# =============================================================================
 
 sql_schema_service = SQLSchemaService()

@@ -16,7 +16,6 @@ export default function Page() {
   const viewMode = useUIStore((state) => state.viewMode)
   const activeMissionId = useUIStore((state) => state.activeMissionId)
 
-  // Hydrate persisted state from localStorage after mount (avoids SSR mismatch)
   const hydrated = useRef(false)
   useEffect(() => {
     if (!hydrated.current) {

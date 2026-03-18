@@ -48,7 +48,6 @@ export function useInterventionEngine() {
     return response.message
   }
 
-  // 1. Long session detection (45/90/120 min)
   useEffect(() => {
     if (preferences.breakFrequency === 0) return
 
@@ -97,7 +96,6 @@ export function useInterventionEngine() {
     triggerIntervention, mood, relationshipTier,
   ])
 
-  // 2. Idle detection (10 min)
   useEffect(() => {
     const { isIdle, idleTime } = activityData
     const now = Date.now()
@@ -149,7 +147,6 @@ export function useInterventionEngine() {
     preferences.workHourLimits, triggerIntervention, mood, relationshipTier,
   ])
 
-  // 4. Mission deadline pressure (<3 hours)
   useEffect(() => {
     const urgentMissions = missions.filter((m) => {
       if (m.status !== 'active' || !m.deadline) return false
@@ -196,7 +193,6 @@ export function useInterventionEngine() {
     }
   }, [triggerIntervention, mood, relationshipTier])
 
-  // Update last interaction time on activity
   useEffect(() => {
     if (typeof window === 'undefined') return
     const updateLastInteraction = () => {

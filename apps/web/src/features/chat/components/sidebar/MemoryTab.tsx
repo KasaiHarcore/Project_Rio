@@ -44,7 +44,6 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
   const [newContent, setNewContent] = useState('')
   const [newTag, setNewTag] = useState<string>('note')
 
-  // Fetch persisted memories when threadId changes
   useEffect(() => {
     if (threadId) {
       fetchThreadMemories(threadId)
@@ -62,7 +61,6 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
     setAddOpen(false)
   }
 
-  // Merge persisted + session memories (persisted first, deduped by content)
   const allEntries = useMemo(() => {
     const seenContent = new Set<string>()
     const merged: MemoryEntry[] = []

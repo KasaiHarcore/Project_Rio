@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import fs from 'fs'
 import path from 'path'
-import { parseFile } from 'music-metadata'
+import { parseBuffer, selectCover } from 'music-metadata'
 
 const CONFIG_PATH = path.join(process.cwd(), '.music-config.json')
 const DEFAULT_DIR = path.join(process.cwd(), 'public', 'music')
@@ -35,8 +35,9 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const metadata = await parseFile(filePath)
-    const picture = metadata.common.picture?.[0]
+    const buffer = fs.readFileSync(filePath)
+    const metadata = await parseBuffer(new Uint8Array(buffer), { mimeType: 'audio/mpeg' })
+    const picture = selectCover(metadata.common.picture ?? undefined)
 
     if (!picture) {
       return NextResponse.json({ error: 'No artwork embedded' }, { status: 404 })

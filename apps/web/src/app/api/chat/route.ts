@@ -6,14 +6,10 @@
  * JWT access token read from the `access-token` cookie and streams
  * the response back to the client.
  *
- * The backend now emits the **AI SDK data-stream protocol** (v1):
- *   0:"text"  – text deltas
- *   2:[{…}]   – data annotations (sidebar events)
- *   d:{…}     – finish signal
- *
- * We forward the `X-Vercel-AI-Data-Stream: v1` header so that
- * `useChat({ streamProtocol: 'data' })` on the client can parse
- * both text and structured metadata from a single response.
+ * The backend emits **AI SDK v6 UIMessageStream** (Server-Sent Events):
+ *   data: {"type":"text-delta","id":"...","delta":"..."}\n\n
+ *   data: {"type":"finish","finishReason":"stop"}\n\n
+ *   data: [DONE]\n\n
  */
 
 const BACKEND_URL = process.env.BACKEND_URL ?? "http://localhost:8000";
@@ -53,17 +49,15 @@ export async function POST(req: Request) {
 
   // Read forwarded headers from backend
   const threadId = backendRes.headers.get("X-Thread-Id");
-  const dataStreamHeader = backendRes.headers.get("X-Vercel-AI-Data-Stream");
 
-  // Pipe the streaming response through
+  // Pipe the SSE streaming response through
   return new Response(backendRes.body, {
     status: 200,
     headers: {
-      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Type": "text/event-stream; charset=utf-8",
       "Cache-Control": "no-cache",
-      "Transfer-Encoding": "chunked",
+      "Connection": "keep-alive",
       ...(threadId ? { "X-Thread-Id": threadId } : {}),
-      ...(dataStreamHeader ? { "X-Vercel-AI-Data-Stream": dataStreamHeader } : {}),
     },
   });
 }

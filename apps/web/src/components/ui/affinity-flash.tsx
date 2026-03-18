@@ -25,7 +25,6 @@ export function AffinityFlashIndicator() {
     if (delta > 0) {
       setFlash({ delta, show: true })
 
-      // Auto-hide after 2 seconds
       const timer = setTimeout(() => {
         setFlash((prev) => ({ ...prev, show: false }))
       }, 2000)

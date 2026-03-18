@@ -19,7 +19,6 @@ Usage:
     from schemas import UserCreate, UserInDB, ChatResponse
 """
 
-# User schemas
 from schemas.user import (
     UserBase,
     UserCreate,
@@ -30,7 +29,6 @@ from schemas.user import (
     UserProfileInDB,
 )
 
-# Thread schemas
 from schemas.thread import (
     ThreadBase,
     ThreadCreate,
@@ -38,7 +36,6 @@ from schemas.thread import (
     ThreadInDB,
 )
 
-# Message schemas
 from schemas.message import (
     MessageBase,
     MessageCreate,
@@ -46,14 +43,12 @@ from schemas.message import (
     MessageInDB,
 )
 
-# Audit log schemas
 from schemas.audit_log import (
     AuditLogBase,
     AuditLogCreate,
     AuditLogInDB,
 )
 
-# Chat history schemas
 from schemas.query import (
     ChatMessageRecord,
     ChatHistoryBuffer,
@@ -62,7 +57,6 @@ from schemas.query import (
     normalize_chat_history,
 )
 
-# Response schemas
 from schemas.response import (
     ErrorDetail,
     BaseResponse,
@@ -71,7 +65,6 @@ from schemas.response import (
     ChatResponse,
 )
 
-# Admin schemas
 from schemas.admin import (
     AdminUserView,
     AdminUserList,
@@ -87,7 +80,6 @@ from schemas.admin import (
     AdminBulkDeleteAction,
 )
 
-# Mission schemas
 from schemas.mission import (
     MissionBase,
     MissionCreate,
@@ -96,7 +88,6 @@ from schemas.mission import (
     MissionStepSchema,
 )
 
-# Note schemas
 from schemas.note import (
     NoteCreate,
     NoteUpdate,
@@ -104,14 +95,12 @@ from schemas.note import (
     NoteTodoSchema,
 )
 
-# Artifact schemas
 from schemas.artifact import (
     ArtifactCreate,
     ArtifactUpdate,
     ArtifactInDB,
 )
 
-# Emotional state schemas
 from schemas.emotional_state import (
     EmotionalStateResponse,
     MoodTransition,
@@ -123,7 +112,6 @@ from schemas.emotional_state import (
 )
 
 __all__ = [
-    # User
     "UserBase",
     "UserCreate",
     "UserUpdate",
@@ -131,33 +119,27 @@ __all__ = [
     "UserProfileBase",
     "UserProfileUpdate",
     "UserProfileInDB",
-    # Thread
     "ThreadBase",
     "ThreadCreate",
     "ThreadUpdate",
     "ThreadInDB",
-    # Message
     "MessageBase",
     "MessageCreate",
     "MessageUpdate",
     "MessageInDB",
-    # Audit Log
     "AuditLogBase",
     "AuditLogCreate",
     "AuditLogInDB",
-    # Chat History
     "ChatMessageRecord",
     "ChatHistoryBuffer",
     "ChatHistorySave",
     "ChatMessageRecordModel",
     "normalize_chat_history",
-    # Response
     "ErrorDetail",
     "BaseResponse",
     "ErrorResponse",
     "ChatStats",
     "ChatResponse",
-    # Admin
     "AdminUserView",
     "AdminUserList",
     "AdminThreadView",
@@ -170,18 +152,15 @@ __all__ = [
     "AdminSystemStats",
     "AdminUserUpdateAction",
     "AdminBulkDeleteAction",
-    # Mission
     "MissionBase",
     "MissionCreate",
     "MissionUpdate",
     "MissionInDB",
     "MissionStepSchema",
-    # Note
     "NoteCreate",
     "NoteUpdate",
     "NoteInDB",
     "NoteTodoSchema",
-    # Emotional State
     "EmotionalStateResponse",
     "MoodTransition",
     "RelationshipEventResponse",
@@ -189,7 +168,6 @@ __all__ = [
     "HeadpatRequest",
     "HeadpatResponse",
     "EmotionalUpdateEvent",
-    # Artifact
     "ArtifactCreate",
     "ArtifactUpdate",
     "ArtifactInDB",

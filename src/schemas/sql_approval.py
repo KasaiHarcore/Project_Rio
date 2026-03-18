@@ -33,9 +33,9 @@ class SQLApprovalStatus(str, Enum):
 
 class SQLApprovalAction(str, Enum):
     """Action taken by user on SQL approval request."""
-    APPROVE = "approve"     # Execute SQL as-is
-    EDIT = "edit"          # Modify SQL before executing
-    REJECT = "reject"      # Cancel the operation
+    APPROVE = "approve"
+    EDIT = "edit"
+    REJECT = "reject"
 
 
 class SQLApprovalRequest(BaseModel):
@@ -162,13 +162,11 @@ class SQLApprovalResponse(BaseModel):
         }), config=config)
         ```
     """
-    # Decision action (required)
     action: SQLApprovalAction = Field(
         ..., 
         description="User's decision: approve, edit, or reject"
     )
     
-    # Optional modifications (required if action is 'edit')
     modified_sql: Optional[str] = Field(
         None, 
         description="User-edited SQL (required if action is 'edit')"

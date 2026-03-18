@@ -42,7 +42,6 @@ function ArtifactsContent() {
     fetchArtifacts()
   }, [fetchArtifacts])
 
-  // Auto-select artifact from URL query
   useEffect(() => {
     if (focusId && artifacts.length > 0) {
       const found = artifacts.find((a) => a.id === focusId)

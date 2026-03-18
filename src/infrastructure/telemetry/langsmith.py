@@ -45,6 +45,29 @@ def project_name() -> str:
 	)
 
 
+def apply_user_langsmith_settings(
+	*,
+	api_key: Optional[str],
+	tracing_enabled: bool,
+	project: Optional[str],
+) -> None:
+	"""Apply per-user LangSmith settings as environment variables.
+
+	LangChain auto-tracing reads from env vars, so we set them here
+	before the workflow graph is invoked. Call this at the start of each
+	request when user settings are available.
+	"""
+	if tracing_enabled and api_key:
+		os.environ["LANGSMITH_API_KEY"] = api_key
+		os.environ["LANGSMITH_TRACING"] = "true"
+		if project:
+			os.environ["LANGSMITH_PROJECT"] = project
+		log_debug(f"LangSmith tracing enabled (project={project or 'default'})")
+	elif not tracing_enabled:
+		os.environ["LANGSMITH_TRACING"] = "false"
+		log_debug("LangSmith tracing disabled by user settings")
+
+
 # Config builder — inject business context into auto-traces
 
 def build_trace_metadata(

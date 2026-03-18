@@ -71,18 +71,13 @@ from workflows.workers import (
     SQLWorker,
     WebSearchWorker,
     MemoryWorker,
-    NoteWorker,
-    MissionWorker,
     OSControlWorker,
 )
+from workflows.workers.mission_graph import create_mission_node
+from workflows.workers.note_graph import create_note_node
 
 if TYPE_CHECKING:
     from core.settings import AgentConfig
-
-
-# =============================================================================
-# Node Names (for graph definition)
-# =============================================================================
 
 NODE_SUPERVISOR = "supervisor"
 NODE_PLANNING = "planning_worker"
@@ -100,9 +95,133 @@ NODE_OUTPUT_GUARDRAIL = "output_guardrail"
 NODE_GUARDRAIL_REJECT = "guardrail_reject"
 
 
-# =============================================================================
-# Memory Extraction
-# =============================================================================
+# ═══════════════════════════════════════════════════════════════════════════
+# Internal Knowledge Auto-Context Fetchers
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _fetch_note_hints(state: AgentState) -> str:
+    """Quick semantic search across the user's notes.
+
+    Returns a short summary string suitable for injecting into the
+    supervisor / synthesize prompt so the LLM is *aware* that relevant
+    notes exist.  The full note content is NOT returned — the supervisor
+    decides whether to delegate to the NOTE worker for detail.
+
+    Best-effort: returns "" on any error.
+    """
+    user_id = state.get("user_id")
+    question = state.get("original_question", "")
+    if not user_id or not question or len(question) < 5:
+        return ""
+
+    try:
+        import json
+        from infrastructure.database.session import SessionLocal
+        from infrastructure.tools.note_knowledge_tool import NoteKnowledgeTool
+
+        db = SessionLocal()
+        try:
+            tool = NoteKnowledgeTool(db)
+            raw = tool.search_notes(query=question, user_id=str(user_id), k=5)
+            results = json.loads(raw) if raw else []
+            if not results:
+                return ""
+
+            # Also fetch collections for context
+            col_raw = tool.list_collections(str(user_id))
+            collections = json.loads(col_raw) if col_raw else []
+            col_map = {c["id"]: c["name"] for c in collections}
+
+            lines = ["## Sensei's Relevant Notes (auto-fetched from knowledge base)"]
+            for i, note in enumerate(results[:5], 1):
+                title = note.get("title", "Untitled")
+                preview = (note.get("content") or "")[:150]
+                source = note.get("source", "user")
+                col_ids = note.get("collection_ids") or []
+                col_names = [col_map[cid] for cid in col_ids if cid in col_map]
+                col_str = f" [{', '.join(col_names)}]" if col_names else ""
+                lines.append(
+                    f"{i}. **{title}**{col_str} ({source}) — {preview}..."
+                )
+
+            lines.append(
+                "\n*If these notes are relevant, consider delegating to NOTE worker "
+                "for full detail before using external sources.*"
+            )
+            hint = "\n".join(lines)
+            log_debug(f"Note hints: {len(results)} relevant note(s) found")
+            return hint
+        finally:
+            db.close()
+    except Exception as e:
+        log_debug(f"Note hint fetch failed (non-fatal): {e}")
+        return ""
+
+
+def _fetch_mission_hints(state: AgentState) -> str:
+    """Quick check for the user's active missions related to the question.
+
+    Returns a short summary of active/draft missions so the supervisor
+    can connect the question to ongoing tasks.
+
+    Best-effort: returns "" on any error.
+    """
+    user_id = state.get("user_id")
+    question = state.get("original_question", "")
+    if not user_id or not question or len(question) < 5:
+        return ""
+
+    try:
+        from infrastructure.tools.mission_tool import MissionTool
+
+        tool = MissionTool()
+        missions = tool.list_active_missions(str(user_id), limit=10)
+        if not missions:
+            return ""
+
+        # Simple keyword overlap to filter relevant missions
+        q_words = set(question.lower().split())
+        relevant = []
+        for m in missions:
+            title = (m.get("title") or "").lower()
+            desc = (m.get("description") or "").lower()
+            category = (m.get("category") or "").lower()
+            combined = f"{title} {desc} {category}"
+            overlap = sum(1 for w in q_words if len(w) > 3 and w in combined)
+            if overlap > 0:
+                relevant.append((overlap, m))
+
+        if not relevant:
+            return ""
+
+        relevant.sort(key=lambda x: x[0], reverse=True)
+        top = [m for _, m in relevant[:3]]
+
+        lines = ["## Sensei's Related Missions (auto-fetched)"]
+        for m in top:
+            title = m.get("title", "Untitled")
+            status = m.get("status", "active")
+            progress = m.get("progress", 0)
+            steps_done = m.get("steps_completed", 0)
+            steps_total = m.get("steps_total", 0)
+            category = m.get("category", "")
+            cat_str = f" [{category}]" if category else ""
+            lines.append(
+                f"- **{title}**{cat_str} — {status}, "
+                f"{progress}% complete ({steps_done}/{steps_total} steps)"
+            )
+
+        lines.append(
+            "\n*Sensei may be working on these tasks. Consider the connection "
+            "when answering.*"
+        )
+        hint = "\n".join(lines)
+        log_debug(f"Mission hints: {len(top)} relevant mission(s) found")
+        return hint
+    except Exception as e:
+        log_debug(f"Mission hint fetch failed (non-fatal): {e}")
+        return ""
+
 
 FACT_EXTRACTION_PROMPT = """Extract key facts from this conversation that would be useful to remember about Sensei for future conversations.
 
@@ -157,11 +276,8 @@ def extract_key_facts(question: str, response: str, character_id: str | None = N
         import json
         import re
         
-        # Try to extract JSON array from response
-        # Handle cases where LLM wraps it in markdown code blocks
         content = content.strip()
         if content.startswith("```"):
-            # Remove markdown code blocks
             content = re.sub(r"```(?:json)?\s*", "", content)
             content = content.replace("```", "").strip()
         
@@ -180,10 +296,6 @@ def extract_key_facts(question: str, response: str, character_id: str | None = N
         return []
 
 
-# =============================================================================
-# Node Functions
-# =============================================================================
-
 def _fetch_emotional_context(state: AgentState) -> Optional[Dict[str, str]]:
     """Fetch emotional context for the current user/character pair.
 
@@ -200,10 +312,12 @@ def _fetch_emotional_context(state: AgentState) -> Optional[Dict[str, str]]:
         from uuid import UUID
         from infrastructure.database import get_db_context
         from services.emotional_engine import EmotionalEngine
+        from repositories.emotional_state_repository import EmotionalStateRepository
 
         uid = UUID(user_id) if isinstance(user_id, str) else user_id
         with get_db_context() as db:
-            ctx = EmotionalEngine.compute_emotional_context(db, uid, character_id)
+            engine = EmotionalEngine(EmotionalStateRepository(db))
+            ctx = engine.compute_emotional_context(uid, character_id)
             log_debug(
                 f"[Emotion] Fetched context: mood={ctx.get('current_mood')}, "
                 f"tier={ctx.get('relationship_tier')}, energy={ctx.get('energy_level')}"
@@ -250,10 +364,18 @@ def create_supervisor_node(supervisor: SupervisorAgent, store: Optional[BaseStor
         # Fetch emotional context for persona-aware routing
         emotional_ctx = _fetch_emotional_context(state)
 
-        # Make routing decision (pass memories context + emotional context to supervisor)
-        decision = supervisor.route(state, memories_context=memories_context, emotional_ctx=emotional_ctx)
+        # Fetch internal knowledge hints (notes + missions)
+        notes_hint = _fetch_note_hints(state)
+        missions_hint = _fetch_mission_hints(state)
+
+        decision = supervisor.route(
+            state,
+            memories_context=memories_context,
+            emotional_ctx=emotional_ctx,
+            notes_hint=notes_hint,
+            missions_hint=missions_hint,
+        )
         
-        # Update state
         decisions = list(state.get("supervisor_decisions") or [])
         decisions.append(decision)
         
@@ -265,7 +387,6 @@ def create_supervisor_node(supervisor: SupervisorAgent, store: Optional[BaseStor
             "current_worker": decision.next_worker,
         }
         
-        # Set status based on action
         if decision.action == SupervisorAction.RESPOND:
             updates["status"] = ExecutionStatus.RUNNING
         elif decision.action == SupervisorAction.CLARIFY:
@@ -281,109 +402,208 @@ def create_supervisor_node(supervisor: SupervisorAgent, store: Optional[BaseStor
     return supervisor_node
 
 
+def _build_completed_action(result: WorkerResult) -> Dict[str, Any]:
+    """Build a structured completed-action entry from a WorkerResult.
+
+    The *fingerprint* uniquely identifies (worker, action, outcome) and is
+    used by route_after_worker to detect loops without any hard-coded rules.
+    """
+    action = (result.metadata or {}).get("action", "")
+    fingerprint = f"{result.worker_type.value}:{action}:{result.success}"
+    # Short human-readable summary for supervisor context injection
+    if result.success and result.content:
+        summary = result.content[:120].replace("\n", " ")
+    elif result.error:
+        summary = result.error[:120]
+    else:
+        summary = "no output"
+    return {
+        "worker": result.worker_type.value,
+        "action": action,
+        "success": result.success,
+        "fingerprint": fingerprint,
+        "summary": summary,
+    }
+
+
 def create_worker_node(worker_class, config: Optional["AgentConfig"] = None):
     """
     Create a worker node function.
-    
+
     Workers execute their specialized task and return results.
     """
     def worker_node(state: AgentState) -> Dict[str, Any]:
         worker = worker_class(config=config)
         log_info(f"=== {worker.name} Node ===")
-        
+
         # Execute the worker
         result = worker.execute(state)
-        
+
         # Update state with result
         worker_results = list(state.get("worker_results") or [])
         worker_results.append(result)
-        
+
         # Update gathered context
         context = state.get("gathered_context") or ""
         if result.success and result.content:
             new_context = f"\n\n=== {result.worker_type.value.upper()} ===\n{result.content}"
             context = context + new_context
-        
-        # Update timing
+
         timing = dict(state.get("timing") or {})
         timing[f"{result.worker_type.value}_ms"] = result.execution_time_ms
-        
+
+        # Append structured completed-action record
+        completed = list(state.get("completed_actions") or [])
+        completed.append(_build_completed_action(result))
+
         return {
             "worker_results": worker_results,
             "gathered_context": context,
             "current_worker": None,
             "timing": timing,
+            "completed_actions": completed,
         }
-    
+
     return worker_node
-
-
-def create_note_worker_node(config: Optional["AgentConfig"] = None):
-    """
-    Create the note worker node function.
-
-    Unlike regular workers, the note worker does NOT append its output to
-    ``gathered_context``.  Notes are a pure side-effect — the supervisor sees
-    the worker ran (via worker_results) but note content is not fed back into
-    the response synthesis, preventing the AI from regurgitating note content.
-    """
-    def note_worker_node(state: AgentState) -> Dict[str, Any]:
-        worker = NoteWorker(config=config)
-        log_info(f"=== {worker.name} Node (side-effect) ===")
-
-        result = worker.execute(state)
-
-        worker_results = list(state.get("worker_results") or [])
-        worker_results.append(result)
-
-        # Update timing but do NOT touch gathered_context
-        timing = dict(state.get("timing") or {})
-        timing[f"{result.worker_type.value}_ms"] = result.execution_time_ms
-
-        return {
-            "worker_results": worker_results,
-            "current_worker": None,
-            "timing": timing,
-        }
-
-    return note_worker_node
 
 
 def create_sql_worker_node(config: Optional["AgentConfig"] = None):
     """
     Create the SQL worker node.
-    
+
     SQL worker now uses LangGraph interrupt() for approval flow.
     """
     def sql_worker_node(state: AgentState) -> Dict[str, Any]:
         worker = SQLWorker(config=config)
         log_info(f"=== {worker.name} Node ===")
-        
-        # Execute the worker (may pause via interrupt() if approval needed)
+
         result = worker.execute(state)
-        
-        # Update state with result
+
         worker_results = list(state.get("worker_results") or [])
         worker_results.append(result)
-        
-        # Update gathered context
+
         context = state.get("gathered_context") or ""
         if result.success and result.content:
             new_context = f"\n\n=== {result.worker_type.value.upper()} ===\n{result.content}"
             context = context + new_context
-        
-        # Update timing
+
         timing = dict(state.get("timing") or {})
         timing[f"{result.worker_type.value}_ms"] = result.execution_time_ms
-        
+
+        completed = list(state.get("completed_actions") or [])
+        completed.append(_build_completed_action(result))
+
         return {
             "worker_results": worker_results,
             "gathered_context": context,
             "current_worker": None,
             "timing": timing,
+            "completed_actions": completed,
         }
-    
+
     return sql_worker_node
+
+
+def _run_post_response_tasks(
+    state_snapshot: Dict[str, Any],
+    response: str,
+    store: Optional[BaseStore],
+) -> None:
+    """Fire-and-forget: fact extraction, memory storage, and emotional engine.
+
+    Runs in a background thread so the user gets the response immediately.
+    """
+    user_id = state_snapshot.get("user_id")
+    question = state_snapshot.get("original_question", "")
+    metadata = state_snapshot.get("metadata") or {}
+    character_id = metadata.get("character", "rio")
+
+    # ── Memory storage (fact extraction + episodic) ───────────────────
+    # NOTE: We open our own store connection here because this runs in a
+    # background thread — the caller's context-managed store may already
+    # be closed by the time we execute.
+    if store and user_id and question and response and len(response) > 20:
+        try:
+            from workflows.memory_store import store_memory, memory_store_context
+            from uuid import uuid4
+
+            gathered = state_snapshot.get("gathered_context", "")
+
+            facts = extract_key_facts(question, response, character_id=character_id)
+
+            with memory_store_context() as bg_store:
+                if facts:
+                    for fact in facts:
+                        store_memory(
+                            bg_store,
+                            user_id=user_id,
+                            memory_key=f"fact_{uuid4().hex[:8]}",
+                            text=fact,
+                            memory_type="semantic",
+                            metadata={
+                                "thread_id": state_snapshot.get("thread_id"),
+                                "mode": state_snapshot.get("mode"),
+                                "source": "fact_extraction",
+                            },
+                        )
+                    log_debug(f"Stored {len(facts)} facts for user {user_id}")
+
+                memory_key = f"interaction_{uuid4().hex[:8]}"
+                if gathered and len(gathered) > 100:
+                    mode = state_snapshot.get("mode", "chat")
+                    summary = f"[{mode}] Q: {question[:200]} A: {response[:400]}"
+                else:
+                    summary = f"Q: {question[:200]} A: {response[:400]}"
+
+                store_memory(
+                    bg_store,
+                    user_id=user_id,
+                    memory_key=memory_key,
+                    text=summary,
+                    memory_type="episodic",
+                    metadata={
+                        "thread_id": state_snapshot.get("thread_id"),
+                        "mode": state_snapshot.get("mode"),
+                        "had_worker_context": bool(gathered and len(gathered) > 100),
+                        "facts_extracted": len(facts) if facts else 0,
+                    },
+                )
+        except Exception as e:
+            log_warning(f"Memory storage failed: {e}")
+
+    # ── Emotional engine ─────────────────────────────────────────────
+    if user_id:
+        try:
+            from uuid import UUID
+            from infrastructure.database import get_db_context
+            from services.emotional_engine import EmotionalEngine
+            from repositories.emotional_state_repository import EmotionalStateRepository
+
+            uid = UUID(user_id) if isinstance(user_id, str) else user_id
+
+            with get_db_context() as db:
+                engine = EmotionalEngine(EmotionalStateRepository(db))
+                sentiment = engine.analyze_sentiment(question)
+
+                worker_results = state_snapshot.get("worker_results") or []
+                task_success = None
+                if worker_results:
+                    successes = sum(1 for r in worker_results if r.get("success", False))
+                    failures = sum(1 for r in worker_results if not r.get("success", True))
+                    if successes > 0 and failures == 0:
+                        task_success = True
+                    elif failures > 0 and successes == 0:
+                        task_success = False
+
+                engine.record_interaction(
+                    user_id=uid,
+                    character_id=character_id,
+                    sentiment=sentiment,
+                    task_success=task_success,
+                    context=question[:200],
+                )
+        except Exception as e:
+            log_warning(f"[Emotion] Background task failed: {e}")
 
 
 def create_synthesize_node(supervisor: SupervisorAgent, store: Optional[BaseStore] = None):
@@ -391,8 +611,8 @@ def create_synthesize_node(supervisor: SupervisorAgent, store: Optional[BaseStor
     Create the synthesis node function.
 
     Synthesizes gathered context into a final response.
-    If a store is provided, it extracts and saves important facts as memories.
-    Also records the interaction with the emotional engine.
+    Memory storage and emotional updates run in a background thread
+    so they don't block the response from reaching the user.
     """
     def synthesize_node(state: AgentState, *, store: Optional[BaseStore] = store) -> Dict[str, Any]:
         log_info("=== Synthesize Node ===")
@@ -423,147 +643,52 @@ def create_synthesize_node(supervisor: SupervisorAgent, store: Optional[BaseStor
         # Fetch emotional context for persona-aware response generation
         emotional_ctx = _fetch_emotional_context(state)
 
-        # Generate final response (neutral synthesis — no character acting)
-        raw_response = supervisor.generate_response(
-            state, memories_context=memories_context, emotional_ctx=emotional_ctx,
-        )
+        # Fetch internal knowledge hints for response enrichment
+        notes_hint = _fetch_note_hints(state)
+        missions_hint = _fetch_mission_hints(state)
 
-        # ── Persona Filter: rewrite neutral answer in character's voice ────
+        # Generate final response directly in character's voice (single LLM call)
         metadata = state.get("metadata") or {}
         character_id = metadata.get("character")
-        try:
-            from workflows.persona_filter import PersonaFilter
-            pf = PersonaFilter(character_id=character_id)
-            response = pf.apply(raw_response, emotional_ctx=emotional_ctx)
-        except Exception as e:
-            log_warning(f"[PersonaFilter] Failed, using raw response: {e}")
-            response = raw_response
+        response = supervisor.generate_response(
+            state,
+            memories_context=memories_context,
+            emotional_ctx=emotional_ctx,
+            character_id=character_id,
+            notes_hint=notes_hint,
+            missions_hint=missions_hint,
+        )
 
-        # Add response as AI message
         from langchain_core.messages import AIMessage
         messages = list(state.get("messages") or [])
         messages.append(AIMessage(content=response))
-        
-        # Store important facts as long-term memories (best-effort)
-        if store:
-            try:
-                user_id = state.get("user_id")
-                if user_id:
-                    from workflows.memory_store import store_memory
-                    from uuid import uuid4
-                    
-                    question = state.get("original_question", "")
-                    gathered = state.get("gathered_context", "")
-                    
-                    if question and response and len(response) > 20:
-                        # Phase 2: Extract key facts using LLM
-                        metadata = state.get("metadata") or {}
-                        facts = extract_key_facts(question, response, character_id=metadata.get("character"))
-                        
-                        if facts:
-                            # Store each extracted fact as a semantic memory
-                            for i, fact in enumerate(facts):
-                                memory_key = f"fact_{uuid4().hex[:8]}"
-                                store_memory(
-                                    store,
-                                    user_id=user_id,
-                                    memory_key=memory_key,
-                                    text=fact,
-                                    memory_type="semantic",  # Facts are semantic memories
-                                    metadata={
-                                        "thread_id": state.get("thread_id"),
-                                        "mode": state.get("mode"),
-                                        "source": "fact_extraction",
-                                    },
-                                )
-                            log_debug(f"Stored {len(facts)} facts for user {user_id}")
-                        
-                        # Also store the interaction as episodic memory (for context)
-                        memory_key = f"interaction_{uuid4().hex[:8]}"
-                        if gathered and len(gathered) > 100:
-                            mode = state.get("mode", "chat")
-                            summary = f"[{mode}] Q: {question[:200]} A: {response[:400]}"
-                        else:
-                            summary = f"Q: {question[:200]} A: {response[:400]}"
-                        
-                        store_memory(
-                            store,
-                            user_id=user_id,
-                            memory_key=memory_key,
-                            text=summary,
-                            memory_type="episodic",
-                            metadata={
-                                "thread_id": state.get("thread_id"),
-                                "mode": state.get("mode"),
-                                "had_worker_context": bool(gathered and len(gathered) > 100),
-                                "facts_extracted": len(facts),
-                            },
-                        )
-                        log_debug(f"Stored episodic memory for user {user_id}: {memory_key}")
-            except Exception as e:
-                log_warning(f"Memory storage failed: {e}")
 
-        # ── Emotional engine: record interaction + update state ────────
-        emotional_update = None
-        try:
-            user_id = state.get("user_id")
-            metadata = state.get("metadata") or {}
-            character_id = metadata.get("character", "rio")
+        # ── Fire-and-forget: memory + emotional engine in background ────
+        import threading
 
-            if user_id:
-                from uuid import UUID
-                from infrastructure.database import get_db_context
-                from services.emotional_engine import EmotionalEngine
-
-                uid = UUID(user_id) if isinstance(user_id, str) else user_id
-                question = state.get("original_question", "")
-
-                # Analyze sentiment of the user's message
-                sentiment = EmotionalEngine.analyze_sentiment(question)
-
-                # Determine task success from worker results
-                worker_results = state.get("worker_results") or []
-                task_success = None
-                if worker_results:
-                    successes = sum(1 for r in worker_results if r.success)
-                    failures = sum(1 for r in worker_results if not r.success)
-                    if successes > 0 and failures == 0:
-                        task_success = True
-                    elif failures > 0 and successes == 0:
-                        task_success = False
-
-                with get_db_context() as db:
-                    emo_state, mood_changed = EmotionalEngine.record_interaction(
-                        db,
-                        user_id=uid,
-                        character_id=character_id,
-                        sentiment=sentiment,
-                        task_success=task_success,
-                        context=question[:200],
-                    )
-
-                    tier = EmotionalEngine.get_relationship_tier(emo_state.affinity)
-                    emotional_update = {
-                        "mood": emo_state.mood.value,
-                        "energy": round(emo_state.energy, 2),
-                        "affinity": emo_state.affinity,
-                        "relationship_tier": tier,
-                        "mood_changed": mood_changed,
-                        "streak_days": emo_state.streak_days,
-                        "interaction_count": emo_state.interaction_count,
-                    }
-                    log_info(
-                        f"[Emotion] Recorded interaction: mood={emo_state.mood.value} "
-                        f"affinity={emo_state.affinity} tier={tier} changed={mood_changed}"
-                    )
-        except Exception as e:
-            log_warning(f"[Emotion] Failed to record interaction: {e}")
+        # Snapshot only serializable state fields needed by the background task
+        state_snapshot = {
+            "user_id": state.get("user_id"),
+            "original_question": state.get("original_question", ""),
+            "gathered_context": state.get("gathered_context", ""),
+            "metadata": metadata,
+            "thread_id": state.get("thread_id"),
+            "mode": state.get("mode"),
+            "worker_results": [
+                {"success": getattr(r, "success", True)}
+                for r in (state.get("worker_results") or [])
+            ],
+        }
+        threading.Thread(
+            target=_run_post_response_tasks,
+            args=(state_snapshot, response, store),
+            daemon=True,
+        ).start()
 
         return {
             "messages": messages,
             "final_response": response,
             "status": ExecutionStatus.COMPLETED,
-            "emotional_context": emotional_update,
         }
 
     return synthesize_node
@@ -588,85 +713,97 @@ def human_check_node(state: AgentState) -> Dict[str, Any]:
     return {"status": ExecutionStatus.RUNNING}
 
 
-# =============================================================================
-# Routing Functions
-# =============================================================================
+# ── Declarative routing tables ────────────────────────────────────────────
+# Adding a new supervisor action or worker only requires a new entry here;
+# the routing function itself never needs to change.
+
+_ACTION_NODE_MAP: Dict[str, str] = {
+    SupervisorAction.RESPOND.value:     NODE_SYNTHESIZE,
+    SupervisorAction.CLARIFY.value:     NODE_HUMAN_CHECK,
+    SupervisorAction.WAIT_HUMAN.value:  NODE_HUMAN_CHECK,
+}
+
+_WORKER_NODE_MAP: Dict[str, str] = {
+    WorkerType.PLANNING.value:    NODE_PLANNING,
+    WorkerType.RETRIEVAL.value:   NODE_RETRIEVAL,
+    WorkerType.WEB_SEARCH.value:  NODE_WEB_SEARCH,
+    WorkerType.SQL.value:         NODE_SQL,
+    WorkerType.MEMORY.value:      NODE_MEMORY,
+    WorkerType.NOTE.value:        NODE_NOTE,
+    WorkerType.MISSION.value:     NODE_MISSION,
+    WorkerType.OS_CONTROL.value:  NODE_OS_CONTROL,
+}
+
 
 def route_supervisor(state: AgentState) -> str:
-    """
-    Route from supervisor to next node based on decision.
-    
-    Returns the name of the next node to execute.
+    """Route from supervisor decision to the next graph node.
+
+    Uses declarative lookup tables so adding a new worker or action
+    only requires a registry entry — no code changes here.
     """
     decisions = state.get("supervisor_decisions") or []
-    
     if not decisions:
         log_warning("No supervisor decision found, going to synthesize")
         return NODE_SYNTHESIZE
-    
+
     decision = decisions[-1]
-    
-    # Check for human interrupt
+
     if state.get("pending_human_interrupt"):
         return NODE_HUMAN_CHECK
-    
-    # Route based on action
-    if decision.action == SupervisorAction.RESPOND:
-        return NODE_SYNTHESIZE
-    
-    if decision.action == SupervisorAction.CLARIFY:
-        return NODE_HUMAN_CHECK
-    
-    if decision.action == SupervisorAction.WAIT_HUMAN:
-        return NODE_HUMAN_CHECK
-    
+
     if decision.action == SupervisorAction.DELEGATE:
         worker = decision.next_worker
-        if worker == WorkerType.PLANNING:
-            return NODE_PLANNING
-        if worker == WorkerType.RETRIEVAL:
-            return NODE_RETRIEVAL
-        if worker == WorkerType.WEB_SEARCH:
-            return NODE_WEB_SEARCH
-        if worker == WorkerType.SQL:
-            return NODE_SQL
-        if worker == WorkerType.MEMORY:
-            return NODE_MEMORY
-        if worker == WorkerType.NOTE:
-            return NODE_NOTE
-        if worker == WorkerType.MISSION:
-            return NODE_MISSION
-        if worker == WorkerType.OS_CONTROL:
-            return NODE_OS_CONTROL
+        node = _WORKER_NODE_MAP.get(worker.value if worker else "") if worker else None
+        if node:
+            return node
+        log_warning(f"Unknown worker type '{worker}' — falling through to synthesize")
+        return NODE_SYNTHESIZE
 
-    # Default: synthesize
-    return NODE_SYNTHESIZE
+    return _ACTION_NODE_MAP.get(decision.action.value, NODE_SYNTHESIZE)
+
+
+def _detect_loop(state: AgentState) -> bool:
+    """Return True if the workflow is spinning on the same action.
+
+    A loop is defined as: the most-recently completed action's fingerprint
+    already appeared in an earlier completed action *within the same turn*.
+    This is purely data-driven — no worker names or action strings are
+    hard-coded here.  Any (worker, action, success) triple that repeats
+    is treated as a loop regardless of which worker caused it.
+    """
+    completed = state.get("completed_actions") or []
+    if len(completed) < 2:
+        return False
+    last_fp = completed[-1]["fingerprint"]
+    earlier_fps = {c["fingerprint"] for c in completed[:-1]}
+    if last_fp in earlier_fps:
+        log_warning(
+            f"Loop detected: action '{last_fp}' already completed this turn "
+            "— routing to synthesize"
+        )
+        return True
+    return False
 
 
 def route_after_worker(state: AgentState) -> str:
-    """
-    Route after worker completes - back to supervisor or end.
-    """
-    # Check iteration limit
+    """Route after a worker completes — back to supervisor or straight to synthesize."""
     if has_exceeded_iterations(state):
         return NODE_SYNTHESIZE
-    
-    # Back to supervisor for next decision
+
+    if _detect_loop(state):
+        return NODE_SYNTHESIZE
+
     return NODE_SUPERVISOR
 
 
 def route_after_sql_worker(state: AgentState) -> str:
-    """
-    Route after SQL worker completes.
-    
-    With interrupt(), the SQL worker handles approval internally,
-    so we just need standard routing logic.
-    """
-    # Check iteration limit
+    """Route after the SQL worker completes."""
     if has_exceeded_iterations(state):
         return NODE_SYNTHESIZE
-    
-    # Back to supervisor for next decision
+
+    if _detect_loop(state):
+        return NODE_SYNTHESIZE
+
     return NODE_SUPERVISOR
 
 
@@ -683,10 +820,6 @@ def route_human_check(state: AgentState) -> str:
     # Human responded, continue
     return NODE_SUPERVISOR
 
-
-# =============================================================================
-# Graph Builder
-# =============================================================================
 
 def build_workflow_graph(
     config: Optional["AgentConfig"] = None,
@@ -708,52 +841,49 @@ def build_workflow_graph(
     Returns:
         Compiled LangGraph workflow
     """
-    import os
-    guardrails_enabled = os.getenv("GUARDRAILS_ENABLED", "true").lower() == "true"
+    input_guardrail_enabled = config.enable_input_guardrail if config else False
+    output_guardrail_enabled = config.enable_output_guardrail if config else False
 
     log_info("Building multi-agent workflow graph")
-    if guardrails_enabled:
-        log_info("Guardrails enabled")
+    if input_guardrail_enabled:
+        log_info("Input guardrail enabled")
+    if output_guardrail_enabled:
+        log_info("Output guardrail enabled")
 
     if store:
         log_info("Long-term memory store enabled")
 
-    # Create agents
     supervisor = SupervisorAgent(config=config)
 
-    # Create the graph
     graph = StateGraph(AgentState)
 
-    # Add nodes (pass store to supervisor and synthesize for memory operations)
     graph.add_node(NODE_SUPERVISOR, create_supervisor_node(supervisor, store=store))
     graph.add_node(NODE_PLANNING, create_worker_node(PlanningWorker, config))
     graph.add_node(NODE_RETRIEVAL, create_worker_node(RetrievalWorker, config))
     graph.add_node(NODE_WEB_SEARCH, create_worker_node(WebSearchWorker, config))
     graph.add_node(NODE_SQL, create_sql_worker_node(config))
     graph.add_node(NODE_MEMORY, create_worker_node(MemoryWorker, config))
-    graph.add_node(NODE_NOTE, create_note_worker_node(config))
-    graph.add_node(NODE_MISSION, create_worker_node(MissionWorker, config))
+    graph.add_node(NODE_NOTE, create_note_node(config))
+    graph.add_node(NODE_MISSION, create_mission_node(config))
     graph.add_node(NODE_OS_CONTROL, create_worker_node(OSControlWorker, config))
     graph.add_node(NODE_SYNTHESIZE, create_synthesize_node(supervisor, store=store))
     graph.add_node(NODE_HUMAN_CHECK, human_check_node)
 
     # Conditionally add guardrail nodes
-    if guardrails_enabled:
+    any_guardrail = input_guardrail_enabled or output_guardrail_enabled
+    if any_guardrail:
+        from workflows.guardrails import guardrail_reject_node
+        graph.add_node(NODE_GUARDRAIL_REJECT, guardrail_reject_node)
+
+    if input_guardrail_enabled:
         from workflows.guardrails import (
             input_guardrail_node,
             route_after_input_guardrail,
-            output_guardrail_node,
-            route_after_output_guardrail,
-            guardrail_reject_node,
         )
         graph.add_node(NODE_INPUT_GUARDRAIL, input_guardrail_node)
-        graph.add_node(NODE_OUTPUT_GUARDRAIL, output_guardrail_node)
-        graph.add_node(NODE_GUARDRAIL_REJECT, guardrail_reject_node)
 
-        # START → input_guardrail (instead of supervisor)
+        # START → input_guardrail → supervisor (pass) or → reject (fail)
         graph.add_edge(START, NODE_INPUT_GUARDRAIL)
-
-        # input_guardrail → supervisor (pass) or → reject (fail)
         graph.add_conditional_edges(
             NODE_INPUT_GUARDRAIL,
             route_after_input_guardrail,
@@ -763,10 +893,9 @@ def build_workflow_graph(
             },
         )
     else:
-        # No guardrails: START → supervisor directly
+        # No input guardrail: START → supervisor directly
         graph.add_edge(START, NODE_SUPERVISOR)
 
-    # Add conditional edges from supervisor
     graph.add_conditional_edges(
         NODE_SUPERVISOR,
         route_supervisor,
@@ -784,7 +913,6 @@ def build_workflow_graph(
         },
     )
 
-    # Add edges from workers back to supervisor
     graph.add_conditional_edges(
         NODE_PLANNING,
         route_after_worker,
@@ -829,7 +957,12 @@ def build_workflow_graph(
     )
 
     # Synthesize → output_guardrail (if enabled) or → END
-    if guardrails_enabled:
+    if output_guardrail_enabled:
+        from workflows.guardrails import (
+            output_guardrail_node,
+            route_after_output_guardrail,
+        )
+        graph.add_node(NODE_OUTPUT_GUARDRAIL, output_guardrail_node)
         graph.add_edge(NODE_SYNTHESIZE, NODE_OUTPUT_GUARDRAIL)
 
         # output_guardrail → END (pass) or → reject (fail)
@@ -841,20 +974,19 @@ def build_workflow_graph(
                 NODE_GUARDRAIL_REJECT: NODE_GUARDRAIL_REJECT,
             },
         )
-
-        # reject → END
-        graph.add_edge(NODE_GUARDRAIL_REJECT, END)
     else:
         graph.add_edge(NODE_SYNTHESIZE, END)
 
-    # Add edges from human check
+    # reject → END (if any guardrail is active)
+    if any_guardrail:
+        graph.add_edge(NODE_GUARDRAIL_REJECT, END)
+
     graph.add_conditional_edges(
         NODE_HUMAN_CHECK,
         route_human_check,
         {NODE_SUPERVISOR: NODE_SUPERVISOR, END: END},
     )
     
-    # Default interrupt points for human-in-the-loop
     default_interrupt_before = interrupt_before or []
     default_interrupt_after = interrupt_after or []
     

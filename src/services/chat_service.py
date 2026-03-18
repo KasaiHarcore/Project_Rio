@@ -61,6 +61,7 @@ class ChatService:
         mode: Optional[str],
         character: Optional[str],
         workspace_context=None,
+        request_model_params: Optional[dict] = None,
     ) -> ChatPrepResult:
         """Validate input, resolve thread, award XP, build config.
 
@@ -106,7 +107,6 @@ class ChatService:
             except Exception:
                 pass
 
-        # ── History (exclude the latest user message) ─────────────────────
         history = [
             {"role": m.role, "content": m.content}
             for m in messages[:-1]
@@ -132,6 +132,10 @@ class ChatService:
             api_resolver = ApiKeyResolver(user_settings)
             if user_settings.model_name:
                 config.model_name = user_settings.model_name
+            config.enable_input_guardrail = user_settings.enable_input_guardrail
+            config.enable_output_guardrail = user_settings.enable_output_guardrail
+            config.enable_langsmith_tracing = user_settings.enable_langsmith_tracing
+            config.langsmith_project = user_settings.langsmith_project
             log_debug(f"User settings loaded: model={user_settings.model_name}, temp={user_settings.temperature}")
         except Exception as e:
             log_error(f"Failed to load user settings: {e}")
@@ -152,7 +156,16 @@ class ChatService:
                 "cohere": api_resolver.get_cohere_key(),
             }
 
-        # ── Model parameters ──────────────────────────────────────────────
+            # ── LangSmith tracing setup ──────────────────────────────────
+            langsmith_key = api_resolver.get_langsmith_key()
+            if langsmith_key is not None or not config.enable_langsmith_tracing:
+                from infrastructure.telemetry.langsmith import apply_user_langsmith_settings
+                apply_user_langsmith_settings(
+                    api_key=langsmith_key,
+                    tracing_enabled=config.enable_langsmith_tracing,
+                    project=config.langsmith_project,
+                )
+
         user_model_params = None
         if user_settings:
             user_model_params = {
@@ -162,6 +175,11 @@ class ChatService:
                 "frequency_penalty": user_settings.frequency_penalty,
                 "presence_penalty": user_settings.presence_penalty,
             }
+        # Per-request overrides take precedence over saved settings
+        if request_model_params:
+            if user_model_params is None:
+                user_model_params = {}
+            user_model_params.update(request_model_params)
 
         # ── Workspace context formatting ──────────────────────────────────
         workspace_context_str = ""

@@ -46,7 +46,6 @@ export function ChatList({ messages, isLoading, status }: ChatListProps) {
   const router = useRouter()
 
   useEffect(() => {
-    // Fetch emotional state on mount
     fetchState('rio')
   }, [fetchState])
 

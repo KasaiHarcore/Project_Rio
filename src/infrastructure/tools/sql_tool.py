@@ -45,7 +45,6 @@ class SQLTool:
         try:
             log_debug(f"Executing SQL query: {query[:100]}...")
             
-            # Validate query
             self._validate_query(query)
             
             with get_db_context() as db:
@@ -60,7 +59,6 @@ class SQLTool:
                     rows = result.fetchmany(self.max_rows)
                     columns = list(result.keys())
                     
-                    # Convert to list of dictionaries
                     data = [dict(zip(columns, row)) for row in rows]
                     
                     log_success(f"Query executed successfully, returned {len(data)} rows")
@@ -110,7 +108,6 @@ class SQLTool:
             inspector = inspect(self.engine)
             
             if table_name:
-                # Get specific table info
                 log_debug(f"Getting info for table: {table_name}")
                 
                 if not inspector.has_table(table_name):
@@ -134,7 +131,6 @@ class SQLTool:
                     "indexes": indexes,
                 }
             else:
-                # Get all tables
                 log_debug("Getting info for all tables")
                 table_names = inspector.get_table_names()
                 
@@ -193,12 +189,10 @@ class SQLTool:
                         col_desc += f" DEFAULT {col['default']}"
                     description_parts.append(col_desc)
                 
-                # Add primary key info
                 if info["primary_key"] and info["primary_key"].get("constrained_columns"):
                     pk_cols = ", ".join(info["primary_key"]["constrained_columns"])
                     description_parts.append(f"  Primary Key: ({pk_cols})")
                 
-                # Add foreign key info
                 if info["foreign_keys"]:
                     description_parts.append("  Foreign Keys:")
                     for fk in info["foreign_keys"]:

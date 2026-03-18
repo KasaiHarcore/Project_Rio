@@ -84,7 +84,6 @@ SQL Best Practices:
 """
 
 
-# Default approval timeout in minutes
 SQL_APPROVAL_TIMEOUT_MINUTES = 30
 
 
@@ -202,7 +201,6 @@ class SQLWorker(BaseWorker):
         question = self.get_question(state)
         log_info(f"SQL Worker analyzing: {question[:100]}...")
         
-        # Get schema context
         schema_context = self._get_schema_context(state)
         
         # First, determine what SQL query to run
@@ -251,7 +249,6 @@ class SQLWorker(BaseWorker):
             f"danger={classification.danger_level.value}"
         )
         
-        # Check if approval is required
         if classification.approval_policy.requires_approval:
             return self._request_approval(
                 sql=query,
@@ -264,7 +261,6 @@ class SQLWorker(BaseWorker):
         # Safe operation - execute immediately
         return self._execute_query(query, explanation)
     
-    # Maximum auto-retry attempts when SQL execution fails
     MAX_AUTO_RETRIES = 3
 
     def _request_approval(
@@ -288,7 +284,6 @@ class SQLWorker(BaseWorker):
         Returns:
             WorkerResult with execution results or error
         """
-        # Check admin requirement for critical operations
         metadata = state.get("metadata", {})
         user_role = metadata.get("user_role", "user")
 
@@ -313,7 +308,6 @@ class SQLWorker(BaseWorker):
             result.metadata["approval_status"] = "auto_approved"
             return result
 
-        # Create approval request
         approval_request = self._create_approval_request(
             sql=sql,
             natural_query=natural_query,
@@ -391,7 +385,6 @@ class SQLWorker(BaseWorker):
         log_success(f"Executing {'modified' if was_modified else 'approved'} SQL: {sql_to_execute[:100]}...")
         result = self._execute_with_retry(sql_to_execute, explanation, natural_query, state)
 
-        # Add approval metadata
         if result.metadata is None:
             result.metadata = {}
         result.metadata.update({
@@ -463,7 +456,6 @@ class SQLWorker(BaseWorker):
                 system_prompt=self._build_system_prompt(schema_context),
             ).strip()
 
-            # Remove markdown code blocks if present
             if fixed_sql.startswith("```"):
                 lines = fixed_sql.split("\n")
                 fixed_sql = "\n".join(
@@ -518,12 +510,10 @@ class SQLWorker(BaseWorker):
         """
         question_lower = question.lower()
         
-        # Check for schema/structure questions
         schema_keywords = ["schema", "tables", "structure", "columns", "what tables"]
         if any(kw in question_lower for kw in schema_keywords):
             return {"needs_schema": True}
         
-        # Check for specific table queries
         table_keywords = {
             "user": ["user", "account", "member"],
             "thread": ["thread", "conversation", "chat"],
@@ -559,7 +549,6 @@ class SQLWorker(BaseWorker):
             WorkerResult with schema information
         """
         try:
-            # Get schema description
             schema_desc = sql_tool.describe_schema()
             
             # Also get table list
@@ -611,7 +600,6 @@ class SQLWorker(BaseWorker):
                     metadata={"query": query},
                 )
             
-            # Format the results
             formatted = self._format_results(result, explanation)
             
             return WorkerResult(
@@ -651,7 +639,6 @@ class SQLWorker(BaseWorker):
         Returns:
             WorkerResult with query results or approval request
         """
-        # Get schema for context if not provided
         if not schema_context:
             schema_context = self._get_schema_context(state)
 

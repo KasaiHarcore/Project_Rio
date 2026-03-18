@@ -15,7 +15,6 @@ from langchain_core.messages import messages_to_dict
 from core.settings import get_redis_config
 from utils.log import log_debug, log_info, log_success, log_warning
 
-# Exceptions that indicate Redis is unreachable / timed-out.
 _CONN_ERRORS = (redis.ConnectionError, redis.TimeoutError, OSError)
 
 

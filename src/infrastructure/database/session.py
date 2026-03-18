@@ -195,7 +195,6 @@ def init_db() -> None:
         In production, use Alembic migrations.
     """
     from models.base import Base
-    # Import all models to register them with Base
     from models import (  # noqa: F401
         user,
         thread,

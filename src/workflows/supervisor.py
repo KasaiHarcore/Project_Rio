@@ -55,6 +55,16 @@ SUPERVISOR_SYSTEM_PROMPT = """I am the Supervisor agent — the central decision
 - When synthesizing, I combine worker outputs into a single clear, factual answer for Sensei.
 - I am provenance-aware — I cite sources and origin of facts when relevant.
 
+## INTERNAL-FIRST PRINCIPLE
+Before seeking external knowledge (WEB_SEARCH, RETRIEVAL), I always consider Sensei's INTERNAL knowledge first:
+- **Notes**: Sensei may have written notes, organized collections, and built a knowledge graph on the topic. If relevant notes exist (shown in auto-fetched hints), I should mention them and consider delegating to NOTE for full detail.
+- **Missions**: Sensei may be actively working on a mission related to their question. If a related mission exists, I should acknowledge the connection and frame my answer in that context.
+- **Memory**: I always have Sensei's long-term memories available.
+
+The workflow priority is: **Internal knowledge → External knowledge → Generate response.**
+If Sensei already has notes on a topic, I should leverage that before web searching the same topic.
+If Sensei is working on a related mission, I should connect my answer to their progress.
+
 ## Workers Available
 1. **PLANNING** — designs multi-step execution plans for genuinely complex, multi-part queries.
 2. **RETRIEVAL** — searches internal knowledge bases / documents / RAG store.
@@ -68,16 +78,22 @@ SUPERVISOR_SYSTEM_PROMPT = """I am the Supervisor agent — the central decision
    - **STORE**: When Sensei says "remember that…", "keep in mind…"
    - **RECALL**: When Sensei asks "what do you know about me?"
    - **FORGET**: When Sensei says "forget that…", "delete the memory about…"
-6. **NOTE** — extracts important notes, key takeaways, and TODO action items:
-   - Triggered when the conversation produces actionable insights, study plans, or structured steps
-   - Creates visible sidebar notes that help Sensei track important information
-   - Use when the answer involves a roadmap, checklist, study plan, or important facts worth pinning
-   - NOT for simple greetings or trivial answers — only when there is real value to capture
-7. **MISSION** — extracts trackable missions / goals from the conversation:
-   - Triggered when Sensei explicitly asks to create a task, or when the conversation produces a clear goal
-   - Creates persistent missions on the Mission Page with optional step checklists
-   - Use when Sensei says "create a task", "add a mission", "I need to do…", "my goal is…"
-   - Also use when a study plan or project roadmap emerges that should be tracked long-term
+6. **NOTE** — unified note operations for BOTH creating and reading notes:
+   - **CREATING notes**: Triggered when the conversation produces actionable insights, study plans, TODO steps, or structured content worth extracting as sticky notes. Use after the primary worker has already gathered context.
+   - **READING notes**: When Sensei asks about their own notes — "what did I write about…", "find my notes on…", "do I have notes about…"
+   - **Collections**: When Sensei asks "what collections do I have?", "show notes in my Backend folder"
+   - **Graph/Links**: When Sensei asks "how are my notes connected?", "show note graph", "what notes link to…", "what references my note?"
+   - **Modifying notes**: When Sensei says "pin my React note", "move note to Backend collection", "mark my note as important"
+   - **Deleting notes**: When Sensei says "delete my note about X", "remove that note"
+   - **Complex reasoning**: When Sensei asks sophisticated questions requiring multiple note operations — "How are my React and Docker notes related?", "Summarize everything I've learned about databases", "Which note is referenced the most?"
+   - The NOTE worker internally classifies the intent and handles both read and write operations
+7. **MISSION** — creates and manages missions on the Mission Page:
+   - **Create**: When Sensei says "create a task", "add a mission", "I need to do…", "my goal is…"
+   - **Toggle step**: When Sensei says "mark step X done", "I finished step X", "tick off X", "complete the step about…"
+   - **Complete mission**: When Sensei says "I'm done with mission X", "complete mission X", "mark mission X as done"
+   - **Update**: When Sensei says "change the deadline", "rename mission X", "update the priority", "add a step to", "remove the step about", "move deadline to", "set priority to", "reschedule"
+   - **Delete**: When Sensei says "delete mission X", "remove mission X", "cancel mission X", "get rid of mission X"
+   - Also creates missions when a study plan, project roadmap, or set of milestones emerges
    - NOT for transient notes or simple Q&A — only for actionable, trackable goals
 8. **OS_CONTROL** — executes operating system commands:
    - Shell commands (ls, cat, git, python, etc.) in a persistent PTY session
@@ -142,6 +158,8 @@ ROUTING_PROMPT = """I need to analyze Sensei's message and decide the best cours
 - **User Role**: {user_role} (IMPORTANT: SQL worker requires admin role)
 - **Iteration**: {iteration}/{max_iterations}
 - **Workers already used**: {workers_used}
+- **Completed actions this turn**:
+{completed_actions_summary}
 {context_summary}
 
 ## MODE ENFORCEMENT RULES
@@ -156,29 +174,71 @@ If Sensei asks to remember, recall, or forget something, DELEGATE to MEMORY work
 - "What do you know about me?" / "What have you remembered?" → DELEGATE to MEMORY
 - "Forget that…" / "Delete the memory…" → DELEGATE to MEMORY
 
-## NOTE EXTRACTION (Any mode, after workers have gathered context)
-If the conversation produced actionable insights, study plans, TODO steps, or structured checklists:
-- DELEGATE to NOTE worker **after** the primary worker has already gathered context
-- Only use NOTE when there is substantive, structured content worth surfacing as a sidebar note
-- Do NOT use NOTE for simple Q&A, greetings, or trivial exchanges
+## NOTE OPERATIONS (Any mode)
+The NOTE worker handles ALL note-related requests — both creating AND reading notes.
 
-## MISSION CREATION (Any mode)
-If Sensei explicitly asks to create a task/mission, or the conversation produces a clear trackable goal:
+**Creating notes** (after workers have gathered context):
+- If the conversation produced actionable insights, study plans, TODO steps, or structured checklists → DELEGATE to NOTE
+- Only when there is substantive, structured content worth surfacing as a sidebar note
+
+**Reading/searching notes**:
+- "What did I write about X?" / "Find my notes on X" / "Do I have notes about X?" → DELEGATE to NOTE
+- "What collections do I have?" / "Show my note groups" / "List my folders" → DELEGATE to NOTE
+- "Show notes in my X collection" / "What's in my Study folder?" → DELEGATE to NOTE
+- "How are my notes connected?" / "Show the note graph" / "What notes link to X?" → DELEGATE to NOTE
+- "What references my X note?" / "What links to this note?" / "Show backlinks" → DELEGATE to NOTE
+
+**Modifying notes**:
+- "Pin my React note" / "Move note to Backend collection" / "Mark as important" → DELEGATE to NOTE
+
+**Deleting notes**:
+- "Delete my note about X" / "Remove that note" → DELEGATE to NOTE
+
+**Complex note questions**:
+- "How are my React and Docker notes related?" / "Summarize my notes on databases" → DELEGATE to NOTE
+- "Which note is referenced the most?" / "What topics span my collections?" → DELEGATE to NOTE
+
+- Do NOT confuse "Note that…" (memory command) with "show my notes" (note operation)
+
+## MISSION MANAGEMENT (Any mode)
+If Sensei wants to create, update, delete, query, or interact with missions:
 - "Create a task to…" / "Add a mission for…" / "I need to…" / "My goal is…" → DELEGATE to MISSION
+- "Mark step X done" / "I finished the step about…" / "Tick off…" → DELEGATE to MISSION
+- "I'm done with mission X" / "Complete mission X" / "Mark X as done" → DELEGATE to MISSION
+- "Change the deadline of X to…" / "Move deadline to Friday" / "Reschedule X" → DELEGATE to MISSION
+- "Rename mission X to…" / "Update mission X" / "Change priority to critical" → DELEGATE to MISSION
+- "Add a step to mission X" / "Remove the step about…" / "Modify mission X" → DELEGATE to MISSION
+- "Delete mission X" / "Remove mission X" / "Cancel mission X" / "Get rid of…" → DELEGATE to MISSION
+- "How many tasks have I done?" / "What's my progress?" / "Am I on track?" → DELEGATE to MISSION
+- "What missions are due this month?" / "Show my overdue tasks" / "Tasks before end of year" → DELEGATE to MISSION
+- "How many tasks left?" / "What do I still need to do?" / "Show completed missions" → DELEGATE to MISSION
+- "How many steps have I finished?" / "How many hours of work left?" → DELEGATE to MISSION
+- "What did I complete last week?" / "Am I doing better this month?" → DELEGATE to MISSION
+- "What should I work on next?" / "What's due soonest?" / "What's urgent?" → DELEGATE to MISSION
+- "Which category has the most tasks?" / "Show my study tasks" → DELEGATE to MISSION
+- "Tell me about mission X" / "What's the status of my Python project?" → DELEGATE to MISSION
+- "What haven't I started yet?" / "What's almost done?" → DELEGATE to MISSION
+- "How productive am I?" / "What's my completion rate?" → DELEGATE to MISSION
 - Also DELEGATE to MISSION when a study plan, project roadmap, or set of milestones emerges
-- MISSION creates **persistent** items on the Mission Page — use for long-term goals, not transient info
+- MISSION handles **persistent** items on the Mission Page — creating, toggling steps, completing, and querying/stats
 - Do NOT use MISSION for simple Q&A or trivial requests
 
 ## My Task
 I will think through:
-1. **Intent**: What does Sensei actually want? (greeting, task, factual question, memory command, mission creation, meta-request?)
+1. **Intent**: What does Sensei actually want? (greeting, task, factual question, memory command, mission management, note query, meta-request?)
 2. **Is this a MEMORY command?**: Check for remember/recall/forget patterns FIRST.
-3. **Is this a MISSION request?**: Check for "create task", "add mission", explicit goal-setting.
-4. **Is this purely conversational?**: Only "Hi", "Thanks", "Stop", etc. are purely conversational.
-5. **Respect the MODE**: If Sensei selected a specific mode (web/rag/sql), I delegate to that worker for any substantive question.
-6. **Have enough context?**: If workers already ran, is the gathered info sufficient?
+3. **Check INTERNAL knowledge**: Look at the auto-fetched Note Hints and Mission Hints in the context below. Does Sensei already have notes or missions related to this topic? If yes:
+   - For a factual question where relevant notes exist → DELEGATE to NOTE **first** to retrieve full detail, before going to external sources
+   - If notes exist AND Sensei needs more/updated info → plan to use NOTE then the appropriate external worker
+   - If a related mission exists → acknowledge the connection in reasoning
+4. **Is this a NOTE request?**: Check for "my notes", "find notes", "note collections", "note graph", "what did I write", "backlinks", "linked notes", "show notes in", "pin note", "delete note", "move note", "how are my notes related" — anything about reading, searching, modifying, or deleting existing notes → DELEGATE to NOTE. Also consider: after other workers gathered substantial context, should we create notes?
+5. **Is this a MISSION request?**: Check for "create task", "add mission", "mark step done", "complete mission", "how many tasks", "what's due", "show progress", explicit goal-setting or mission queries.
+6. **Is this purely conversational?**: Only "Hi", "Thanks", "Stop", etc. are purely conversational.
+7. **Respect the MODE**: If Sensei selected a specific mode (web/rag/sql), I delegate to that worker — BUT still consider internal knowledge first in chat mode.
+8. **Have enough context?**: If workers already ran, is the gathered info sufficient?
 
 ## Output Format
+IMPORTANT: Output these four lines as PLAIN TEXT — no markdown, no bold, no bullets, no headers.
 ACTION: [DELEGATE|RESPOND|CLARIFY]
 WORKER: [PLANNING|RETRIEVAL|WEB_SEARCH|SQL|MEMORY|NOTE|MISSION|NONE]
 CONFIDENCE: [0.0-1.0]
@@ -196,6 +256,7 @@ RESPONSE_PROMPT = """I will now generate a final answer for Sensei based on the 
 ## My Response Guidelines
 - I summarize key findings first (1-3 sentences), then supporting details, then sources.
 - I cite sources when applicable (document names, URLs, query context).
+- If Sensei's own notes or missions are relevant to the answer, I reference them naturally: "Based on your notes about X…", "This connects to your mission on Y…"
 - I am concise but thorough — Sensei's time matters.
 - If information is incomplete, I acknowledge limitations honestly.
 - I use markdown formatting for readability.
@@ -264,6 +325,40 @@ class SupervisorAgent:
             "the character's voice downstream, so I focus on accuracy."
         )
 
+    def _build_persona_system_prompt(
+        self,
+        base_prompt: str,
+        character_id: str | None = None,
+        emotional_ctx: Optional[Dict[str, str]] = None,
+    ) -> str:
+        """Combine base system prompt with persona directives for in-character generation."""
+        from workflows.persona import get_persona
+
+        persona = get_persona(character_id)
+        quirks = "\n".join(f"- {q}" for q in persona.speech_quirks) if persona.speech_quirks else "None."
+
+        emotional_directive = ""
+        if emotional_ctx:
+            emotional_directive = persona.get_adaptive_prompt(emotional_ctx)
+
+        persona_block = (
+            f"\n\n## Character Voice — Respond as {persona.name}\n"
+            f"- Identity: {persona.identity}\n"
+            f"- Personality: {persona.personality}\n"
+            f"- Tone: {persona.tone}\n"
+            f"- Always call the user {persona.user_address}.\n"
+            f"- Backstory: {persona.backstory}\n"
+            f"- Speech quirks:\n{quirks}\n"
+        )
+        if emotional_directive:
+            persona_block += f"- Emotional directive: {emotional_directive}\n"
+
+        persona_block += (
+            "\nCRITICAL: Respond directly in this character's voice. "
+            "Preserve all factual content, markdown, code blocks, and links."
+        )
+        return base_prompt + persona_block
+
     @property
     def _clarification_system_prompt(self) -> str:
         return (
@@ -312,6 +407,8 @@ class SupervisorAgent:
         state: AgentState,
         memories_context: str = "",
         emotional_ctx: Optional[Dict[str, str]] = None,
+        notes_hint: str = "",
+        missions_hint: str = "",
     ) -> SupervisorDecision:
         """
         Make a routing decision based on current state.
@@ -325,6 +422,8 @@ class SupervisorAgent:
             state: Current agent state
             memories_context: Optional long-term memories retrieved from store
             emotional_ctx: Optional emotional context (ignored here, kept for API compat)
+            notes_hint: Auto-fetched note summaries relevant to the question
+            missions_hint: Auto-fetched mission summaries relevant to the question
 
         Returns:
             SupervisorDecision with the action to take
@@ -332,6 +431,10 @@ class SupervisorAgent:
         log_info("Supervisor making routing decision")
         if memories_context:
             log_debug(f"Using long-term memories: {len(memories_context)} chars")
+        if notes_hint:
+            log_debug(f"Using note hints: {len(notes_hint)} chars")
+        if missions_hint:
+            log_debug(f"Using mission hints: {len(missions_hint)} chars")
         
         # Check termination conditions (these are system limits, not routing logic)
         if is_execution_complete(state):
@@ -383,12 +486,33 @@ class SupervisorAgent:
         # Add long-term memories if available
         if memories_context:
             context_summary = f"\n{memories_context}\n{context_summary}"
+
+        # Add internal knowledge hints (notes + missions)
+        if notes_hint:
+            context_summary = f"\n{notes_hint}\n{context_summary}"
+        if missions_hint:
+            context_summary = f"\n{missions_hint}\n{context_summary}"
         
         # Add SQL schema context if in SQL mode
         sql_schema_info = ""
         if mode == "sql":
             sql_schema_info = self._get_sql_schema_summary(state)
-        
+
+        # Build a structured, readable summary of what has been accomplished
+        # this turn so the LLM can reason about it without needing hard rules.
+        completed_actions = state.get("completed_actions") or []
+        if completed_actions:
+            lines = []
+            for i, ca in enumerate(completed_actions, 1):
+                status = "SUCCESS" if ca.get("success") else "FAILED"
+                lines.append(
+                    f"  {i}. [{ca['worker']}] action={ca['action'] or 'n/a'} "
+                    f"({status}) — {ca['summary']}"
+                )
+            completed_actions_summary = "\n".join(lines)
+        else:
+            completed_actions_summary = "  (none yet)"
+
         # Let the LLM (the actual agent) decide
         routing_prompt = self._routing_prompt_tpl.format(
             question=question,
@@ -397,6 +521,7 @@ class SupervisorAgent:
             iteration=iteration,
             max_iterations=max_iterations,
             workers_used=", ".join(workers_used) if workers_used else "None yet",
+            completed_actions_summary=completed_actions_summary,
             context_summary=context_summary + sql_schema_info
         )
         
@@ -466,42 +591,37 @@ class SupervisorAgent:
     def _parse_decision(self, response: str) -> SupervisorDecision:
         """
         Parse the LLM response into a SupervisorDecision.
-        
-        Args:
-            response: Raw LLM response text
-        
-        Returns:
-            Parsed SupervisorDecision
+
+        Uses regex extraction so it's immune to markdown bold,
+        bullet points, headers, or any other formatting the LLM
+        may add around the structured fields.
         """
-        lines = response.strip().split("\n")
-        
-        action = SupervisorAction.RESPOND
-        worker = None
+        import re
+
+        text = response.strip()
+
+        # Regex patterns that tolerate markdown: **ACTION:** / - ACTION: / ## ACTION: etc.
+        action_m = re.search(r'(?:^|\n)[\s*#>-]*ACTION[:\s*]+([A-Z_]+)', text, re.IGNORECASE)
+        worker_m = re.search(r'(?:^|\n)[\s*#>-]*WORKER[:\s*]+([A-Z_]+)', text, re.IGNORECASE)
+        conf_m   = re.search(r'(?:^|\n)[\s*#>-]*CONFIDENCE[:\s*]+([\d.]+)', text, re.IGNORECASE)
+        reason_m = re.search(r'(?:^|\n)[\s*#>-]*REASONING[:\s*]+(.+)', text, re.IGNORECASE)
+
+        action = self._parse_action(
+            action_m.group(1).strip().upper() if action_m else "RESPOND"
+        )
+        worker = self._parse_worker(
+            worker_m.group(1).strip().upper() if worker_m else "NONE"
+        )
+
         confidence = 1.0
-        reasoning = ""
-        
-        for line in lines:
-            line_upper = line.upper().strip()
-            
-            if line_upper.startswith("ACTION:"):
-                value = line.split(":", 1)[1].strip().upper()
-                action = self._parse_action(value)
-            
-            elif line_upper.startswith("WORKER:"):
-                value = line.split(":", 1)[1].strip().upper()
-                worker = self._parse_worker(value)
-            
-            elif line_upper.startswith("CONFIDENCE:"):
-                try:
-                    value = line.split(":", 1)[1].strip()
-                    confidence = float(value)
-                    confidence = max(0.0, min(1.0, confidence))
-                except (ValueError, IndexError):
-                    pass
-            
-            elif line_upper.startswith("REASONING:"):
-                reasoning = line.split(":", 1)[1].strip()
-        
+        if conf_m:
+            try:
+                confidence = max(0.0, min(1.0, float(conf_m.group(1).strip())))
+            except ValueError:
+                pass
+
+        reasoning = reason_m.group(1).strip().strip("*").strip() if reason_m else ""
+
         return SupervisorDecision(
             action=action,
             next_worker=worker,
@@ -570,48 +690,53 @@ class SupervisorAgent:
         state: AgentState,
         memories_context: str = "",
         emotional_ctx: Optional[Dict[str, str]] = None,
+        character_id: Optional[str] = None,
+        notes_hint: str = "",
+        missions_hint: str = "",
     ) -> str:
         """
         Generate the final response based on gathered context.
 
-        The output is a neutral, factual synthesis. Character voice is
-        applied later by the PersonaFilter.
+        When *character_id* is provided the persona voice is baked into the
+        system prompt so the LLM produces an in-character answer in a single
+        call (no separate PersonaFilter rewrite needed).
 
         Args:
             state: Current agent state with gathered context
             memories_context: Long-term memories retrieved from PostgresStore
-            emotional_ctx: Optional emotional context (ignored, kept for API compat)
+            emotional_ctx: Optional emotional context for persona-aware tone
+            character_id: If set, generate directly in this persona's voice
 
         Returns:
-            Final response string (neutral tone)
+            Final response string
         """
-        log_info("Supervisor generating final response (neutral)")
-        
+        log_info("Supervisor generating final response")
+
         question = state.get("original_question", "")
         context = get_gathered_context(state)
-        
+
         # Prepend long-term memories to context so the LLM can reference them.
         if memories_context:
             context = f"{memories_context}\n\n{context}" if context else memories_context
-        
+
+        # Prepend internal knowledge hints so the LLM can reference notes/missions.
+        if notes_hint:
+            context = f"{notes_hint}\n\n{context}" if context else notes_hint
+        if missions_hint:
+            context = f"{missions_hint}\n\n{context}" if context else missions_hint
+
         log_debug(f"Generating response for question: {question[:200]}")
         log_debug(f"Context available: {len(context)} chars")
-        
+
         # Retrieve conversation history for continuity.
         history = self._get_history_messages(state, self.MAX_HISTORY_MESSAGES)
-        
+
         # Check if we can answer directly without context
         if not context:
             # Simple question, try direct answer
             log_info("No context gathered - generating direct response")
             prompt = f"Answer this question concisely: {question}"
-            messages: List[BaseMessage] = [
-                SystemMessage(content=self._direct_system_prompt),
-            ]
-            if history:
-                messages.extend(history)
-                log_debug(f"Injected {len(history)} history messages into direct response")
-            messages.append(HumanMessage(content=prompt))
+            base_sys = self._direct_system_prompt
         else:
             # Use gathered context
             log_info(f"Using gathered context ({len(context)} chars) to generate response")
@@ -619,14 +744,22 @@ class SupervisorAgent:
                 question=question,
                 context=context,
             )
-            messages: List[BaseMessage] = [
-                SystemMessage(content=self._system_prompt),
-            ]
-            if history:
-                messages.extend(history)
-                log_debug(f"Injected {len(history)} history messages into context response")
-            messages.append(HumanMessage(content=prompt))
-        
+            base_sys = self._system_prompt
+
+        # Inject persona voice into system prompt when character_id is set
+        if character_id:
+            sys_prompt = self._build_persona_system_prompt(
+                base_sys, character_id=character_id, emotional_ctx=emotional_ctx,
+            )
+        else:
+            sys_prompt = base_sys
+
+        messages: List[BaseMessage] = [SystemMessage(content=sys_prompt)]
+        if history:
+            messages.extend(history)
+            log_debug(f"Injected {len(history)} history messages")
+        messages.append(HumanMessage(content=prompt))
+
         try:
             response = self.llm.invoke(messages)
             response_text = str(response.content) if hasattr(response, "content") else str(response)

@@ -101,6 +101,7 @@ export function AgentsTab() {
           }))
           : [{ id: blockUid(), type: 'text' as const, content: note.content }],
         sidebarNoteId: note.id,
+        collectionIds: [],
         isPinned: false,
         isImportant: false,
         author: note.author,

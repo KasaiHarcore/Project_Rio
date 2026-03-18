@@ -121,7 +121,6 @@ interface NoteState {
     setLoading: (v: boolean) => void
     setPopupNoteId: (id: string | null) => void
 
-    // Note CRUD (local state + API persistence)
     addNote: (note: Note) => void
     updateNote: (id: string, patch: Partial<Note>) => void
     removeNote: (id: string) => void
@@ -129,7 +128,6 @@ interface NoteState {
     addNoteBlock: (noteId: string, block: NoteBlock, afterBlockId?: string) => void
     removeNoteBlock: (noteId: string, blockId: string) => void
 
-    // Collection CRUD (local state)
     addCollection: (col: Collection) => void
     updateCollection: (id: string, patch: Partial<Collection>) => void
     removeCollection: (id: string) => void

@@ -36,8 +36,6 @@ class XPService:
         self._repo = profile_repo
         self._cache = cache_service
 
-    # -- Pure computation helpers (no DB) --
-
     def _xp_for_level(self, level: int) -> int:
         """Cumulative XP required to *reach* ``level`` (from level 1).
 
@@ -129,8 +127,6 @@ class XPService:
         xp = self.get_user_xp(user_id)
         return self._level_progress(xp)
 
-
-# ── Module-level convenience functions (backwards compatibility) ──────────
 
 def award_xp(db, user_id, amount: int, reason: str = "") -> int:
     """Convenience wrapper: award XP using a raw db session."""

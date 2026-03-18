@@ -34,10 +34,6 @@ from core.settings import get_cors_config
 from utils.log import log_info, log_warning, log_error
 
 
-# ---------------------------------------------------------------------------
-# Lifespan (startup / shutdown)
-# ---------------------------------------------------------------------------
-
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan: startup and shutdown hooks."""
@@ -124,6 +120,7 @@ def create_app() -> FastAPI:
     async def validation_error_handler(request: Request, exc: RequestValidationError):
         """Pydantic / FastAPI validation errors → friendly 422 with field details."""
         request_id = getattr(request.state, "request_id", None)
+        log_warning(f"Validation error (req={request_id}): {exc.errors()}")
         # Simplify error details for the client
         field_errors = []
         for err in exc.errors():

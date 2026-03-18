@@ -59,7 +59,6 @@ export default function OnboardingPage() {
     }
     if (newFiles.length > 0) {
       setUploadedFiles(prev => [...prev, ...newFiles]);
-      // Auto-select 'local' data source
       if (!formData.dataSources.includes('local')) {
         setFormData(prev => ({ ...prev, dataSources: [...prev.dataSources, 'local'] }));
       }
@@ -111,7 +110,6 @@ export default function OnboardingPage() {
           directives: formData.directives || undefined,
         });
       } catch {
-        // If save fails, still navigate — data can be re-entered in settings
       } finally {
         setSaving(false);
       }

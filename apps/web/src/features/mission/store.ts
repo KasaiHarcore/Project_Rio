@@ -64,6 +64,8 @@ interface MissionState {
   toggleStep: (missionId: string, stepIndex: number) => Promise<Mission | null>
   /** Called by chat-transport when agent creates missions in real-time */
   addAgentMissions: (raw: Array<Record<string, unknown>>, persistedIds?: string[]) => void
+  /** Called by chat-transport when agent toggles a step or completes a mission */
+  applyAgentAction: (action: string, mission: Record<string, unknown>, stepIndex?: number | null) => void
   /** Optimistic reorder (drag-and-drop) */
   reorderMissions: (fromIndex: number, toIndex: number) => void
   /** View preferences */
@@ -206,6 +208,51 @@ export const useMissionStore = create<MissionState>((set, get) => ({
 
     if (newMissions.length) {
       set((s) => ({ missions: [...newMissions, ...s.missions] }))
+      get().fetchStats()
+    }
+  },
+
+  /* ── Agent action (toggle step / complete / update / delete from SSE) ── */
+  applyAgentAction: (action, mission, stepIndex) => {
+    const missionId = String(mission.id ?? '')
+    if (!missionId) return
+
+    if (action === 'toggle_step' || action === 'complete_mission' || action === 'update_mission') {
+      // Update the mission in-place with data from the backend
+      set((s) => ({
+        missions: s.missions.map((m) => {
+          if (m.id !== missionId) return m
+          return {
+            ...m,
+            ...(mission.title != null && { title: String(mission.title) }),
+            ...(mission.description !== undefined && { description: mission.description ? String(mission.description) : null }),
+            status: (mission.status as MissionStatus) ?? m.status,
+            priority: (mission.priority as MissionPriority) ?? m.priority,
+            progress: typeof mission.progress === 'number' ? mission.progress : m.progress,
+            steps: Array.isArray(mission.steps)
+              ? (mission.steps as Array<Record<string, unknown>>).map((step) => ({
+                  text: String(step.text ?? ''),
+                  done: Boolean(step.done),
+                }))
+              : m.steps,
+            ...(mission.deadline !== undefined && { deadline: mission.deadline ? String(mission.deadline) : null }),
+            ...(mission.category !== undefined && { category: mission.category ? String(mission.category) : null }),
+            ...(mission.estimated_minutes !== undefined && {
+              estimated_minutes: typeof mission.estimated_minutes === 'number' ? mission.estimated_minutes : null,
+            }),
+            ...(mission.tags !== undefined && {
+              tags: Array.isArray(mission.tags) ? (mission.tags as string[]).map(String) : m.tags,
+            }),
+            updated_at: new Date().toISOString(),
+          }
+        }),
+      }))
+      get().fetchStats()
+    } else if (action === 'delete_mission') {
+      // Remove the mission from the list
+      set((s) => ({
+        missions: s.missions.filter((m) => m.id !== missionId),
+      }))
       get().fetchStats()
     }
   },

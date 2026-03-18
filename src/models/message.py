@@ -57,7 +57,12 @@ class Message(Base):
         nullable=True,
         index=True,
     )
-    
+
+    character_id: Mapped[Optional[str]] = mapped_column(
+        String(64),
+        nullable=True,
+    )
+
     role: Mapped[MessageRole] = mapped_column(
         SQLEnum(MessageRole, values_callable=lambda e: [m.value for m in e]),
         nullable=False,
@@ -70,14 +75,12 @@ class Message(Base):
         index=True
     )
     
-    # Relationships
     thread: Mapped["Thread"] = relationship(
         "Thread",
         back_populates="messages"
     )
 
     __table_args__ = (
-        # Composite index for querying message history by thread and time
         Index("ix_message_thread_created", "thread_id", "created_at"),
     )
     

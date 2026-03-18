@@ -38,7 +38,6 @@ class WorkerType(str, Enum):
     SQL = "sql"
     MEMORY = "memory"
     NOTE = "note"
-    NOTE_RETRIEVAL = "note_retrieval"
     MISSION = "mission"
     OS_CONTROL = "os_control"
 
@@ -67,10 +66,6 @@ class ExecutionStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
-
-# =============================================================================
-# Data Classes for Structured Results
-# =============================================================================
 
 @dataclass
 class WorkerResult:
@@ -252,6 +247,11 @@ class AgentState(TypedDict, total=False):
     # Worker Results
     worker_results: List[WorkerResult]
     gathered_context: str
+
+    # Structured record of what each worker actually accomplished this turn.
+    # Each entry: {worker, action, success, fingerprint, summary}
+    # Used for data-driven loop detection and supervisor context injection.
+    completed_actions: List[Dict[str, Any]]
     
     # Supervisor State
     supervisor_decisions: List[SupervisorDecision]
@@ -352,6 +352,7 @@ def create_initial_state(
         guardrail_rejection=None,
         guardrail_output_passed=None,
         guardrail_output_rejection=None,
+        completed_actions=[],
     )
 
 
@@ -418,6 +419,7 @@ def reset_execution_state(
         guardrail_rejection=None,
         guardrail_output_passed=None,
         guardrail_output_rejection=None,
+        completed_actions=[],
     )
 
 

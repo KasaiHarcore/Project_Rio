@@ -15,7 +15,6 @@ from pydantic import BaseModel, Field, ConfigDict
 class UserSettingsBase(BaseModel):
     """Base user settings schema."""
 
-    # Model Parameters
     temperature: float = Field(
         default=0.0,
         ge=0.0,
@@ -47,7 +46,6 @@ class UserSettingsBase(BaseModel):
         description="Presence penalty for topic repetition"
     )
 
-    # Agent Configuration
     system_prompt: Optional[str] = Field(
         None,
         description="Custom system prompt for the AI agent",
@@ -78,8 +76,25 @@ class UserSettingsBase(BaseModel):
         default=True,
         description="Enable answer refinement"
     )
+    enable_input_guardrail: bool = Field(
+        default=False,
+        description="Enable input guardrail (content safety check on user messages)"
+    )
+    enable_output_guardrail: bool = Field(
+        default=False,
+        description="Enable output guardrail (content safety check on AI responses)"
+    )
 
-    # Notification Preferences
+    enable_langsmith_tracing: bool = Field(
+        default=False,
+        description="Enable LangSmith tracing for workflow observability"
+    )
+    langsmith_project: Optional[str] = Field(
+        None,
+        description="LangSmith project name",
+        max_length=200
+    )
+
     mission_reminders: bool = Field(
         default=True,
         description="Enable mission deadline reminders"
@@ -101,7 +116,6 @@ class UserSettingsBase(BaseModel):
         description="Enable error notifications"
     )
 
-    # Delivery Settings
     sound_enabled: bool = Field(
         default=False,
         description="Enable sound effects"
@@ -115,7 +129,6 @@ class UserSettingsBase(BaseModel):
 class UserSettingsUpdate(BaseModel):
     """Schema for updating user settings (all fields optional)."""
 
-    # API Keys (plaintext - will be encrypted before storage)
     openai_api_key: Optional[str] = Field(
         None,
         description="OpenAI API key (will be encrypted)"
@@ -132,30 +145,34 @@ class UserSettingsUpdate(BaseModel):
         None,
         description="Cohere API key (will be encrypted)"
     )
+    langsmith_api_key: Optional[str] = Field(
+        None,
+        description="LangSmith API key (will be encrypted)"
+    )
 
-    # Model Parameters
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=1, le=100000)
     top_p: Optional[float] = Field(None, ge=0.0, le=1.0)
     frequency_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
     presence_penalty: Optional[float] = Field(None, ge=-2.0, le=2.0)
 
-    # Agent Configuration
     system_prompt: Optional[str] = Field(None, max_length=5000)
     model_name: Optional[str] = Field(None, max_length=100)
     max_iterations: Optional[int] = Field(None, ge=1, le=50)
     top_k: Optional[int] = Field(None, ge=1, le=20)
     enable_planner: Optional[bool] = None
     enable_reflection: Optional[bool] = None
+    enable_input_guardrail: Optional[bool] = None
+    enable_output_guardrail: Optional[bool] = None
+    enable_langsmith_tracing: Optional[bool] = None
+    langsmith_project: Optional[str] = Field(None, max_length=200)
 
-    # Notification Preferences
     mission_reminders: Optional[bool] = None
     chat_alerts: Optional[bool] = None
     system_updates: Optional[bool] = None
     weekly_summary: Optional[bool] = None
     error_alerts: Optional[bool] = None
 
-    # Delivery Settings
     sound_enabled: Optional[bool] = None
     email_notifications: Optional[bool] = None
 
@@ -179,6 +196,10 @@ class UserSettingsAPIStatus(BaseModel):
         ...,
         description="Whether Cohere API key is configured"
     )
+    langsmith_configured: bool = Field(
+        ...,
+        description="Whether LangSmith API key is configured"
+    )
     openai_masked: Optional[str] = Field(
         None,
         description="Masked OpenAI key (e.g., 'sk-...xyz1')"
@@ -195,6 +216,10 @@ class UserSettingsAPIStatus(BaseModel):
         None,
         description="Masked Cohere key"
     )
+    langsmith_masked: Optional[str] = Field(
+        None,
+        description="Masked LangSmith key"
+    )
 
 
 class UserSettingsInDB(UserSettingsBase):
@@ -207,7 +232,6 @@ class UserSettingsInDB(UserSettingsBase):
     created_at: datetime = Field(..., description="Creation timestamp")
     updated_at: datetime = Field(..., description="Last update timestamp")
 
-    # API key status (not actual keys)
     api_keys: Optional[UserSettingsAPIStatus] = Field(
         None,
         description="API key configuration status"

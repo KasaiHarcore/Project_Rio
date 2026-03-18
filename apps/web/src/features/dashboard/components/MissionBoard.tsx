@@ -46,7 +46,7 @@ export function MissionBoard() {
   }, [fetchData, fetchState])
 
   const recentThreads = stats?.recent_threads ?? []
-  // Handle suggested actions
+
   const handleAction = (action: string, target?: string | null) => {
     switch (action) {
       case 'open_mission':

@@ -123,12 +123,15 @@ interface SidebarState {
   clearMemoryEntries: () => void
   fetchThreadMemories: (threadId: string) => Promise<void>
 
-  // Session reset (call when starting new chat)
   resetSession: () => void
 }
 
 let _counter = 0
 function uid() { return `sb_${Date.now()}_${++_counter}` }
+
+// Tracks the latest fetchThreadMemories request so stale responses from
+// rapid thread switches don't overwrite the correct thread's data.
+let _memoryFetchId = 0
 
 /* ─── Limits (prevent sidebar from growing unbounded) ──────────── */
 const LIMITS = {
@@ -240,9 +243,12 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   })),
   clearMemoryEntries: () => set({ memoryEntries: [] }),
   fetchThreadMemories: async (threadId: string) => {
+    const fetchId = ++_memoryFetchId
     set({ memoriesLoading: true })
     try {
       const res = await apiGetThreadMemories(threadId)
+      // Discard if a newer request was initiated while we were waiting
+      if (fetchId !== _memoryFetchId) return
       const mapped: MemoryEntry[] = res.memories.map((m) => ({
         id: `persisted_${m.key}`,
         timestamp: m.created_at ? new Date(m.created_at).getTime() : 0,
@@ -252,9 +258,12 @@ export const useSidebarStore = create<SidebarState>((set) => ({
       }))
       set({ persistedMemories: mapped })
     } catch {
+      if (fetchId !== _memoryFetchId) return
       set({ persistedMemories: [] })
     } finally {
-      set({ memoriesLoading: false })
+      if (fetchId === _memoryFetchId) {
+        set({ memoriesLoading: false })
+      }
     }
   },
 

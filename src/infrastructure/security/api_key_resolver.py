@@ -37,7 +37,6 @@ class ApiKeyResolver:
         Returns:
             API key string or None if not configured anywhere
         """
-        # Try user settings first
         if self.user_settings and self.user_settings.encrypted_openai_key:
             decrypted = decrypt_api_key(self.user_settings.encrypted_openai_key)
             if decrypted:
@@ -45,7 +44,6 @@ class ApiKeyResolver:
                 return decrypted
             log_warning("Failed to decrypt user's OpenAI key, falling back to env var")
 
-        # Fall back to environment variable
         env_key = os.getenv("OPENAI_API_KEY")
         if env_key:
             log_debug("Using OpenAI API key from environment variable")
@@ -61,7 +59,6 @@ class ApiKeyResolver:
         Returns:
             API key string or None if not configured anywhere
         """
-        # Try user settings first
         if self.user_settings and self.user_settings.encrypted_openrouter_key:
             decrypted = decrypt_api_key(self.user_settings.encrypted_openrouter_key)
             if decrypted:
@@ -69,7 +66,6 @@ class ApiKeyResolver:
                 return decrypted
             log_warning("Failed to decrypt user's OpenRouter key, falling back to env var")
 
-        # Fall back to environment variable
         env_key = os.getenv("OPENROUTER_API_KEY")
         if env_key:
             log_debug("Using OpenRouter API key from environment variable")
@@ -85,7 +81,6 @@ class ApiKeyResolver:
         Returns:
             API key string or None if not configured anywhere
         """
-        # Try user settings first
         if self.user_settings and self.user_settings.encrypted_tavily_key:
             decrypted = decrypt_api_key(self.user_settings.encrypted_tavily_key)
             if decrypted:
@@ -93,7 +88,6 @@ class ApiKeyResolver:
                 return decrypted
             log_warning("Failed to decrypt user's Tavily key, falling back to env var")
 
-        # Fall back to environment variable
         env_key = os.getenv("TAVILY_API_KEY")
         if env_key:
             log_debug("Using Tavily API key from environment variable")
@@ -109,7 +103,6 @@ class ApiKeyResolver:
         Returns:
             API key string or None if not configured anywhere
         """
-        # Try user settings first
         if self.user_settings and self.user_settings.encrypted_cohere_key:
             decrypted = decrypt_api_key(self.user_settings.encrypted_cohere_key)
             if decrypted:
@@ -117,13 +110,28 @@ class ApiKeyResolver:
                 return decrypted
             log_warning("Failed to decrypt user's Cohere key, falling back to env var")
 
-        # Fall back to environment variable
         env_key = os.getenv("COHERE_API_KEY")
         if env_key:
             log_debug("Using Cohere API key from environment variable")
             return env_key
 
         log_warning("Cohere API key not configured in user settings or environment")
+        return None
+
+    def get_langsmith_key(self) -> Optional[str]:
+        """Get LangSmith API key with fallback."""
+        if self.user_settings and self.user_settings.encrypted_langsmith_key:
+            decrypted = decrypt_api_key(self.user_settings.encrypted_langsmith_key)
+            if decrypted:
+                log_debug("Using LangSmith API key from user settings")
+                return decrypted
+            log_warning("Failed to decrypt user's LangSmith key, falling back to env var")
+
+        env_key = os.getenv("LANGSMITH_API_KEY")
+        if env_key:
+            log_debug("Using LangSmith API key from environment variable")
+            return env_key
+
         return None
 
     def has_openai_key(self) -> bool:

@@ -52,7 +52,6 @@ export const useOSControlStore = create<OSControlState>((set, get) => ({
     try {
       const classification = await apiClassifyCommand(command)
 
-      // If requires approval (tier 3+), show approval dialog
       if (classification.requires_approval) {
         set((s) => ({
           history: [...s.history, { ...entry, status: "pending" }],
@@ -61,7 +60,6 @@ export const useOSControlStore = create<OSControlState>((set, get) => ({
         return
       }
     } catch {
-      // Classification failed — proceed with execution (backend will gate)
     }
 
     // No approval needed — execute directly

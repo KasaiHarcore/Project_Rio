@@ -137,7 +137,6 @@ class DashboardService:
             mood=emotional_state.mood.value,
         )
 
-        # Suggested actions
         suggested_actions = self._generate_suggested_actions(
             urgent_missions=urgent_missions,
             last_chats=last_chats,

@@ -90,7 +90,6 @@ class User(Base, TimestampMixin):
         nullable=True,
     )
     
-    # Relationships
     threads: Mapped[List["Thread"]] = relationship(
         "Thread",
         back_populates="user",

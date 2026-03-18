@@ -82,7 +82,6 @@ export function WorkspaceTab() {
   const [newFilePath, setNewFilePath] = useState('')
   const inputRef = useRef<HTMLInputElement>(null)
 
-  // Auto-chunk artifact-backed files that have content but no chunks yet
   useEffect(() => {
     for (const file of workspaceFiles) {
       if (file.content && !file.chunks && file.artifactId) {

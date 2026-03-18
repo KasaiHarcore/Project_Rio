@@ -17,10 +17,6 @@ from pydantic import BaseModel, Field
 from infrastructure.os_control.risk_tier import RiskTier
 
 
-# =============================================================================
-# Common
-# =============================================================================
-
 class OSActionType(str, Enum):
     """Top-level OS action categories."""
     SHELL = "shell"
@@ -37,10 +33,6 @@ class OSAction(BaseModel):
     user_id: Optional[str] = Field(None, description="User who initiated the action")
     session_id: Optional[str] = Field(None, description="PTY session identifier")
 
-
-# =============================================================================
-# Shell / PTY
-# =============================================================================
 
 class ShellCommand(BaseModel):
     """Input model for shell command execution."""
@@ -73,10 +65,6 @@ class ShellResult(BaseModel):
         """Check if the command executed successfully."""
         return self.exit_code == 0 and not self.timed_out
 
-
-# =============================================================================
-# Browser (Playwright)
-# =============================================================================
 
 class BrowserActionType(str, Enum):
     """Browser control action types."""
@@ -123,10 +111,6 @@ class BrowserResult(BaseModel):
     risk_tier: RiskTier = Field(..., description="Risk tier of the executed action")
 
 
-# =============================================================================
-# GUI (pyautogui)
-# =============================================================================
-
 class GUIActionType(str, Enum):
     """GUI control action types."""
     CLICK = "click"
@@ -164,10 +148,6 @@ class GUIResult(BaseModel):
     execution_time_ms: int = 0
     risk_tier: RiskTier = Field(..., description="Risk tier of the executed action")
 
-
-# =============================================================================
-# Approval
-# =============================================================================
 
 class ApprovalRequest(BaseModel):
     """Model for requesting user approval for a risky action."""

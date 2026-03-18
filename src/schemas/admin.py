@@ -154,8 +154,6 @@ class AdminSystemStats(BaseModel):
     last_updated: datetime = Field(default_factory=utc_now)
 
 
-# ==================== Admin Action Schemas ====================
-
 class AdminUserUpdateAction(BaseModel):
     """Admin action to update user details."""
     

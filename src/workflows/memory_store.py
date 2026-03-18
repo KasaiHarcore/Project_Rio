@@ -31,10 +31,6 @@ from utils.log import log_debug, log_error, log_info, log_success, log_warning
 from utils.timezone import utc_now
 
 
-# =============================================================================
-# Connection String Normalization
-# =============================================================================
-
 def _normalize_conn_string(conn_string: str) -> str:
     """
     Normalize SQLAlchemy DSNs to psycopg-compatible URIs.
@@ -55,11 +51,6 @@ def get_store_connection_string() -> str:
     return _normalize_conn_string(config.database_url)
 
 
-# =============================================================================
-# Embedding Configuration
-# =============================================================================
-
-# Cache for embeddings instance and dimension
 _embeddings_cache: Dict[str, Any] = {}
 
 
@@ -148,10 +139,6 @@ def get_embedding_dims() -> int:
     
     return 384  # Default for MiniLM (the default model)
 
-
-# =============================================================================
-# Memory Store Context Manager
-# =============================================================================
 
 @contextmanager
 def memory_store_context(
@@ -254,10 +241,6 @@ def get_memory_store(enable_semantic_search: bool = True) -> Any:
         raise
 
 
-# =============================================================================
-# Memory Namespace Helpers
-# =============================================================================
-
 class MemoryNamespace:
     """Standard namespace patterns for organizing memories."""
     
@@ -281,10 +264,6 @@ class MemoryNamespace:
         """Namespace for procedural memory (agent instructions)."""
         return ("agent_instructions", agent_name)
 
-
-# =============================================================================
-# Memory Operations Helpers
-# =============================================================================
 
 def store_memory(
     store: Any,

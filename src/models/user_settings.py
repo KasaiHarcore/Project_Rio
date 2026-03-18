@@ -20,6 +20,11 @@ class UserSettings(Base, TimestampMixin):
         encrypted_openrouter_key: Encrypted OpenRouter API key
         encrypted_tavily_key: Encrypted Tavily API key
         encrypted_cohere_key: Encrypted Cohere API key
+        encrypted_langsmith_key: Encrypted LangSmith API key
+
+        # LangSmith Tracing
+        enable_langsmith_tracing: Whether to enable LangSmith tracing
+        langsmith_project: LangSmith project name
 
         # Model Parameters
         temperature: Model temperature for response creativity (0.0-2.0)
@@ -63,7 +68,6 @@ class UserSettings(Base, TimestampMixin):
         index=True,
     )
 
-    # API Keys (Encrypted)
     encrypted_openai_key: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
@@ -88,7 +92,25 @@ class UserSettings(Base, TimestampMixin):
         default=None,
     )
 
-    # Model Parameters
+    encrypted_langsmith_key: Mapped[Optional[str]] = mapped_column(
+        Text,
+        nullable=True,
+        default=None,
+    )
+
+    enable_langsmith_tracing: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    langsmith_project: Mapped[Optional[str]] = mapped_column(
+        String(200),
+        nullable=True,
+        default=None,
+    )
+
     temperature: Mapped[float] = mapped_column(
         Float,
         nullable=False,
@@ -120,7 +142,6 @@ class UserSettings(Base, TimestampMixin):
         default=None,
     )
 
-    # Agent Configuration
     system_prompt: Mapped[Optional[str]] = mapped_column(
         Text,
         nullable=True,
@@ -162,7 +183,20 @@ class UserSettings(Base, TimestampMixin):
         server_default="true",
     )
 
-    # Notification Preferences
+    enable_input_guardrail: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
+    enable_output_guardrail: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default="false",
+    )
+
     mission_reminders: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -198,7 +232,6 @@ class UserSettings(Base, TimestampMixin):
         server_default="true",
     )
 
-    # Delivery Settings
     sound_enabled: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
@@ -213,7 +246,6 @@ class UserSettings(Base, TimestampMixin):
         server_default="false",
     )
 
-    # Relationships
     user: Mapped["User"] = relationship("User", back_populates="settings")
 
     def __repr__(self) -> str:

@@ -9,33 +9,14 @@ from pathlib import Path
 from typing import Literal, Optional
 from urllib.parse import quote_plus
 
-# =============================================================================
-# Workflow Constants
-# =============================================================================
-
-# Preview length for tool outputs in traces
 TOOL_PREVIEW_LENGTH = 500
-
-# Default maximum iterations for supervisor
 DEFAULT_MAX_ITERATIONS = 10
-
-# Default checkpoint namespace
 DEFAULT_CHECKPOINT_NS = "thread"
-
-# Worker timeouts (in seconds)
 WORKER_TIMEOUT_SECONDS = 60
-
-# Supervisor prompt limits
 MAX_CONTEXT_LENGTH = 8000
 MAX_RESPONSE_LENGTH = 4000
-
-# Streaming batch sizes
 STREAM_TOKEN_BATCH_SIZE = 3
-
-# Human-in-the-loop timeout (in seconds)
 HUMAN_INTERRUPT_TIMEOUT = 3600
-
-# Retry configuration
 MAX_RETRIES = 3
 RETRY_BACKOFF_BASE = 1.0
 RETRY_BACKOFF_MAX = 10.0
@@ -80,6 +61,10 @@ class AgentConfig:
 	history_max_items: int = 50
 	enable_planner: bool = True
 	enable_reflection: bool = True  # Note: Reflection is now integrated into supervisor routing
+	enable_input_guardrail: bool = False
+	enable_output_guardrail: bool = False
+	enable_langsmith_tracing: bool = False
+	langsmith_project: Optional[str] = None
 	enable_persistence: bool = True
 	web_search_max_calls: int = 6
 	web_search_max_results: int = 5
@@ -99,7 +84,6 @@ class AgentConfig:
 		if self.user_role not in {"user", "admin"}:
 			raise ValueError("Invalid user_role: must be 'user' or 'admin'")
 
-		# SQL mode requires admin role
 		if self.mode == "sql" and self.user_role != "admin":
 			raise ValueError("SQL mode is restricted to admin users only")
 
@@ -189,33 +173,27 @@ class RedisConfig:
 	password: Optional[str] = None
 	ssl: bool = False
 
-	# Connection behavior
 	socket_timeout_seconds: float = 2.0
 	socket_connect_timeout_seconds: float = 2.0
 	health_check_interval_seconds: int = 30
 
-	# Keying / TTLs
 	key_prefix: str = "ai-agent"
 	graph_state_ttl_seconds: int = 3600
 
-	# Hot / warm memory
 	hot_conversation_ttl_seconds: int = 6 * 3600
 	hot_conversation_max_messages: int = 200
 	warm_summary_ttl_seconds: int = 7 * 86400
 
-	# Entity L2 cache TTLs
 	user_cache_ttl_seconds: int = 300            # 5 min
 	dashboard_cache_ttl_seconds: int = 60        # 1 min
 	thread_list_cache_ttl_seconds: int = 120     # 2 min
 	xp_cache_ttl_seconds: int = 600              # 10 min
 	mission_stats_cache_ttl_seconds: int = 300   # 5 min
 
-	# Tool/result caches
 	tool_dedup_ttl_seconds: int = 600
 	retrieval_cache_ttl_seconds: int = 1800
 	web_cache_ttl_seconds: int = 900
 
-	# LLM cache
 	enable_llm_cache: bool = True
 	llm_cache_ttl_seconds: int = 86400
 
@@ -302,12 +280,10 @@ class Neo4jConfig:
 class AppConfig:
 	"""Application-wide configuration"""
 
-	# API Keys
 	openai_api_key: Optional[str] = None
 	openrouter_api_key: Optional[str] = None
 	tavily_api_key: Optional[str] = None
 
-	# Database Configuration
 	database_url: str = None
 	database_echo: bool = False
 	database_pool_size: int = 20
@@ -317,15 +293,11 @@ class AppConfig:
 	database_statement_timeout_ms: int = 0
 	database_application_name: str = "ai-agent"
 
-	# Paths
 	storage_dir: str = "./storage"
 	docs_dir: str = "./docs"
 
-	# Logging
 	log_level: str = "INFO"
 
-	# Workflow state retention
-	# Database bootstrap (dev-only)
 	enable_db_autocreate: bool = False
 
 	@classmethod
@@ -378,7 +350,6 @@ class AppConfig:
 		if self.database_statement_timeout_ms < 0:
 			errors.append("database_statement_timeout_ms must be >= 0")
 
-		# Validate paths
 		for path_name, path_value in [
 			("storage_dir", self.storage_dir),
 			("docs_dir", self.docs_dir),

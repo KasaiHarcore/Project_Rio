@@ -21,7 +21,6 @@ export function useSessionStats() {
   const [messagesThisSession, setMessagesThisSession] = useState(0)
   const missions = useMissionStore((state) => state.missions)
 
-  // Initialize session start time
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -32,7 +31,6 @@ export function useSessionStats() {
       localStorage.setItem(STORAGE_KEY_SESSION_START, sessionStart.toString())
     }
 
-    // Update duration every second
     const interval = setInterval(() => {
       const now = Date.now()
       const durationMs = now - sessionStart
@@ -72,7 +70,6 @@ export function useSessionStats() {
     }
   }
 
-  // Format duration as human-readable string
   const formatDuration = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600)
     const minutes = Math.floor((seconds % 3600) / 60)

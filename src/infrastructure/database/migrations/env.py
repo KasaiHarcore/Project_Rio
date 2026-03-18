@@ -13,7 +13,6 @@ sys.path.insert(0, str(app_root))
 from models.base import Base
 from core.settings import get_app_config
 
-# Import all models to register with Base metadata
 import models  # noqa: F401
 
 # Alembic Config object

@@ -58,7 +58,6 @@ async def get_settings(
     def _query():
         settings = svc.get_settings(user.id)
 
-        # Get profile (with relationship loaded)
         profile = None
         if user.profile:
             profile = UserProfileInDB.model_validate(user.profile)
@@ -86,7 +85,6 @@ async def update_settings(
         if not success:
             raise ValidationError(error or "Failed to update settings")
 
-        # Get profile
         profile = None
         if user.profile:
             profile = UserProfileInDB.model_validate(user.profile)

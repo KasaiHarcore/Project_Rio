@@ -17,20 +17,16 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 from urllib.parse import urlparse, parse_qs
 
-# UUID v4 pattern (loose)
 _UUID = r"[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}"
 
-# Pattern 1: [[note:uuid]], [[doc:uuid|Label]], [[artifact:uuid|Label]]
 _INTERNAL_BY_ID = re.compile(
     rf"\[\[(?P<type>note|doc|artifact):(?P<id>{_UUID})(?:\|(?P<label>[^\]]+))?\]\]"
 )
 
-# Pattern 2: [[Note Title]] — note link by title (no colon prefix)
 _NOTE_BY_TITLE = re.compile(
     r"\[\[(?P<title>[^\]:|\]]+)\]\]"
 )
 
-# Pattern 3: [label](url) — standard markdown link
 _MARKDOWN_LINK = re.compile(
     r"\[(?P<label>[^\]]+)\]\((?P<url>[^)]+)\)"
 )

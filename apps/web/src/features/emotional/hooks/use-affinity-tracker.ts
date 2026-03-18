@@ -26,7 +26,6 @@ export function useAffinityTracker() {
   const sessionStartRef = useRef<number | null>(null)
   const rewardTimerRef = useRef<NodeJS.Timeout | null>(null)
 
-  // Check for absence penalty on mount
   useEffect(() => {
     if (typeof window === 'undefined') return
 
@@ -49,7 +48,6 @@ export function useAffinityTracker() {
       }
     }
 
-    // Update last login time
     localStorage.setItem(STORAGE_KEY_LAST_LOGIN, now.toString())
   }, []) // Only run once on mount
 
@@ -61,13 +59,11 @@ export function useAffinityTracker() {
     sessionStartRef.current = sessionStart
     localStorage.setItem(STORAGE_KEY_SESSION_START, sessionStart.toString())
 
-    // Set up interval to check for 30-minute milestones
     rewardTimerRef.current = setInterval(() => {
       const now = Date.now()
       const sessionDuration = now - sessionStart
       const intervals = Math.floor(sessionDuration / SESSION_REWARD_INTERVAL)
 
-      // Award bonus for each 30-minute interval (only once per interval)
       const lastRewardedInterval = parseInt(
         localStorage.getItem('rio-last-reward-interval') || '0',
         10

@@ -34,7 +34,6 @@ export function DashboardLayout({ children }: DashboardLayoutProps) {
       .catch(() => { /* auth middleware handles redirect if unauthorized */ })
   }, [setUserRole])
 
-  // Fetch emotional state on mount
   useEffect(() => {
     fetchEmotionalState('rio')
   }, [fetchEmotionalState])

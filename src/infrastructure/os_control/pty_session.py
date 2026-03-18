@@ -26,7 +26,6 @@ from utils.log import log_debug, log_error, log_info, log_warning
 # Maximum output size to prevent memory issues (1MB)
 MAX_OUTPUT_SIZE = 1_048_576
 
-# Default shell per platform
 _DEFAULT_SHELL = "/bin/bash" if platform.system() != "Windows" else "cmd.exe"
 
 

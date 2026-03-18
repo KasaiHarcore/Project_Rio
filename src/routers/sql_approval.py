@@ -26,8 +26,6 @@ from utils.log import log_info, log_error
 router = APIRouter(prefix="/sql-approval", tags=["sql-approval"])
 
 
-# ── Data-stream protocol helpers (shared with chat.py) ─────────────
-
 def _text_line(chunk: str) -> str:
     return f"0:{json.dumps(chunk)}\n"
 

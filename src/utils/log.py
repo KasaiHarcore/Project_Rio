@@ -76,7 +76,6 @@ def log_exception(exception: Exception) -> None:
     logger.exception(exception)
 
 
-# Logging Utilities with proper log levels
 def log_debug(msg: str, print_console: bool = False, **kwargs) -> None:
     """Log debug message."""
     logger.debug(msg)

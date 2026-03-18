@@ -467,7 +467,6 @@ export function SettingsModal({ isOpen, onClose }: SettingsModalProps) {
   const [profile, setProfile] = useState<UserProfileData | null>(null)
   const [loading, setLoading] = useState(true)
 
-  // Fetch settings on mount
   useEffect(() => {
     if (isOpen) {
       loadSettings()

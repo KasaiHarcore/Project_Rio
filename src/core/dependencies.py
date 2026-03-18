@@ -133,7 +133,6 @@ def require_roles(*allowed: UserRole):
     return _guard
 
 
-# Convenience alias
 require_admin = require_roles(UserRole.ADMIN)
 
 

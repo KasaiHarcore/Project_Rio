@@ -19,7 +19,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
   const [isBreakTimerActive, setIsBreakTimerActive] = useState(false)
   const [breakTimeRemaining, setBreakTimeRemaining] = useState(0)
 
-  // Handle blocking countdown
   useEffect(() => {
     if (intervention.type !== 'blocking' || countdown <= 0) return
 
@@ -36,7 +35,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     return () => clearInterval(timer)
   }, [intervention.type, countdown])
 
-  // Auto-dismiss toast after 5 seconds
   useEffect(() => {
     if (intervention.type === 'toast') {
       const timer = setTimeout(() => {
@@ -47,7 +45,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     }
   }, [intervention.type, intervention.id, dismissIntervention])
 
-  // Auto-dismiss celebration after 3 seconds
   useEffect(() => {
     if (intervention.type === 'celebration') {
       const timer = setTimeout(() => {
@@ -62,7 +59,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     if (action === 'dismiss') {
       dismissIntervention(intervention.id, affinityChange)
     } else if (action === 'accept') {
-      // For break actions, start a 5-minute timer
       if (intervention.triggerReason.includes('long_session')) {
         setIsBreakTimerActive(true)
         setBreakTimeRemaining(5 * 60) // 5 minutes
@@ -79,7 +75,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     }
   }
 
-  // Break timer countdown
   useEffect(() => {
     if (!isBreakTimerActive || breakTimeRemaining <= 0) return
 
@@ -98,7 +93,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     return () => clearInterval(timer)
   }, [isBreakTimerActive, breakTimeRemaining])
 
-  // Toast notification (bottom-right)
   if (intervention.type === 'toast') {
     return (
       <AnimatePresence>
@@ -132,7 +126,6 @@ export function RioIntervention({ intervention }: RioInterventionProps) {
     )
   }
 
-  // Celebration (full-screen confetti)
   if (intervention.type === 'celebration') {
     return (
       <AnimatePresence>

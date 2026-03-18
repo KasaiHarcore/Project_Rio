@@ -50,9 +50,7 @@ RELATIONSHIP_TIERS = {
     "bonded":       (800, 1000),
 }
 
-# Mood transitions: (current_mood, trigger_sentiment) -> (new_mood, affinity_delta)
 MOOD_TRANSITIONS: Dict[Tuple[str, str], Tuple[Mood, int]] = {
-    # Positive interactions
     ("happy", "positive"):      (Mood.HAPPY, 3),
     ("neutral", "positive"):    (Mood.HAPPY, 2),
     ("sad", "positive"):        (Mood.NEUTRAL, 3),  # recovery bonus
@@ -60,7 +58,6 @@ MOOD_TRANSITIONS: Dict[Tuple[str, str], Tuple[Mood, int]] = {
     ("frustrated", "positive"): (Mood.NEUTRAL, 4),   # relief bonus
     ("tired", "positive"):      (Mood.NEUTRAL, 2),
 
-    # Negative interactions
     ("happy", "negative"):      (Mood.NEUTRAL, -1),
     ("neutral", "negative"):    (Mood.SAD, -2),
     ("sad", "negative"):        (Mood.SAD, -3),
@@ -68,7 +65,6 @@ MOOD_TRANSITIONS: Dict[Tuple[str, str], Tuple[Mood, int]] = {
     ("frustrated", "negative"): (Mood.FRUSTRATED, -3),
     ("tired", "negative"):      (Mood.SAD, -2),
 
-    # Neutral interactions
     ("happy", "neutral"):       (Mood.HAPPY, 1),
     ("neutral", "neutral"):     (Mood.NEUTRAL, 1),
     ("sad", "neutral"):         (Mood.SAD, 0),
@@ -76,7 +72,6 @@ MOOD_TRANSITIONS: Dict[Tuple[str, str], Tuple[Mood, int]] = {
     ("frustrated", "neutral"):  (Mood.NEUTRAL, 1),
     ("tired", "neutral"):       (Mood.TIRED, 0),
 
-    # Grateful interactions
     ("happy", "grateful"):      (Mood.EXCITED, 5),
     ("neutral", "grateful"):    (Mood.HAPPY, 4),
     ("sad", "grateful"):        (Mood.HAPPY, 5),
@@ -144,7 +139,6 @@ class EmotionalEngine:
         mood_changed = new_mood != old_mood
         state.mood = new_mood
 
-        # Update affinity
         state.affinity = max(MIN_AFFINITY, min(MAX_AFFINITY, state.affinity + affinity_delta))
 
         # Log mood transition
@@ -421,27 +415,21 @@ class EmotionalEngine:
         Returns:
             (updated_state, mood_changed)
         """
-        # Check for long absence first
         self.check_absence(user_id, character_id)
 
-        # Update streak
         self.update_streak(user_id, character_id)
 
-        # Restore some energy
         self.restore_energy(user_id, character_id)
 
-        # Apply task success/failure modifier
         if task_success is True:
             sentiment = "grateful" if sentiment == "positive" else "positive"
         elif task_success is False:
             sentiment = "negative" if sentiment == "neutral" else sentiment
 
-        # Apply mood transition
         state, mood_changed = self.update_mood(
             user_id, character_id, sentiment, context
         )
 
-        # Update counters
         state.interaction_count += 1
         state.last_interaction_at = datetime.now(timezone.utc)
 

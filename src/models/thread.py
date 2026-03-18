@@ -57,7 +57,6 @@ class Thread(Base, TimestampMixin):
         index=True
     )
     
-    # Relationships
     user: Mapped["User"] = relationship(
         "User",
         back_populates="threads"

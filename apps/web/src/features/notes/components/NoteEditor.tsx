@@ -63,7 +63,6 @@ export function NoteEditor() {
     const handleEditorMount: OnMount = useCallback((editor, monaco) => {
         editorRef.current = editor
 
-        // Set initial value
         const model = editor.getModel()
         if (model && activeNote) {
             const currentVal = model.getValue()
@@ -82,7 +81,6 @@ export function NoteEditor() {
             }
         })
 
-        // Handle image paste via clipboard
         editor.getDomNode()?.addEventListener('paste', (e: ClipboardEvent) => {
             const items = e.clipboardData?.items
             if (!items) return

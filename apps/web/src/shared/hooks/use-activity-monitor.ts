@@ -58,7 +58,6 @@ export function useActivityMonitor() {
     }
   }, [updateActivity])
 
-  // Update activity data every second
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now()
@@ -66,11 +65,9 @@ export function useActivityMonitor() {
       const idleTime = now - lastActivityRef.current
       const isIdle = idleTime > IDLE_THRESHOLD
 
-      // Check if late night (12am-5am)
       const hour = new Date().getHours()
       const isLateNight = hour >= 0 && hour < 5
 
-      // Check if weekend
       const day = new Date().getDay()
       const isWeekend = day === 0 || day === 6
 

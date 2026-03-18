@@ -55,8 +55,6 @@ class GraphSearchResponse(BaseModel):
     answer: str = Field(..., description="Answer from the knowledge graph")
 
 
-# -- Document search (RAG) ---------------------------------------------------
-
 @router.post("/documents", response_model=DocumentSearchResponse)
 async def search_documents(
     body: DocumentSearchRequest,

@@ -66,8 +66,6 @@ export function AgentAvatar({ size = 'md', showGlow = false, className }: AgentA
   )
 }
 
-// Compact version for message avatars — matches user avatar size (h-10 w-10)
-// If `characterId` is provided, renders that character's icon regardless of global selection.
 export function AgentMessageAvatar({ className, characterId }: { className?: string; characterId?: CharacterId }) {
   const global = useActiveCharacter()
 

@@ -1,25 +1,33 @@
 """Chat endpoints: streaming conversation, thread listing, message history.
 
-The streaming endpoint uses the **Vercel AI SDK data-stream protocol**
-so that both text tokens *and* structured sidebar events (supervisor
-decisions, worker results, stats …) travel in a single HTTP response.
+The streaming endpoint uses the **AI SDK v6 UIMessageStream** protocol
+(Server-Sent Events) so that both text tokens *and* structured sidebar
+events (supervisor decisions, worker results, stats …) travel in a single
+HTTP response.
 
-Protocol reference (ai@6 / @ai-sdk/react@3):
-  0:"text chunk"\\n          – text delta
-  2:[{json}, …]\\n           – data annotation (sidebar events)
-  d:{"finishReason":"stop"}\\n – finish signal
-  e:{"finishReason":"error","message":"…"}\\n – error
+Protocol reference (ai@6.0+ / @ai-sdk/react):
+  Each SSE event is: ``data: {json}\\n\\n``
+  UIMessageChunk types used:
+    {"type":"start"}                          – message start
+    {"type":"start-step"}                     – step start
+    {"type":"text-start","id":"..."}          – begin text part
+    {"type":"text-delta","id":"...","delta":"..."} – text token
+    {"type":"text-end","id":"..."}            – end text part
+    {"type":"data-<name>","data":{...}}       – custom data (sidebar events)
+    {"type":"finish-step"}                    – step finished
+    {"type":"finish","finishReason":"stop"}   – message finished
+  Final event: ``data: [DONE]\\n\\n``
 """
 
 from __future__ import annotations
 
 import json
-from typing import List, Optional
-from uuid import UUID
+from typing import Any, Dict, List, Optional
+from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, Query, status
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from core.concurrency import concurrency_manager
 from core.dependencies import (
@@ -40,38 +48,84 @@ from utils.log import log_error
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-# ── Data-stream protocol helpers ────────────────────────────────────────────
+# ── SSE / UIMessageStream helpers (AI SDK v6) ──────────────────────────────
 
-def _text_line(chunk: str) -> str:
-    """AI SDK text-delta: ``0:"chunk"\\n``."""
-    return f"0:{json.dumps(chunk)}\n"
+def _sse(payload: dict | str) -> str:
+    """Wrap a JSON payload (or raw string like ``[DONE]``) as an SSE data line."""
+    data = payload if isinstance(payload, str) else json.dumps(payload, separators=(",", ":"))
+    return f"data: {data}\n\n"
 
 
-def _data_line(payload: list | dict) -> str:
-    """AI SDK data annotation: ``2:[{...}]\\n``.
+def _text_start(part_id: str) -> str:
+    return _sse({"type": "text-start", "id": part_id})
 
-    *payload* should be a single dict (auto-wrapped) or a list of dicts.
+
+def _text_delta(part_id: str, delta: str) -> str:
+    return _sse({"type": "text-delta", "id": part_id, "delta": delta})
+
+
+def _text_end(part_id: str) -> str:
+    return _sse({"type": "text-end", "id": part_id})
+
+
+def _data_event(name: str, data: dict) -> str:
+    """Emit a custom ``data-<name>`` UIMessageChunk.
+
+    AI SDK v6 allows custom data types whose ``type`` starts with ``data-``.
     """
-    if isinstance(payload, dict):
-        payload = [payload]
-    return f"2:{json.dumps(payload)}\n"
+    return _sse({"type": f"data-{name}", "data": data})
 
 
-def _finish_line(reason: str = "stop") -> str:
-    """AI SDK finish signal: ``d:{...}\\n``."""
-    return f'd:{json.dumps({"finishReason": reason})}\n'
+def _start_message() -> str:
+    return _sse({"type": "start"})
 
 
-def _error_line(message: str) -> str:
-    """AI SDK error signal: ``e:{...}\\n``."""
-    return f'e:{json.dumps({"finishReason": "error", "message": message})}\n'
+def _start_step() -> str:
+    return _sse({"type": "start-step"})
+
+
+def _finish_step() -> str:
+    return _sse({"type": "finish-step"})
+
+
+def _finish_message(reason: str = "stop") -> str:
+    return _sse({"type": "finish", "finishReason": reason})
+
+
+def _error_event(message: str) -> str:
+    return _sse({"type": "error", "errorText": message})
+
+
+def _done() -> str:
+    return _sse("[DONE]")
 
 
 # ── Request / Response schemas ──────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
-    role: str = Field(..., description="Message role: user | assistant")
-    content: str = Field(..., description="Message text")
+    """Single message from the Vercel AI SDK useChat hook.
+
+    AI SDK v6 may omit ``content`` and send ``parts`` instead.
+    The validator derives ``content`` from text parts when missing.
+    """
+    model_config = {"extra": "allow"}
+    role: str = Field(..., description="Message role: user | assistant | system | tool")
+    content: Optional[str] = Field(None, description="Message text (derived from parts if absent)")
+    id: Optional[str] = Field(None, description="AI SDK message ID")
+    parts: Optional[List[Dict[str, Any]]] = Field(None, description="Structured message parts from AI SDK")
+    tool_invocations: Optional[List[Dict[str, Any]]] = Field(None, alias="toolInvocations", description="Tool call data")
+
+    @model_validator(mode="after")
+    def _derive_content_from_parts(self) -> "ChatMessage":
+        """If content is missing, build it from text parts."""
+        if not self.content and self.parts:
+            text_pieces = [
+                p.get("text", "") for p in self.parts if p.get("type") == "text"
+            ]
+            self.content = "".join(text_pieces)
+        if not self.content:
+            self.content = ""
+        return self
 
 
 class WorkspaceChunk(BaseModel):
@@ -98,12 +152,23 @@ class WorkspaceContext(BaseModel):
 
 
 class ChatRequest(BaseModel):
-    """Body sent by the Vercel AI SDK useChat hook."""
+    """Body sent by the Vercel AI SDK useChat hook.
+
+    Extra fields from the SDK (e.g. data, options) are preserved via extra="allow".
+    Per-request model parameters override saved user settings when provided.
+    """
+    model_config = {"extra": "allow"}
     messages: List[ChatMessage] = Field(..., description="Conversation messages")
     thread_id: Optional[str] = Field(None, description="Existing thread ID to continue")
     mode: Optional[str] = Field("chat", description="Agent mode: chat | rag | web | sql")
     character: Optional[str] = Field("rio", description="Persona ID: rio")
     workspace_context: Optional[WorkspaceContext] = Field(None, description="Smart-chunked code context from workspace files")
+    # Per-request model parameter overrides (take precedence over saved settings)
+    temperature: Optional[float] = Field(None, ge=0, le=2, description="Sampling temperature (0-2)")
+    max_tokens: Optional[int] = Field(None, ge=1, le=100000, description="Max tokens to generate")
+    top_p: Optional[float] = Field(None, ge=0, le=1, description="Nucleus sampling (0-1)")
+    frequency_penalty: Optional[float] = Field(None, ge=-2, le=2, description="Frequency penalty (-2 to 2)")
+    presence_penalty: Optional[float] = Field(None, ge=-2, le=2, description="Presence penalty (-2 to 2)")
 
 
 class ThreadResponse(BaseModel):
@@ -162,6 +227,17 @@ async def chat_stream(
     Compatible with Vercel AI SDK ``useChat`` – returns a ``text/plain``
     stream of UTF-8 token chunks that the SDK accumulates on the client.
     """
+    # Collect per-request model param overrides (only non-None values)
+    request_model_params = {
+        k: v for k, v in {
+            "temperature": body.temperature,
+            "max_tokens": body.max_tokens,
+            "top_p": body.top_p,
+            "frequency_penalty": body.frequency_penalty,
+            "presence_penalty": body.presence_penalty,
+        }.items() if v is not None
+    }
+
     prep = svc.prepare_chat(
         user=user,
         messages=body.messages,
@@ -169,13 +245,20 @@ async def chat_stream(
         mode=body.mode,
         character=body.character,
         workspace_context=body.workspace_context,
+        request_model_params=request_model_params or None,
     )
 
     def _generate():
-        """Sync generator – emits AI SDK data-stream protocol lines."""
+        """Sync generator – emits AI SDK v6 UIMessageStream (SSE) lines."""
         answer_parts: list[str] = []
         run_id = None
         final_stats = None
+        text_part_id = uuid4().hex[:12]
+        text_started = False
+
+        # ── Message envelope ────────────────────────────────────
+        yield _start_message()
+        yield _start_step()
 
         try:
             for event in AgentService().stream_query(
@@ -193,14 +276,16 @@ async def chat_stream(
                 # ── Text token ──────────────────────────────────
                 if event_type == "token":
                     chunk = event.get("content", "")
+                    if not text_started:
+                        yield _text_start(text_part_id)
+                        text_started = True
                     answer_parts.append(chunk)
-                    yield _text_line(chunk)
+                    yield _text_delta(text_part_id, chunk)
 
                 # ── Run started ─────────────────────────────────
                 elif event_type == "run_started":
                     run_id = event.get("run_id")
-                    yield _data_line({
-                        "type": "run_started",
+                    yield _data_event("run-started", {
                         "run_id": run_id,
                         "thread_id": event.get("thread_id"),
                         "character": prep.config.character,
@@ -209,8 +294,7 @@ async def chat_stream(
                 # ── Supervisor decision ─────────────────────────
                 elif event_type == "supervisor":
                     decision = event.get("decision", {})
-                    yield _data_line({
-                        "type": "supervisor_decision",
+                    yield _data_event("supervisor-decision", {
                         "action": decision.get("action"),
                         "worker": decision.get("next_worker"),
                         "reasoning": decision.get("reasoning", ""),
@@ -220,8 +304,7 @@ async def chat_stream(
 
                 # ── Worker result ───────────────────────────────
                 elif event_type == "worker":
-                    yield _data_line({
-                        "type": "worker_result",
+                    yield _data_event("worker-result", {
                         "worker": event.get("worker"),
                         "success": event.get("success"),
                         "content_preview": event.get("content_preview", ""),
@@ -229,38 +312,41 @@ async def chat_stream(
 
                 # ── Planning ────────────────────────────────────
                 elif event_type == "planning":
-                    yield _data_line({
-                        "type": "planning",
+                    yield _data_event("planning", {
                         "content": event.get("content", ""),
                     })
 
                 # ── Note result (sticky notes for sidebar) ─────
                 elif event_type == "note_result":
-                    yield _data_line({
-                        "type": "note_result",
+                    yield _data_event("note-result", {
                         "notes": event.get("notes", []),
                     })
 
                 # ── Artifact result (AI-generated files) ────────
                 elif event_type == "artifact_result":
-                    yield _data_line({
-                        "type": "artifact_result",
+                    yield _data_event("artifact-result", {
                         "artifacts": event.get("artifacts", []),
                         "persisted_ids": event.get("persisted_ids", []),
                     })
 
                 # ── Mission result (persistent missions) ───────
                 elif event_type == "mission_result":
-                    yield _data_line({
-                        "type": "mission_result",
+                    yield _data_event("mission-result", {
                         "missions": event.get("missions", []),
                         "persisted_ids": event.get("persisted_ids", []),
                     })
 
+                # ── Mission action (toggle step / complete) ────
+                elif event_type == "mission_action":
+                    yield _data_event("mission-action", {
+                        "action": event.get("action"),
+                        "mission": event.get("mission", {}),
+                        "step_index": event.get("step_index"),
+                    })
+
                 # ── SQL approval request (interrupt) ──────────
                 elif event_type == "sql_approval_request":
-                    yield _data_line({
-                        "type": "sql_approval_request",
+                    yield _data_event("sql-approval-request", {
                         "request_id": event.get("request_id"),
                         "sql": event.get("sql"),
                         "natural_query": event.get("natural_query"),
@@ -275,8 +361,7 @@ async def chat_stream(
 
                 # ── Emotional state update ─────────────────────
                 elif event_type == "emotional_update":
-                    yield _data_line({
-                        "type": "emotional_update",
+                    yield _data_event("emotional-update", {
                         "mood": event.get("mood"),
                         "energy": event.get("energy"),
                         "affinity": event.get("affinity"),
@@ -295,12 +380,14 @@ async def chat_stream(
                     # If the final answer wasn't streamed token-by-token, emit it now
                     final_answer = result.get("answer", "")
                     if not answer_parts and final_answer:
+                        if not text_started:
+                            yield _text_start(text_part_id)
+                            text_started = True
                         answer_parts.append(final_answer)
-                        yield _text_line(final_answer)
+                        yield _text_delta(text_part_id, final_answer)
 
                     # Emit rich metadata for the sidebar
-                    yield _data_line({
-                        "type": "final",
+                    yield _data_event("final", {
                         "run_id": run_id,
                         "stats": _safe_stats(final_stats),
                         "worker_results": result.get("worker_results", []),
@@ -311,16 +398,21 @@ async def chat_stream(
                 # ── Error ───────────────────────────────────────
                 elif event_type == "error":
                     error_msg = event.get("error", "Unknown error")
-                    yield _error_line(error_msg)
+                    yield _error_event(error_msg)
 
         except Exception as exc:
             log_error(f"Streaming error: {exc}")
-            yield _error_line(str(exc))
+            yield _error_event(str(exc))
 
-        # ── Finish signal ───────────────────────────────────────
-        yield _finish_line("stop")
+        # ── Close text part if open ────────────────────────────
+        if text_started:
+            yield _text_end(text_part_id)
 
-        # Persist the assistant message asynchronously
+        # Persist the assistant message BEFORE sending finish signals.
+        # Once _done() is yielded the client may close the connection,
+        # which raises GeneratorExit and skips any code after the yield.
+        # persist_assistant_message is fire-and-forget (ThreadPoolExecutor)
+        # so it won't block the stream.
         full_answer = "".join(answer_parts)
         svc.persist_assistant_message(
             user_id=prep.user_id,
@@ -330,14 +422,18 @@ async def chat_stream(
             character_id=prep.config.character,
         )
 
+        # ── Finish signals ─────────────────────────────────────
+        yield _finish_step()
+        yield _finish_message("stop")
+        yield _done()
+
     return StreamingResponse(
         _generate(),
-        media_type="text/plain; charset=utf-8",
+        media_type="text/event-stream; charset=utf-8",
         headers={
             "X-Thread-Id": prep.thread_id,
-            "X-Vercel-AI-Data-Stream": "v1",
             "Cache-Control": "no-cache",
-            "Transfer-Encoding": "chunked",
+            "Connection": "keep-alive",
         },
     )
 

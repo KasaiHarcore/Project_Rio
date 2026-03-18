@@ -9,7 +9,7 @@ import { useChat } from '@ai-sdk/react'
 import type { ChatRequestOptions, UIMessage } from 'ai'
 import { useUIStore } from '@/shared/store/ui-store'
 import { apiGetThreadMessages, MessageRecord } from '@/features/chat/api'
-import { createSidebarTransport, getCapturedThreadId, setCapturedThreadId } from '@/features/chat/lib/chat-transport'
+import { createSidebarTransport } from '@/features/chat/lib/chat-transport'
 import { useStreamSidebarReset } from '@/features/chat/hooks/use-stream-sidebar'
 import { useSidebarStore } from '@/features/chat/store'
 import { useAffinityTracker } from '@/features/emotional/hooks/use-affinity-tracker'
@@ -59,15 +59,18 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   // Character persona — sent to backend for persona-aware responses
   const activeCharacterId = 'rio'
 
-  // Track the resolved thread ID (may start null for new chats, then set by backend)
   const isNewChat = !threadId || threadId === '__new__'
-  const [resolvedThreadId, setResolvedThreadId] = useState<string | null>(isNewChat ? null : threadId!)
+  const [resolvedThreadId, setResolvedThreadId] = useState<string | null>(null)
+
+  // Instance-scoped captured thread ID — replaces the old module-level global.
+  // This prevents cross-session contamination when multiple chats exist or
+  // the user rapidly switches threads.
+  const capturedThreadIdRef = useRef<string | null>(null)
 
   // Track loading state for existing threads
   const [historyLoading, setHistoryLoading] = useState(false)
   const loadedThreadRef = useRef<string | null>(null)
 
-  // Determine effective thread ID (from props or resolved from backend)
   const effectiveThreadId = threadId && threadId !== '__new__' ? threadId : resolvedThreadId
 
   // Reset sidebar when starting a new chat
@@ -84,25 +87,35 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   // ── Sidebar-aware transport (stable — only created once) ──
   const transport = useMemo(
     () =>
-      createSidebarTransport(() => ({
-        ...(effectiveThreadIdRef.current
-          ? { thread_id: effectiveThreadIdRef.current }
-          : {}),
-        mode: agentModeRef.current,
-        character: characterRef.current,
-      })),
+      createSidebarTransport(
+        () => ({
+          ...(effectiveThreadIdRef.current
+            ? { thread_id: effectiveThreadIdRef.current }
+            : {}),
+          mode: agentModeRef.current,
+          character: characterRef.current,
+        }),
+        (id) => { capturedThreadIdRef.current = id },
+      ),
     [],
   )
 
-  // Chat ID for useChat — unique per thread or per new-chat session
-  const chatId = effectiveThreadId ? `thread-${effectiveThreadId}` : `new-${chatKey}`
+  // Chat ID for useChat — unique per thread or per new-chat session.
+  // IMPORTANT: useState initializer ensures the ID is stable across the
+  // component's lifetime.  When a new thread is created mid-conversation
+  // (effectiveThreadId transitions from null → uuid), the chatId must NOT
+  // change, otherwise useChat treats it as a brand-new chat and drops all
+  // messages.  The key={missionKey} on the parent already handles explicit
+  // navigation — a remount will re-run the initializer with the correct value.
+  const [chatId] = useState(() =>
+    effectiveThreadId ? `thread-${effectiveThreadId}` : `new-${chatKey}`
+  )
 
   const { messages: rawMessages, sendMessage, setMessages, status } = useChat({
     id: chatId,
     transport,
     onFinish: () => {
-      // Capture the thread ID from the transport (set by sidebarFetch)
-      const captured = getCapturedThreadId()
+      const captured = capturedThreadIdRef.current
       if (captured && !effectiveThreadIdRef.current) {
         setResolvedThreadId(captured)
         onThreadCreated?.(captured)
@@ -143,16 +156,26 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   // IMPORTANT: In AI SDK v6 the `messages` prop in useChat is only read
   // once (when the Chat instance is created).  To load history into an
   // existing Chat we must use the imperative `setMessages` from useChat.
+  //
+  // NOTE: `resolvedThreadId` is intentionally EXCLUDED from the dependency
+  // array.  It is read inside the effect as a guard to skip history reload
+  // when transitioning from __new__ → UUID (the messages are already in the
+  // chat from the current session).  If we included it, the effect would
+  // re-run when resolvedThreadId is set while threadId is still '__new__',
+  // hitting the first branch and clearing messages mid-conversation.
   useEffect(() => {
     if (!threadId || threadId === '__new__') {
       setMessages([])
       setResolvedThreadId(null)
       loadedThreadRef.current = null
-      setCapturedThreadId(null)
+      capturedThreadIdRef.current = null
       return
     }
 
     if (loadedThreadRef.current === threadId) return
+    // Skip history reload when transitioning from __new__ → UUID after thread creation.
+    // The messages are already in the chat from the current session.
+    if (resolvedThreadId && resolvedThreadId === threadId) return
 
     let cancelled = false
     setHistoryLoading(true)
@@ -170,6 +193,7 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     })
 
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- resolvedThreadId excluded intentionally (see comment above)
   }, [threadId, setMessages])
 
   // Load persisted notes when opening an existing thread

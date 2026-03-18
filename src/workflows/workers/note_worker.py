@@ -133,7 +133,6 @@ class NoteWorker(BaseWorker):
                 metadata={"note_count": 0},
             )
 
-        # Return the structured notes as JSON string
         content = json.dumps(notes, ensure_ascii=False)
         log_info(f"Note worker extracted {len(notes)} note(s)")
 
@@ -187,7 +186,6 @@ class NoteWorker(BaseWorker):
         if not isinstance(parsed, list):
             return []
 
-        # Validate & clean each note
         notes: List[Dict[str, Any]] = []
         for item in parsed[:3]:  # hard-cap at 3 notes per invocation
             if not isinstance(item, dict):

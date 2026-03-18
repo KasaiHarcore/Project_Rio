@@ -41,7 +41,6 @@ class ResponseContext(BaseModel):
                     "observation, briefing, greeting"
     )
 
-    # Additional info
     additional_info: Optional[Dict[str, Any]] = Field(default_factory=dict)
 
 
@@ -158,22 +157,18 @@ MOOD_MODIFIERS = {
 def generate_response_with_llm(context: ResponseContext) -> GeneratedResponse:
     """Generate response using LLM with rich context"""
 
-    # Ensure model is initialized
     if form.SELECTED_MODEL is None:
         raise RuntimeError("No model selected. Call register_all_models() first.")
 
     model = form.SELECTED_MODEL
 
-    # Ensure LLM is set up
     if not hasattr(model, 'llm') or model.llm is None:
         model.setup()
 
-    # Build prompt
     persona = PERSONA_DEFINITIONS.get(context.relationship_tier, PERSONA_DEFINITIONS["stranger"])
     situation = SITUATION_INSTRUCTIONS.get(context.situation_type, "Generate an appropriate response.")
     mood_modifier = MOOD_MODIFIERS.get(context.mood, MOOD_MODIFIERS["neutral"])
 
-    # Format activity context
     activity_context = ""
     if context.session_duration:
         mins = context.session_duration // (60 * 1000)
@@ -193,7 +188,6 @@ def generate_response_with_llm(context: ResponseContext) -> GeneratedResponse:
     if context.is_weekend:
         activity_context += "It's the weekend. "
 
-    # Format additional info
     additional_context = ""
     if context.additional_info:
         for key, value in context.additional_info.items():
@@ -215,7 +209,6 @@ def generate_response_with_llm(context: ResponseContext) -> GeneratedResponse:
     }
     tone = tone_map.get(context.situation_type, "professional")
 
-    # Build final prompt
     prompt = f"""PERSONA:
 {persona}
 
@@ -248,8 +241,6 @@ Generate a response that Rio would say in this situation. The response should:
 Response should be ONLY the message Rio would say, nothing else. No meta-commentary, no JSON, just the direct message.
 """
 
-    # Call LLM using the streaming API and collect full response
-    # We use stream() and collect all chunks since there's no direct invoke() in the Model class
     chunks = []
     for chunk in model.stream(user_prompt=prompt, temperature=0.8, max_tokens=300):
         chunks.append(chunk)

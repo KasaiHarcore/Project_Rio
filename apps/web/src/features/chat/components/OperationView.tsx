@@ -36,6 +36,10 @@ export function OperationView() {
 
 function OperationContent() {
     const [selectedOpId, setSelectedOpId] = useState<string | null>(null)
+    // Separate key that only changes on explicit user navigation (click thread / new),
+    // NOT when handleThreadCreated resolves a '__new__' → UUID transition.
+    // This prevents React from unmounting MissionControl mid-stream.
+    const [missionKey, setMissionKey] = useState(0)
     const [threads, setThreads] = useState<ThreadSummary[]>([])
     const [loading, setLoading] = useState(true)
     const [searchQuery, setSearchQuery] = useState('')
@@ -50,7 +54,6 @@ function OperationContent() {
     const menuRef = useRef<HTMLDivElement>(null)
     const renameInputRef = useRef<HTMLInputElement>(null)
 
-    // Auto-open thread when navigated with ?thread=<id> or ?new=true
     useEffect(() => {
         if (hasHandledNewParam.current) return
         const threadParam = searchParams.get('thread')
@@ -58,9 +61,11 @@ function OperationContent() {
         if (threadParam) {
             hasHandledNewParam.current = true
             setSelectedOpId(threadParam)
+            setMissionKey(k => k + 1)
         } else if (isNew) {
             hasHandledNewParam.current = true
             setSelectedOpId('__new__')
+            setMissionKey(k => k + 1)
         }
     }, [searchParams])
 
@@ -82,6 +87,7 @@ function OperationContent() {
     // ── New operation → navigate to fresh chat ───────────────────────────
     const handleNewOperation = () => {
         setSelectedOpId('__new__')
+        setMissionKey(k => k + 1)
     }
 
     // When backend creates a new thread, update selectedOpId so subsequent
@@ -275,7 +281,7 @@ function OperationContent() {
                             filteredThreads.map((op) => (
                                 <div
                                     key={op.id}
-                                    onClick={() => { if (!renamingId) setSelectedOpId(op.id) }}
+                                    onClick={() => { if (!renamingId) { setSelectedOpId(op.id); setMissionKey(k => k + 1) } }}
                                     className={cn(
                                         "group relative p-3 rounded-xl cursor-pointer transition-all flex items-center gap-3",
                                         selectedOpId === op.id
@@ -408,7 +414,7 @@ function OperationContent() {
                 )}>
                     {selectedOpId ? (
                         <MissionControl
-                            key={selectedOpId}
+                            key={missionKey}
                             threadId={selectedOpId}
                             onBack={handleBackToList}
                             onThreadCreated={handleThreadCreated}

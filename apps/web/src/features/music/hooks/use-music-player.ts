@@ -5,9 +5,6 @@ import { Howl } from 'howler'
 import { useMusicStore } from '@/features/music/store'
 
 // ── Module-level singletons ──────────────────────────────────────────
-// These survive React component remounts (page navigation) so audio
-// keeps playing uninterrupted even though DashboardLayout remounts.
-
 let _howl: Howl | null = null
 let _howlTrackId: string | null = null
 let _raf = 0

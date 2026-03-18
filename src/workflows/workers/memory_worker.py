@@ -25,10 +25,6 @@ if TYPE_CHECKING:
     from core.settings import AgentConfig
 
 
-# Extend WorkerType for memory (we'll add this dynamically)
-# For now, we'll use a string identifier
-
-
 class MemoryAction:
     """Types of memory operations."""
     STORE = "store"      # Remember something
@@ -102,7 +98,6 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
                 error="No user_id in state",
             )
         
-        # Analyze the request
         action, content = self._analyze_request(question)
         log_info(f"Memory action: {action}, content: {content[:100] if content else 'None'}")
         
@@ -148,21 +143,18 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
             r"don'?t\s+remember\s+(.+)",
         ]
         
-        # Try store patterns
         for pattern in store_patterns:
             match = re.search(pattern, message_lower, re.IGNORECASE)
             if match:
                 content = match.group(1).strip() if match.groups() else message
                 return MemoryAction.STORE, content
         
-        # Try recall patterns
         for pattern in recall_patterns:
             match = re.search(pattern, message_lower, re.IGNORECASE)
             if match:
                 content = match.group(1).strip() if match.groups() else "general"
                 return MemoryAction.RECALL, content
         
-        # Try forget patterns
         for pattern in forget_patterns:
             match = re.search(pattern, message_lower, re.IGNORECASE)
             if match:
@@ -179,7 +171,6 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
             response = self.llm.invoke(prompt)
             content = getattr(response, "content", str(response))
             
-            # Parse response
             action_match = re.search(r"ACTION:\s*(\w+)", content, re.IGNORECASE)
             content_match = re.search(r"CONTENT:\s*(.+)", content, re.IGNORECASE)
             
@@ -200,11 +191,11 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
     def _handle_store(self, user_id: str, content: str) -> WorkerResult:
         """Store a fact in long-term memory."""
         from workflows.memory_store import (
-            get_memory_store,
+            memory_store_context,
             store_memory,
         )
         from uuid import uuid4
-        
+
         if not content or len(content) < 3:
             return WorkerResult(
                 worker_type=self.worker_type,
@@ -212,33 +203,29 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
                 content="Please specify what you want me to remember.",
                 error="Empty content",
             )
-        
+
         try:
-            store = get_memory_store()
-            memory_key = f"explicit_{uuid4().hex[:8]}"
-            
-            store_memory(
-                store,
-                user_id=user_id,
-                memory_key=memory_key,
-                text=content,
-                memory_type="semantic",
-                metadata={
-                    "source": "user_explicit",
-                    "explicit": True,
-                },
-            )
-            
-            # Close the store connection
-            if hasattr(store, '__exit__'):
-                store.__exit__(None, None, None)
-            
+            with memory_store_context() as store:
+                memory_key = f"explicit_{uuid4().hex[:8]}"
+
+                store_memory(
+                    store,
+                    user_id=user_id,
+                    memory_key=memory_key,
+                    text=content,
+                    memory_type="semantic",
+                    metadata={
+                        "source": "user_explicit",
+                        "explicit": True,
+                    },
+                )
+
             return WorkerResult(
                 worker_type=self.worker_type,
                 success=True,
                 content=f"✓ I'll remember: \"{content}\"",
             )
-            
+
         except Exception as e:
             log_warning(f"Failed to store memory: {e}")
             return WorkerResult(
@@ -251,26 +238,21 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
     def _handle_recall(self, user_id: str, topic: str) -> WorkerResult:
         """Recall stored memories."""
         from workflows.memory_store import (
-            get_memory_store,
+            memory_store_context,
             search_memories,
             format_memories_for_prompt,
         )
-        
+
         try:
-            store = get_memory_store()
-            
-            # Search for relevant memories
-            memories = search_memories(
-                store,
-                user_id=user_id,
-                query=topic if topic != "general" else "user preferences information facts",
-                limit=10,
-            )
-            
-            # Close the store connection
-            if hasattr(store, '__exit__'):
-                store.__exit__(None, None, None)
-            
+            with memory_store_context() as store:
+                # Search for relevant memories
+                memories = search_memories(
+                    store,
+                    user_id=user_id,
+                    query=topic if topic != "general" else "user preferences information facts",
+                    limit=10,
+                )
+
             if not memories:
                 return WorkerResult(
                     worker_type=self.worker_type,
@@ -314,11 +296,11 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
     def _handle_forget(self, user_id: str, topic: str) -> WorkerResult:
         """Delete memories matching the topic."""
         from workflows.memory_store import (
-            get_memory_store,
+            memory_store_context,
             search_memories,
             delete_memory,
         )
-        
+
         if not topic or len(topic) < 3:
             return WorkerResult(
                 worker_type=self.worker_type,
@@ -326,46 +308,38 @@ I am precise about what I store or retrieve. I confirm actions clearly."""
                 content="Please specify what you want me to forget.",
                 error="Empty topic",
             )
-        
+
         try:
-            store = get_memory_store()
-            
-            # Find matching memories
-            memories = search_memories(
-                store,
-                user_id=user_id,
-                query=topic,
-                limit=5,
-            )
-            
-            if not memories:
-                # Close the store connection
-                if hasattr(store, '__exit__'):
-                    store.__exit__(None, None, None)
-                return WorkerResult(
-                    worker_type=self.worker_type,
-                    success=True,
-                    content=f"I don't have any memories about '{topic}' to forget.",
+            with memory_store_context() as store:
+                # Find matching memories
+                memories = search_memories(
+                    store,
+                    user_id=user_id,
+                    query=topic,
+                    limit=5,
                 )
-            
-            # Delete matching memories
-            deleted_count = 0
-            for mem in memories:
-                key = mem.get("key")
-                if key:
-                    if delete_memory(store, user_id=user_id, memory_key=key):
-                        deleted_count += 1
-            
-            # Close the store connection
-            if hasattr(store, '__exit__'):
-                store.__exit__(None, None, None)
-            
+
+                if not memories:
+                    return WorkerResult(
+                        worker_type=self.worker_type,
+                        success=True,
+                        content=f"I don't have any memories about '{topic}' to forget.",
+                    )
+
+                # Delete matching memories
+                deleted_count = 0
+                for mem in memories:
+                    key = mem.get("key")
+                    if key:
+                        if delete_memory(store, user_id=user_id, memory_key=key):
+                            deleted_count += 1
+
             return WorkerResult(
                 worker_type=self.worker_type,
                 success=True,
                 content=f"✓ Forgotten {deleted_count} memory(ies) related to '{topic}'.",
             )
-            
+
         except Exception as e:
             log_warning(f"Failed to forget memories: {e}")
             return WorkerResult(

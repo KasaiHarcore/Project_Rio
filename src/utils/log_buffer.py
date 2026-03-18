@@ -14,9 +14,6 @@ _MAX_BUFFER = 500
 _buffer: deque[Dict[str, Any]] = deque(maxlen=_MAX_BUFFER)
 _subscribers: List[asyncio.Queue[Dict[str, Any]]] = []
 
-# Map loguru level names to frontend-friendly names.
-# Loguru levels: TRACE(5), DEBUG(10), INFO(20), SUCCESS(25),
-#                WARNING(30), ERROR(40), CRITICAL(50)
 _LEVEL_NAME_MAP = {
     "TRACE": "trace",
     "DEBUG": "debug",

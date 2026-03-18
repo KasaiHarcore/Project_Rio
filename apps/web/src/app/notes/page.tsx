@@ -28,7 +28,6 @@ function NotesPageContent() {
 
     const searchParams = useSearchParams()
 
-    // Fetch notes and collections on mount
     useEffect(() => {
         let cancelled = false
         async function load() {
@@ -83,7 +82,6 @@ function NotesPageContent() {
 
     const updateNote = useNoteStore((s) => s.updateNote)
 
-    // Create a new note
     const handleNewNote = useCallback(() => {
         const now = new Date().toISOString()
         const tempId = noteUid()
@@ -94,6 +92,7 @@ function NotesPageContent() {
             blocks: [
                 { id: blockUid(), type: 'heading' as const, content: '' },
             ],
+            collectionIds: [],
             isPinned: false,
             isImportant: false,
             author: 'user' as const,

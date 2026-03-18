@@ -172,7 +172,6 @@ class WebSearchWorker(BaseWorker):
                 error_msg = outcome["result"].get("error", "No results") if outcome["result"] else "No results"
                 errors.append(f"Query '{outcome['query']}': {error_msg}")
 
-        # Format results
         if all_results:
             formatted = self._format_results(all_results)
             
@@ -204,38 +203,75 @@ class WebSearchWorker(BaseWorker):
     ) -> List[str]:
         """
         Extract one or more search queries from the question and reasoning.
-        
-        Args:
-            question: Original user question
-            reasoning: Supervisor's reasoning
-        
-        Returns:
-            List of search queries
+
+        For short questions the question itself is used directly.
+        For long or complex questions (e.g. multi-paragraph instructions with
+        embedded URLs) an LLM call distils the intent into a concise query so
+        that Tavily actually returns useful results.
         """
+        import re
         queries = []
-        
-        # Check if supervisor provided specific search terms
+
+        # Check if supervisor provided specific search terms in its reasoning
         if reasoning:
             lower_reasoning = reasoning.lower()
-            
-            # Look for explicit search instructions
-            search_markers = ["search for", "look up", "find information about"]
+            search_markers = [
+                "search for", "look up", "find information about",
+                "fetch", "retrieve the", "retrieve information",
+            ]
             for marker in search_markers:
                 if marker in lower_reasoning:
                     idx = lower_reasoning.find(marker)
                     potential_query = reasoning[idx + len(marker):].strip()
-                    # Take until period or newline
                     for delim in [".", "\n", ","]:
                         if delim in potential_query:
                             potential_query = potential_query.split(delim)[0]
                     if potential_query and len(potential_query) > 3:
                         queries.append(potential_query.strip())
-        
-        # Always include the original question if no specific queries
+
         if not queries:
-            queries.append(question)
-        
+            if len(question) <= 200:
+                queries.append(question)
+            else:
+                # Long question — distil to a short, effective search query
+                queries.append(self._distill_query(question, reasoning))
+
+        # If the question contains a URL, always add a URL-targeted query so
+        # Tavily can retrieve page content directly.
+        url_match = re.search(r'https?://[^\s`"\']+', question)
+        if url_match:
+            url = url_match.group(0)
+            if url not in queries:
+                queries.append(url)
+
         return queries
+
+    def _distill_query(self, question: str, reasoning: str) -> str:
+        """Use a quick LLM call to extract a concise search query (≤ 12 words)."""
+        try:
+            from infrastructure.llm import form
+            from langchain_core.messages import HumanMessage, SystemMessage
+
+            prompt = (
+                "Extract a concise web search query (maximum 12 words) that "
+                "captures what needs to be looked up.\n"
+                "Return ONLY the search query — no explanation, no quotes.\n\n"
+                f"User request: {question[:600]}\n"
+                f"Search intent: {reasoning[:300]}"
+            )
+            llm = form.SELECTED_MODEL.llm
+            resp = llm.invoke([
+                SystemMessage(content="You extract concise search queries. Reply with only the query string."),
+                HumanMessage(content=prompt),
+            ])
+            raw = str(getattr(resp, "content", resp)).strip().strip('"').strip("'")
+            if raw and 3 < len(raw) < 300:
+                return raw
+        except Exception as exc:
+            log_debug(f"Query distillation failed (using fallback): {exc}")
+
+        # Fallback: first 150 chars of the question
+        return question[:150]
     
     def _format_results(self, all_results: List[Dict[str, Any]]) -> str:
         """
@@ -256,11 +292,9 @@ class WebSearchWorker(BaseWorker):
             
             parts.append(f"\n### Query: {query}\n")
             
-            # Add quick answer if available
             if answer:
                 parts.append(f"**Quick Answer:** {answer}\n")
             
-            # Add individual results
             if results:
                 parts.append("\n**Sources:**\n")
                 for idx, result in enumerate(results, 1):

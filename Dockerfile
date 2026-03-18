@@ -27,7 +27,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     postgresql-client \
     && rm -rf /var/lib/apt/lists/*
 
-# Create non-root user
 RUN groupadd --gid 1000 appuser \
     && useradd --uid 1000 --gid appuser --shell /bin/bash --create-home appuser
 
@@ -44,7 +43,6 @@ COPY --from=builder /app/scripts ./scripts
 # Make entrypoint executable
 RUN chmod +x scripts/entrypoint.sh
 
-# Set environment variables
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONPATH="/app/src" \
     PYTHONDONTWRITEBYTECODE=1 \

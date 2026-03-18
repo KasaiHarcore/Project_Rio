@@ -97,8 +97,15 @@ SELECTED_MODEL: Model = None
 
 def set_model(model_name: str):
     global SELECTED_MODEL
-    if model_name not in MODEL_HUB:
-        raise ValueError(f"Invalid model name: {model_name}")
-    SELECTED_MODEL = MODEL_HUB[model_name]
+    # Direct lookup by registered name
+    if model_name in MODEL_HUB:
+        SELECTED_MODEL = MODEL_HUB[model_name]
+        return
+    # Fallback: match by the model's provider model_name (e.g. "openai/gpt-oss-120b")
+    for model in MODEL_HUB.values():
+        if getattr(model, "model_name", None) == model_name:
+            SELECTED_MODEL = model
+            return
+    raise ValueError(f"Invalid model name: {model_name}")
     
 MODEL_TEMP: float = 0.0

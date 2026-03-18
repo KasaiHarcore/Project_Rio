@@ -216,7 +216,6 @@ export function CommandPalette() {
 
   // ─── Searchable Content ────────────────────────────────────
   const searchableContent: SearchResult[] = useMemo(() => [
-    // Conversations (placeholder — should be replaced with real search results)
     { id: "s-conv-1", title: "Binary Search Implementation", preview: "Can you help me implement a binary search algorithm in Python?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 5", action: () => { close(); router.push("/operation?new=true") } },
     { id: "s-conv-2", title: "Machine Learning Study Plan", preview: "I need a 30-day study plan for machine learning fundamentals...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 4", action: () => { close(); router.push("/operation?new=true") } },
     { id: "s-conv-3", title: "Neural Network Architecture", preview: "Explain the architecture of a convolutional neural network...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 3", action: () => { close(); router.push("/operation?new=true") } },
@@ -266,7 +265,6 @@ export function CommandPalette() {
     )
   }, [query, mode, searchableContent])
 
-  // Auto-switch to search mode when query is 3+ chars and no command matches
   useEffect(() => {
     if (query.length >= 3 && filtered.length === 0 && mode === "commands") {
       setMode("search")

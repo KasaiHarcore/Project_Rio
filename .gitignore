@@ -1,3 +1,7 @@
+# ==============================================================================
+# Python
+# ==============================================================================
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -14,8 +18,8 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-lib64/
+/lib/
+/lib64/
 parts/
 sdist/
 var/
@@ -53,33 +57,6 @@ cover/
 *.mo
 *.pot
 
-# Django stuff:
-*.log
-local_settings.py
-db.sqlite3
-db.sqlite3-journal
-
-# Flask stuff:
-instance/
-.webassets-cache
-
-# Scrapy stuff:
-.scrapy
-
-# Sphinx documentation
-docs/_build/
-
-# PyBuilder
-.pybuilder/
-target/
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IPython
-profile_default/
-ipython_config.py
-
 # pyenv
 .python-version
 
@@ -102,24 +79,14 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
-# Environments
-.env
+# Environments / virtualenvs
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
-
-# Spyder project settings
-.spyderproject
-.spyproject
-
-# Rope project settings
-.ropeproject
-
-# mkdocs documentation
-/site
+pythonenv*
 
 # mypy
 .mypy_cache/
@@ -135,7 +102,23 @@ dmypy.json
 # Cython debug symbols
 cython_debug/
 
+# Ruff
+.ruff_cache/
+
+# ==============================================================================
+# Node.js / Next.js
+# ==============================================================================
+
+node_modules/
+.next/
+out/
+.turbo/
+*.tsbuildinfo
+
+# ==============================================================================
 # IDEs and Editors
+# ==============================================================================
+
 .vscode/
 .idea/
 *.swp
@@ -147,58 +130,87 @@ cython_debug/
 *.sublime-project
 *.sublime-workspace
 
+# ==============================================================================
 # OS-specific
+# ==============================================================================
+
 .DS_Store
 Thumbs.db
 *.bak
 Desktop.ini
 
+# ==============================================================================
 # LangChain / LangSmith
+# ==============================================================================
+
 .langchain/
 .langsmith/
 langchain.db
 
-# ChromaDB / Vector Stores
+# ==============================================================================
+# Vector Stores / Embeddings
+# ==============================================================================
+
 chroma/
 chromadb/
 *.chroma
 *.faiss
 *.index
-*.bin
+storage/qdrant/
 
+# ==============================================================================
 # Database files
+# ==============================================================================
+
 *.db
 *.sqlite
 *.sqlite3
+db.sqlite3-journal
 
+# ==============================================================================
 # Model checkpoints and weights
+# ==============================================================================
+
 *.pt
 *.pth
 *.ckpt
 *.safetensors
+*.bin
 checkpoints/
 
+# ==============================================================================
 # Logs
+# ==============================================================================
+
 logs/
 *.log
 *.out
 *.err
 
+# ==============================================================================
 # Data files
+# ==============================================================================
+
 data/
 *.csv
-*.json
 *.jsonl
 *.parquet
 *.pkl
 *.pickle
+src/data/**/*.json
 
+# ==============================================================================
 # Temporary files
+# ==============================================================================
+
 tmp/
 temp/
 *.tmp
 
-# API Keys and Secrets (IMPORTANT!)
+# ==============================================================================
+# Secrets & Environment (IMPORTANT!)
+# ==============================================================================
+
 .env
 .env.*
 !.env.example
@@ -208,13 +220,20 @@ secrets/
 config.ini
 credentials.json
 
+# ==============================================================================
 # Docker
-*.dockerfile
+# ==============================================================================
+
 docker-compose.override.yml
 
-# Node modules (if any JS/TS tools)
-node_modules/
+# ==============================================================================
+# Jupyter
+# ==============================================================================
 
-# Python virtual environment variations
-.Python
-pythonenv*
+.ipynb_checkpoints
+
+# ==============================================================================
+# Claude Code
+# ==============================================================================
+
+.claude/

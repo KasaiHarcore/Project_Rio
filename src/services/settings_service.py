@@ -62,15 +62,14 @@ class SettingsService:
         try:
             settings = self._settings_repo.get_or_create(user_id)
 
-            # Apply updates
             update_data = updates.model_dump(exclude_unset=True)
 
-            # Handle API key encryption
             api_key_mapping = {
                 "openai_api_key": "encrypted_openai_key",
                 "openrouter_api_key": "encrypted_openrouter_key",
                 "tavily_api_key": "encrypted_tavily_key",
                 "cohere_api_key": "encrypted_cohere_key",
+                "langsmith_api_key": "encrypted_langsmith_key",
             }
 
             for plaintext_field, encrypted_field in api_key_mapping.items():
@@ -88,7 +87,6 @@ class SettingsService:
                         setattr(settings, encrypted_field, None)
                         log_debug(f"Cleared {plaintext_field} for user {user_id}")
 
-            # Apply remaining updates (non-API-key fields)
             for key, value in update_data.items():
                 if hasattr(settings, key):
                     setattr(settings, key, value)
@@ -125,25 +123,25 @@ class SettingsService:
         Returns:
             UserSettingsInDB with API key status (never actual keys)
         """
-        # Decrypt keys for masking (but don't expose them)
         openai_key = decrypt_api_key(settings.encrypted_openai_key) if settings.encrypted_openai_key else None
         openrouter_key = decrypt_api_key(settings.encrypted_openrouter_key) if settings.encrypted_openrouter_key else None
         tavily_key = decrypt_api_key(settings.encrypted_tavily_key) if settings.encrypted_tavily_key else None
         cohere_key = decrypt_api_key(settings.encrypted_cohere_key) if settings.encrypted_cohere_key else None
+        langsmith_key = decrypt_api_key(settings.encrypted_langsmith_key) if settings.encrypted_langsmith_key else None
 
-        # Create API key status
         api_status = UserSettingsAPIStatus(
             openai_configured=openai_key is not None,
             openrouter_configured=openrouter_key is not None,
             tavily_configured=tavily_key is not None,
             cohere_configured=cohere_key is not None,
+            langsmith_configured=langsmith_key is not None,
             openai_masked=mask_api_key(openai_key) if openai_key else None,
             openrouter_masked=mask_api_key(openrouter_key) if openrouter_key else None,
             tavily_masked=mask_api_key(tavily_key) if tavily_key else None,
             cohere_masked=mask_api_key(cohere_key) if cohere_key else None,
+            langsmith_masked=mask_api_key(langsmith_key) if langsmith_key else None,
         )
 
-        # Convert to dict and add API status
         settings_dict = {
             "id": settings.id,
             "user_id": settings.user_id,
@@ -160,6 +158,10 @@ class SettingsService:
             "top_k": settings.top_k,
             "enable_planner": settings.enable_planner,
             "enable_reflection": settings.enable_reflection,
+            "enable_input_guardrail": settings.enable_input_guardrail,
+            "enable_output_guardrail": settings.enable_output_guardrail,
+            "enable_langsmith_tracing": settings.enable_langsmith_tracing,
+            "langsmith_project": settings.langsmith_project,
             "mission_reminders": settings.mission_reminders,
             "chat_alerts": settings.chat_alerts,
             "system_updates": settings.system_updates,
@@ -195,6 +197,7 @@ class SettingsService:
             "openrouter": decrypt_api_key(settings.encrypted_openrouter_key) if settings.encrypted_openrouter_key else None,
             "tavily": decrypt_api_key(settings.encrypted_tavily_key) if settings.encrypted_tavily_key else None,
             "cohere": decrypt_api_key(settings.encrypted_cohere_key) if settings.encrypted_cohere_key else None,
+            "langsmith": decrypt_api_key(settings.encrypted_langsmith_key) if settings.encrypted_langsmith_key else None,
         }
 
     def get_or_create_profile(self, user_id: UUID) -> UserProfile:
@@ -226,7 +229,6 @@ class SettingsService:
         try:
             profile = self._profile_repo.get_or_create(user_id)
 
-            # Apply updates
             update_data = updates.model_dump(exclude_unset=True)
             for key, value in update_data.items():
                 if hasattr(profile, key):
@@ -307,13 +309,11 @@ class SettingsService:
                 return False, "User not found"
 
             if username:
-                # Check if username is already taken
                 if self._user_repo.username_exists(username, exclude_id=user_id):
                     return False, "Username already taken"
                 user.username = username
 
             if email:
-                # Check if email is already taken
                 if self._user_repo.email_exists(email, exclude_id=user_id):
                     return False, "Email already taken"
                 user.email = email

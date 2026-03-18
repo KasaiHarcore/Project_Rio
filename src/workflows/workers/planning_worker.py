@@ -95,13 +95,10 @@ class PlanningWorker(BaseWorker):
         
         log_info(f"Planning for question: {question[:100]}... (mode={mode})")
         
-        # Build the planning prompt
         user_prompt = self._build_planning_prompt(question, mode, state)
         
-        # Call LLM to generate the plan
         plan_text = self._call_llm(user_prompt=user_prompt)
         
-        # Parse the plan
         execution_plan = self._parse_plan(plan_text)
         
         return WorkerResult(
@@ -124,17 +121,14 @@ class PlanningWorker(BaseWorker):
         """Build the prompt for the planning LLM."""
         parts = [f"User Question: {question}"]
         
-        # Add mode-specific guidance
         mode_guidance = self._get_mode_guidance(mode)
         if mode_guidance:
             parts.append(f"\nMode Guidance ({mode}):\n{mode_guidance}")
         
-        # Add context if available
         context = self.get_context(state)
         if context:
             parts.append(f"\nAvailable Context:\n{context[:1000]}...")
         
-        # Add previous decisions if any
         decisions = state.get("supervisor_decisions") or []
         if decisions:
             decision_summary = "\n".join([

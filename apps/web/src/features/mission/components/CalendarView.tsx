@@ -24,7 +24,6 @@ export function CalendarView() {
     const [selectedDate, setSelectedDate] = useState(new Date())
     const [viewMode, setViewMode] = useState<'monthly' | 'weekly'>('monthly')
 
-    // For the time slider
     const [now, setNow] = useState(new Date())
 
     useEffect(() => {
@@ -114,7 +113,6 @@ export function CalendarView() {
     const currentMinute = now.getMinutes()
     const timeSliderTop = (currentHour * 60 + currentMinute) * (100 / (24 * 60)) // Percentage of total height (24h)
 
-    // A ref to scroll to current time on mount (optional but nice)
     const timeGridRef = useRef<HTMLDivElement>(null)
 
     useEffect(() => {

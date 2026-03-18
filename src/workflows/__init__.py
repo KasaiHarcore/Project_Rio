@@ -61,8 +61,7 @@ from workflows.workers import (
     WebSearchWorker,
     SQLWorker,
     MemoryWorker,
-    NoteWorker,
-    MissionWorker,
+    create_note_node,
 )
 from workflows.supervisor import SupervisorAgent
 from workflows.graph import build_workflow_graph
@@ -76,36 +75,28 @@ from workflows.executor import (
 )
 
 __all__ = [
-    # State
     "AgentState",
     "WorkerResult",
     "SupervisorDecision",
     "HumanInterruptType",
     "reset_execution_state",
-    # Checkpointing (short-term memory)
     "checkpoint_context",
     "get_checkpointer",
     "build_config_payload",
-    # Memory Store (long-term memory)
     "memory_store_context",
     "get_memory_store",
     "store_memory",
     "search_memories",
     "format_memories_for_prompt",
     "MemoryNamespace",
-    # Workers
     "PlanningWorker",
     "RetrievalWorker",
     "WebSearchWorker",
     "SQLWorker",
     "MemoryWorker",
-    "NoteWorker",
-    "MissionWorker",
-    # Supervisor
+    "create_note_node",
     "SupervisorAgent",
-    # Graph
     "build_workflow_graph",
-    # Executor (includes checkpoint helpers)
     "run_workflow",
     "stream_workflow",
     "resume_sql_approval",

@@ -129,6 +129,7 @@ class NoteKnowledgeTool:
                         "score": round(final_scores[nid], 4),
                         "source": note.source.value,
                         "is_important": note.is_important,
+                        "collection_ids": [str(c) for c in (note.collection_ids or [])],
                     })
             return json.dumps(results, ensure_ascii=False)
 
@@ -147,6 +148,11 @@ class NoteKnowledgeTool:
         )
         results = []
         for n in notes:
+            col_ids = []
+            try:
+                col_ids = [str(c) for c in (n.collection_ids or [])]
+            except Exception:
+                pass
             results.append({
                 "id": str(n.id),
                 "title": n.title or "",
@@ -154,6 +160,7 @@ class NoteKnowledgeTool:
                 "score": 1.0,
                 "source": n.source.value if n.source else "user",
                 "is_important": n.is_important,
+                "collection_ids": col_ids,
             })
         return json.dumps(results, ensure_ascii=False)
 

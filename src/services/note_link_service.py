@@ -73,8 +73,6 @@ class NoteLinkService:
         )
         return [NoteLinkInDB.model_validate(r) for r in rows]
 
-    # -- Create --
-
     def create_link(self, user_id: UUID, data: NoteLinkCreate) -> NoteLinkInDB:
         link = NoteLink(
             user_id=user_id,
@@ -113,8 +111,6 @@ class NoteLinkService:
         log_info(f"Bulk created {len(links)} note links for user {user_id}")
         return [NoteLinkInDB.model_validate(lnk) for lnk in links]
 
-    # -- Update --
-
     def update_link(
         self, user_id: UUID, link_id: UUID, data: NoteLinkUpdate,
     ) -> Optional[NoteLinkInDB]:
@@ -131,12 +127,8 @@ class NoteLinkService:
         self._repo.flush()
         return NoteLinkInDB.model_validate(link)
 
-    # -- Delete --
-
     def delete_link(self, user_id: UUID, link_id: UUID) -> bool:
         return self._repo.delete_by_id(link_id=link_id, user_id=user_id) > 0
-
-    # -- Auto-sync from content --
 
     def sync_links_from_content(
         self, user_id: UUID, note_id: UUID, content: str,
@@ -167,13 +159,11 @@ class NoteLinkService:
             fp = self._parsed_fingerprint(pl)
             parsed_fps[fp] = pl
 
-        # Delete links no longer in content
         to_delete = set(existing_fps.keys()) - set(parsed_fps.keys())
         for fp in to_delete:
             link = existing_fps[fp]
             self._repo.delete_by_id(link_id=link.id, user_id=user_id)
 
-        # Create new links
         to_create = set(parsed_fps.keys()) - set(existing_fps.keys())
         new_links: List[NoteLink] = []
         for fp in to_create:
@@ -189,11 +179,8 @@ class NoteLinkService:
                 f"+{len(new_links)} -{len(to_delete)}"
             )
 
-        # Return final set
         final = self._repo.find_links_by_note(note_id=note_id, user_id=user_id)
         return [NoteLinkInDB.model_validate(r) for r in final]
-
-    # -- Graph --
 
     def get_note_graph(self, user_id: UUID) -> NoteGraphResponse:
         """Build a graph from all note links for visualization."""

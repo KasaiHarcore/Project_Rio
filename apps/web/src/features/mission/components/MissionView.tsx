@@ -57,7 +57,6 @@ export function MissionView() {
     const [showFilters, setShowFilters] = useState(false)
     const [calendarDate, setCalendarDate] = useState(new Date())
 
-    // Fetch on mount
     useEffect(() => {
         fetchMissions()
         fetchStats()

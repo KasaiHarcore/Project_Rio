@@ -63,7 +63,6 @@ export function RioGuardian() {
 
   const showMusicSection = true
 
-  // Initialize intervention engine
   useInterventionEngine()
 
   const currentTier = RELATIONSHIP_TIERS[relationshipTier] || RELATIONSHIP_TIERS.stranger

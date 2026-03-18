@@ -58,8 +58,6 @@ class WebSearchTool:
         self._last_search_time = 0
         self._min_request_interval = 0.1  # 100ms between requests
 
-        # NOTE: Tool calls may run in a threadpool, so thread-local counters are unreliable.
-        # Enforce budgets in a shared, lock-protected structure.
         self._run_lock = threading.Lock()
         self._default_call_limit = int(os.getenv("WEB_SEARCH_MAX_CALLS", "6"))
         self._default_max_results = int(os.getenv("WEB_SEARCH_MAX_RESULTS", str(self.max_results)))
@@ -195,22 +193,18 @@ class WebSearchTool:
         time_range: Optional[str]
     ) -> tuple[str, int, str, Optional[str]]:
         """Validate and sanitize search parameters"""
-        # Validate query
         if not query or not query.strip():
             raise ValueError("Query cannot be empty")
         query = query.strip()
         
-        # Validate max_results
         if max_results < 1 or max_results > 20:
             log_warning(f"max_results {max_results} out of range, clamping to [1, 20]")
             max_results = max(1, min(20, max_results))
         
-        # Validate topic
         if topic not in self.VALID_TOPICS:
             log_warning(f"Invalid topic '{topic}', defaulting to 'general'")
             topic = "general"
         
-        # Validate time_range
         if time_range and time_range not in self.VALID_TIME_RANGES:
             log_warning(f"Invalid time_range '{time_range}', ignoring")
             time_range = None
@@ -224,7 +218,7 @@ class WebSearchTool:
         topic: str = DEFAULT_TOPIC,
         time_range: Optional[str] = None,
         search_depth: Optional[Literal["basic", "advanced"]] = None,
-        include_answer: bool = True,  # Note: Ignored here since fixed at init; kept for compat
+        include_answer: bool = True,
         include_domains: Optional[List[str]] = None,
         exclude_domains: Optional[List[str]] = None
     ) -> Dict[str, Any]:

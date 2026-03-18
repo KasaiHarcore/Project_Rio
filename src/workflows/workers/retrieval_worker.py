@@ -91,7 +91,6 @@ class RetrievalWorker(BaseWorker):
         """
         question = self.get_question(state)
         
-        # Check if there's a specific query from the supervisor
         last_reasoning = self.get_last_decision_reasoning(state)
         search_query = self._extract_search_query(question, last_reasoning)
         
@@ -105,11 +104,9 @@ class RetrievalWorker(BaseWorker):
         # Extract user_id from state for tenant-scoped search
         user_id = state.get("user_id")
 
-        # Check if user provided custom Cohere API key for reranking
         user_api_keys = state.get("metadata", {}).get("user_api_keys", {})
         user_cohere_key = user_api_keys.get("cohere") if user_api_keys else None
 
-        # Set user's Cohere key on the rerank service if available
         if user_cohere_key:
             log_info("Using user's Cohere API key for reranking")
             vector_db = get_vector_db_tool()
@@ -117,7 +114,6 @@ class RetrievalWorker(BaseWorker):
                 vector_db._rerank_service.set_user_api_key(user_cohere_key)
 
         try:
-            # Check if Neo4j GraphRAG fusion is enabled
             neo4j_config = get_neo4j_config()
             use_graph_rag = neo4j_config.enabled and strategy == "standard"
 
@@ -157,7 +153,6 @@ class RetrievalWorker(BaseWorker):
                     },
                 )
             
-            # Parse and format results
             formatted_results = self._format_results(results)
             num_results = results.count("### Result")
             

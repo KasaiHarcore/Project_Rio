@@ -54,7 +54,6 @@ def create_database_tables() -> None:
     return _create_database_tables()
 
 __all__ = [
-    # Constants
     "TOOL_PREVIEW_LENGTH",
     "DEFAULT_MAX_ITERATIONS",
     "DEFAULT_CHECKPOINT_NS",
@@ -66,16 +65,13 @@ __all__ = [
     "MAX_RETRIES",
     "RETRY_BACKOFF_BASE",
     "RETRY_BACKOFF_MAX",
-    # Config Classes
     "AgentConfig",
     "VectorDBConfig",
     "RedisConfig",
     "AppConfig",
-    # Config Getters
     "get_app_config",
     "get_vectordb_config",
     "get_redis_config",
-    # Exceptions
     "AppException",
     "DatabaseError",
     "NotFoundError",
@@ -86,7 +82,6 @@ __all__ = [
     "ConfigurationError",
     "WorkflowError",
     "ExternalServiceError",
-    # Startup/Shutdown
     "run_startup_tasks",
     "run_shutdown_tasks",
     "create_database_tables",

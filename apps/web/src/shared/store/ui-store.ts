@@ -6,16 +6,13 @@ type ViewMode = 'dashboard' | 'operation'
 export type AgentMode = 'chat' | 'rag' | 'web' | 'sql'
 
 interface UIState {
-  // Navigation View (Sidebar)
   activeView: ViewType
-  // Main Content Mode
   viewMode: ViewMode
   activeMissionId: string | null
 
   // Agent Mode
   agentMode: AgentMode
 
-  // User role (from backend)
   userRole: 'user' | 'admin'
 
 

@@ -55,7 +55,6 @@ class UserProfile(Base, TimestampMixin):
 	job_title: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 	locale: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 
-	# Onboarding fields
 	specialization: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
 	agent_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 	tone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
@@ -63,11 +62,9 @@ class UserProfile(Base, TimestampMixin):
 	data_sources: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
 	onboarding_completed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
 
-	# Profile fields
 	bio: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 	study_goal: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-	# XP / Leveling
 	xp: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
 	level: Mapped[int] = mapped_column(Integer, nullable=False, default=1, server_default="1")
 

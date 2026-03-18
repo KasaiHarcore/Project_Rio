@@ -6,10 +6,6 @@ import { agentConfig } from '@/shared/lib/agent-config'
 import { cn } from '@/shared/lib/utils'
 import { useUIStore } from '@/shared/store/ui-store'
 
-// ==========================================
-// CONFIGURATION — Dark mode only
-// ==========================================
-
 const SPLASH_CONFIG = {
     bg: '#0f111a',
     bgGradient: 'from-[#1a1625] via-[#0f111a] to-[#0a0c14]',
@@ -97,10 +93,6 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
         </AnimatePresence>
     )
 }
-
-// ==========================================
-// SUB-COMPONENTS
-// ==========================================
 
 function TechBackground({ t }: { t: SplashTheme }) {
     const hexagons = useMemo(() => Array.from({ length: 20 }, (_, i) => i), [])

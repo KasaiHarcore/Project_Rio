@@ -64,7 +64,6 @@ class Document(Base, TimestampMixin):
         String(2000), nullable=True
     )
 
-    # Relationships
     user: Mapped["User"] = relationship("User")
 
     __table_args__ = (
