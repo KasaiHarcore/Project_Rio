@@ -35,7 +35,7 @@ from core.settings import (
 from core.exceptions import WorkflowError
 from infrastructure.llm import form
 from infrastructure.cache.redis_cache import redis_tool
-from infrastructure.telemetry.langsmith import (
+from infrastructure.telemetry.phoenix import (
     log_trace_hint,
     workflow_trace,
 )

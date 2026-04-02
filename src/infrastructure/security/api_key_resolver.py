@@ -118,21 +118,7 @@ class ApiKeyResolver:
         log_warning("Cohere API key not configured in user settings or environment")
         return None
 
-    def get_langsmith_key(self) -> Optional[str]:
-        """Get LangSmith API key with fallback."""
-        if self.user_settings and self.user_settings.encrypted_langsmith_key:
-            decrypted = decrypt_api_key(self.user_settings.encrypted_langsmith_key)
-            if decrypted:
-                log_debug("Using LangSmith API key from user settings")
-                return decrypted
-            log_warning("Failed to decrypt user's LangSmith key, falling back to env var")
 
-        env_key = os.getenv("LANGSMITH_API_KEY")
-        if env_key:
-            log_debug("Using LangSmith API key from environment variable")
-            return env_key
-
-        return None
 
     def has_openai_key(self) -> bool:
         """Check if OpenAI key is available (without decrypting)."""

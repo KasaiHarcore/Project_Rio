@@ -12,12 +12,10 @@ interface ApiKeyStatus {
   openrouter_configured: boolean
   tavily_configured: boolean
   cohere_configured: boolean
-  langsmith_configured: boolean
   openai_masked?: string
   openrouter_masked?: string
   tavily_masked?: string
   cohere_masked?: string
-  langsmith_masked?: string
 }
 
 interface ModelParams {
@@ -38,8 +36,8 @@ interface ApiModelSettings {
   model_name: string
   enable_input_guardrail?: boolean
   enable_output_guardrail?: boolean
-  enable_langsmith_tracing?: boolean
-  langsmith_project?: string | null
+  enable_phoenix_tracing?: boolean
+  phoenix_project?: string | null
 }
 
 interface ApiModelTabProps {
@@ -281,9 +279,8 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
   const [openrouterKey, setOpenrouterKey] = useState('')
   const [tavilyKey, setTavilyKey] = useState('')
   const [cohereKey, setCohereKey] = useState('')
-  const [langsmithKey, setLangsmithKey] = useState('')
-  const [langsmithTracing, setLangsmithTracing] = useState(settings?.enable_langsmith_tracing ?? false)
-  const [langsmithProject, setLangsmithProject] = useState(settings?.langsmith_project || '')
+  const [phoenixTracing, setPhoenixTracing] = useState(settings?.enable_phoenix_tracing ?? false)
+  const [phoenixProject, setPhoenixProject] = useState(settings?.phoenix_project || '')
   const [modelName, setModelName] = useState(settings?.model_name || 'gpt-4o-mini')
   const [temperature, setTemperature] = useState(settings?.temperature ?? 0.0)
   const [maxTokens, setMaxTokens] = useState(settings?.max_tokens ?? null)
@@ -305,8 +302,8 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
       setPresencePenalty(settings.presence_penalty ?? null)
       setInputGuardrail(settings.enable_input_guardrail ?? false)
       setOutputGuardrail(settings.enable_output_guardrail ?? false)
-      setLangsmithTracing(settings.enable_langsmith_tracing ?? false)
-      setLangsmithProject(settings.langsmith_project || '')
+      setPhoenixTracing(settings.enable_phoenix_tracing ?? false)
+      setPhoenixProject(settings.phoenix_project || '')
     }
   }, [settings])
 
@@ -326,8 +323,8 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
         presence_penalty: presencePenalty,
         enable_input_guardrail: inputGuardrail,
         enable_output_guardrail: outputGuardrail,
-        enable_langsmith_tracing: langsmithTracing,
-        langsmith_project: langsmithProject || null,
+        enable_phoenix_tracing: phoenixTracing,
+        phoenix_project: phoenixProject || null,
       }
 
       // Only include API keys if they were changed (not empty and not masked)
@@ -335,7 +332,6 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
       if (openrouterKey && !openrouterKey.includes('•')) payload.openrouter_api_key = openrouterKey
       if (tavilyKey && !tavilyKey.includes('•')) payload.tavily_api_key = tavilyKey
       if (cohereKey && !cohereKey.includes('•')) payload.cohere_api_key = cohereKey
-      if (langsmithKey && !langsmithKey.includes('•')) payload.langsmith_api_key = langsmithKey
 
       await apiUpdateSettings(payload)
 
@@ -347,7 +343,6 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
       setOpenrouterKey('')
       setTavilyKey('')
       setCohereKey('')
-      setLangsmithKey('')
 
       // Reload to get updated masked keys
       onReload()
@@ -365,7 +360,6 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
     openrouterKey.length > 0 ||
     tavilyKey.length > 0 ||
     cohereKey.length > 0 ||
-    langsmithKey.length > 0 ||
     modelName !== (settings?.model_name || 'gpt-4o-mini') ||
     temperature !== (settings?.temperature ?? 0.0) ||
     maxTokens !== (settings?.max_tokens ?? null) ||
@@ -374,8 +368,8 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
     presencePenalty !== (settings?.presence_penalty ?? null) ||
     inputGuardrail !== (settings?.enable_input_guardrail ?? false) ||
     outputGuardrail !== (settings?.enable_output_guardrail ?? false) ||
-    langsmithTracing !== (settings?.enable_langsmith_tracing ?? false) ||
-    langsmithProject !== (settings?.langsmith_project || '')
+    phoenixTracing !== (settings?.enable_phoenix_tracing ?? false) ||
+    phoenixProject !== (settings?.phoenix_project || '')
 
   return (
     <div className="space-y-8">
@@ -541,10 +535,10 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
         </div>
       </section>
 
-      {/* LangSmith Tracing Section */}
+      {/* Phoenix Tracing Section */}
       <section>
         <div className="flex items-end justify-between border-b pb-3 mb-6 border-[var(--settings-section-border)]">
-          <h3 className="text-xl font-black tracking-tight text-[var(--settings-section-title)]">LangSmith Tracing</h3>
+          <h3 className="text-xl font-black tracking-tight text-[var(--settings-section-title)]">Phoenix Tracing</h3>
           <span className="text-[10px] font-bold text-slate-400 flex items-center gap-1">
             <Activity className="h-3 w-3" /> OBSERVABILITY
           </span>
@@ -554,30 +548,21 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
           <div className="rounded-2xl border p-5 flex items-center justify-between bg-[var(--settings-card-bg)] border-[var(--settings-card-border)]">
             <div className="pr-4">
               <p className="text-sm font-bold text-[var(--settings-section-title)]">Enable Tracing</p>
-              <p className="text-xs text-slate-400 mt-1">Send workflow traces to LangSmith for debugging and observability</p>
+              <p className="text-xs text-slate-400 mt-1">Send workflow traces to Arize Phoenix for debugging and observability</p>
             </div>
             <button
-              onClick={() => setLangsmithTracing(!langsmithTracing)}
+              onClick={() => setPhoenixTracing(!phoenixTracing)}
               className={cn(
                 "h-6 w-11 rounded-full relative cursor-pointer transition-colors flex-shrink-0",
-                langsmithTracing ? "bg-[var(--settings-tab-active-bg)]" : "bg-[var(--settings-toggle-bg)]"
+                phoenixTracing ? "bg-[var(--settings-tab-active-bg)]" : "bg-[var(--settings-toggle-bg)]"
               )}
             >
               <div className={cn(
                 "absolute top-1 h-4 w-4 bg-white rounded-full shadow-sm transition-transform",
-                langsmithTracing ? "translate-x-[22px]" : "translate-x-1"
+                phoenixTracing ? "translate-x-[22px]" : "translate-x-1"
               )} />
             </button>
           </div>
-
-          <ApiKeyInput
-            label="LangSmith API Key"
-            value={langsmithKey}
-            onChange={setLangsmithKey}
-            configured={settings?.api_keys?.langsmith_configured || false}
-            masked={settings?.api_keys?.langsmith_masked}
-            provider="LangSmith (Tracing)"
-          />
 
           <div className="rounded-2xl border p-5 bg-[var(--settings-card-bg)] border-[var(--settings-card-border)]">
             <div className="flex items-center gap-3 mb-3">
@@ -586,13 +571,13 @@ export function ApiModelTab({ settings, onReload }: ApiModelTabProps) {
               </div>
               <div>
                 <label className="text-sm font-bold text-[var(--settings-section-title)] block">Project Name</label>
-                <p className="text-[10px] text-slate-400 font-medium">LangSmith project to send traces to</p>
+                <p className="text-[10px] text-slate-400 font-medium">Phoenix project to send traces to</p>
               </div>
             </div>
             <input
               type="text"
-              value={langsmithProject}
-              onChange={(e) => setLangsmithProject(e.target.value)}
+              value={phoenixProject}
+              onChange={(e) => setPhoenixProject(e.target.value)}
               placeholder="project-rio"
               className="w-full bg-[var(--settings-input-bg)] border border-[var(--settings-input-border)] rounded-xl px-4 py-2.5 text-xs font-mono font-bold outline-none focus:border-[var(--settings-input-focus-border)] text-[var(--settings-input-text)] placeholder:text-slate-400/50 transition-colors"
             />

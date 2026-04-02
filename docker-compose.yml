@@ -92,6 +92,21 @@ services:
     networks:
       - app_network
 
+  # ── Arize Phoenix (Tracing & Observability) ────────────────────────────
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    restart: unless-stopped
+    ports:
+      - "${PHOENIX_PORT:-6006}:6006"
+      - "${PHOENIX_GRPC_PORT:-4317}:4317"
+    environment:
+      PHOENIX_SQL_DATABASE_URL: postgresql://${POSTGRES_USER:-appuser}:${POSTGRES_PASSWORD:-apppass}@db:5432/${POSTGRES_DB:-ai_study}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - app_network
+
 volumes:
   postgres_data:
   redis_data:

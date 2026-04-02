@@ -58,7 +58,7 @@
     - `graph.py` maps the `Supervisor` node to all subsystem workers
     - 11.1. Apply `durability="sync"` in graph stream (**DONE**)
 12. Evaluation
-    - 12.1. Integrate LangSmith for Tracing (**DONE**)
+    - 12.1. Integrate Arize Phoenix for Tracing (**DONE**)
     - 12.2. Integrate RAGAS for Evaluation (**DONE**)
 13. Add Human-in-the-Loop (HITL)
     - Node pauses in graph are used for safety checks (ex: `sql_worker.py` yielding for mutations)

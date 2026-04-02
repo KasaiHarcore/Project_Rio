@@ -127,8 +127,8 @@ class ChatService:
                 config.model_name = user_settings.model_name
             config.enable_input_guardrail = user_settings.enable_input_guardrail
             config.enable_output_guardrail = user_settings.enable_output_guardrail
-            config.enable_langsmith_tracing = user_settings.enable_langsmith_tracing
-            config.langsmith_project = user_settings.langsmith_project
+            config.enable_phoenix_tracing = user_settings.enable_phoenix_tracing
+            config.phoenix_project = user_settings.phoenix_project
             log_debug(f"User settings loaded: model={user_settings.model_name}, temp={user_settings.temperature}")
         except Exception as e:
             log_error(f"Failed to load user settings: {e}")
@@ -148,14 +148,12 @@ class ChatService:
                 "cohere": api_resolver.get_cohere_key(),
             }
 
-            langsmith_key = api_resolver.get_langsmith_key()
-            if langsmith_key is not None or not config.enable_langsmith_tracing:
-                from infrastructure.telemetry.langsmith import apply_user_langsmith_settings
-                apply_user_langsmith_settings(
-                    api_key=langsmith_key,
-                    tracing_enabled=config.enable_langsmith_tracing,
-                    project=config.langsmith_project,
-                )
+            # Apply Phoenix tracing settings (self-hosted, no per-user API key)
+            from infrastructure.telemetry.phoenix import apply_user_phoenix_settings
+            apply_user_phoenix_settings(
+                tracing_enabled=config.enable_phoenix_tracing,
+                project=config.phoenix_project,
+            )
 
         user_model_params = None
         if user_settings:

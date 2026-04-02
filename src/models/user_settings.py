@@ -20,11 +20,10 @@ class UserSettings(Base, TimestampMixin):
         encrypted_openrouter_key: Encrypted OpenRouter API key
         encrypted_tavily_key: Encrypted Tavily API key
         encrypted_cohere_key: Encrypted Cohere API key
-        encrypted_langsmith_key: Encrypted LangSmith API key
 
-        # LangSmith Tracing
-        enable_langsmith_tracing: Whether to enable LangSmith tracing
-        langsmith_project: LangSmith project name
+        # Phoenix Tracing
+        enable_phoenix_tracing: Whether to enable Phoenix tracing
+        phoenix_project: Phoenix project name
 
         # Model Parameters
         temperature: Model temperature for response creativity (0.0-2.0)
@@ -92,20 +91,14 @@ class UserSettings(Base, TimestampMixin):
         default=None,
     )
 
-    encrypted_langsmith_key: Mapped[Optional[str]] = mapped_column(
-        Text,
-        nullable=True,
-        default=None,
-    )
-
-    enable_langsmith_tracing: Mapped[bool] = mapped_column(
+    enable_phoenix_tracing: Mapped[bool] = mapped_column(
         Boolean,
         nullable=False,
         default=False,
         server_default="false",
     )
 
-    langsmith_project: Mapped[Optional[str]] = mapped_column(
+    phoenix_project: Mapped[Optional[str]] = mapped_column(
         String(200),
         nullable=True,
         default=None,

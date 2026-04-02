@@ -85,13 +85,13 @@ class UserSettingsBase(BaseModel):
         description="Enable output guardrail (content safety check on AI responses)"
     )
 
-    enable_langsmith_tracing: bool = Field(
+    enable_phoenix_tracing: bool = Field(
         default=False,
-        description="Enable LangSmith tracing for workflow observability"
+        description="Enable Phoenix tracing for workflow observability"
     )
-    langsmith_project: Optional[str] = Field(
+    phoenix_project: Optional[str] = Field(
         None,
-        description="LangSmith project name",
+        description="Phoenix project name",
         max_length=200
     )
 
@@ -145,10 +145,6 @@ class UserSettingsUpdate(BaseModel):
         None,
         description="Cohere API key (will be encrypted)"
     )
-    langsmith_api_key: Optional[str] = Field(
-        None,
-        description="LangSmith API key (will be encrypted)"
-    )
 
     temperature: Optional[float] = Field(None, ge=0.0, le=2.0)
     max_tokens: Optional[int] = Field(None, ge=1, le=100000)
@@ -164,8 +160,8 @@ class UserSettingsUpdate(BaseModel):
     enable_reflection: Optional[bool] = None
     enable_input_guardrail: Optional[bool] = None
     enable_output_guardrail: Optional[bool] = None
-    enable_langsmith_tracing: Optional[bool] = None
-    langsmith_project: Optional[str] = Field(None, max_length=200)
+    enable_phoenix_tracing: Optional[bool] = None
+    phoenix_project: Optional[str] = Field(None, max_length=200)
 
     mission_reminders: Optional[bool] = None
     chat_alerts: Optional[bool] = None
@@ -196,10 +192,6 @@ class UserSettingsAPIStatus(BaseModel):
         ...,
         description="Whether Cohere API key is configured"
     )
-    langsmith_configured: bool = Field(
-        ...,
-        description="Whether LangSmith API key is configured"
-    )
     openai_masked: Optional[str] = Field(
         None,
         description="Masked OpenAI key (e.g., 'sk-...xyz1')"
@@ -216,10 +208,7 @@ class UserSettingsAPIStatus(BaseModel):
         None,
         description="Masked Cohere key"
     )
-    langsmith_masked: Optional[str] = Field(
-        None,
-        description="Masked LangSmith key"
-    )
+
 
 
 class UserSettingsInDB(UserSettingsBase):

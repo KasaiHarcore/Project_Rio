@@ -66,8 +66,8 @@ class AgentConfig:
 	enable_reflection: bool = True  # Note: Reflection is now integrated into supervisor routing
 	enable_input_guardrail: bool = False
 	enable_output_guardrail: bool = False
-	enable_langsmith_tracing: bool = False
-	langsmith_project: Optional[str] = None
+	enable_phoenix_tracing: bool = False
+	phoenix_project: Optional[str] = None
 	enable_persistence: bool = True
 	web_search_max_calls: int = 6
 	web_search_max_results: int = 5

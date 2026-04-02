@@ -69,7 +69,6 @@ class SettingsService:
                 "openrouter_api_key": "encrypted_openrouter_key",
                 "tavily_api_key": "encrypted_tavily_key",
                 "cohere_api_key": "encrypted_cohere_key",
-                "langsmith_api_key": "encrypted_langsmith_key",
             }
 
             for plaintext_field, encrypted_field in api_key_mapping.items():
@@ -135,19 +134,15 @@ class SettingsService:
         or_ok, or_mask = _decrypt_and_mask(settings.encrypted_openrouter_key)
         tv_ok, tv_mask = _decrypt_and_mask(settings.encrypted_tavily_key)
         co_ok, co_mask = _decrypt_and_mask(settings.encrypted_cohere_key)
-        ls_ok, ls_mask = _decrypt_and_mask(settings.encrypted_langsmith_key)
-
         api_status = UserSettingsAPIStatus(
             openai_configured=oa_ok,
             openrouter_configured=or_ok,
             tavily_configured=tv_ok,
             cohere_configured=co_ok,
-            langsmith_configured=ls_ok,
             openai_masked=oa_mask,
             openrouter_masked=or_mask,
             tavily_masked=tv_mask,
             cohere_masked=co_mask,
-            langsmith_masked=ls_mask,
         )
 
         settings_dict = {
@@ -168,8 +163,8 @@ class SettingsService:
             "enable_reflection": settings.enable_reflection,
             "enable_input_guardrail": settings.enable_input_guardrail,
             "enable_output_guardrail": settings.enable_output_guardrail,
-            "enable_langsmith_tracing": settings.enable_langsmith_tracing,
-            "langsmith_project": settings.langsmith_project,
+            "enable_phoenix_tracing": settings.enable_phoenix_tracing,
+            "phoenix_project": settings.phoenix_project,
             "mission_reminders": settings.mission_reminders,
             "chat_alerts": settings.chat_alerts,
             "system_updates": settings.system_updates,
@@ -205,7 +200,6 @@ class SettingsService:
             "openrouter": decrypt_api_key(settings.encrypted_openrouter_key) if settings.encrypted_openrouter_key else None,
             "tavily": decrypt_api_key(settings.encrypted_tavily_key) if settings.encrypted_tavily_key else None,
             "cohere": decrypt_api_key(settings.encrypted_cohere_key) if settings.encrypted_cohere_key else None,
-            "langsmith": decrypt_api_key(settings.encrypted_langsmith_key) if settings.encrypted_langsmith_key else None,
         }
 
     def get_or_create_profile(self, user_id: UUID) -> UserProfile:

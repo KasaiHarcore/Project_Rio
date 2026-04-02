@@ -7,12 +7,10 @@ export interface ApiKeyStatus {
   openrouter_configured: boolean;
   tavily_configured: boolean;
   cohere_configured: boolean;
-  langsmith_configured: boolean;
   openai_masked?: string;
   openrouter_masked?: string;
   tavily_masked?: string;
   cohere_masked?: string;
-  langsmith_masked?: string;
 }
 
 export interface UserSettings {
@@ -32,8 +30,8 @@ export interface UserSettings {
   enable_reflection: boolean;
   enable_input_guardrail: boolean;
   enable_output_guardrail: boolean;
-  enable_langsmith_tracing: boolean;
-  langsmith_project: string | null;
+  enable_phoenix_tracing: boolean;
+  phoenix_project: string | null;
   mission_reminders: boolean;
   chat_alerts: boolean;
   system_updates: boolean;
@@ -77,7 +75,6 @@ export interface UserSettingsUpdate {
   openrouter_api_key?: string;
   tavily_api_key?: string;
   cohere_api_key?: string;
-  langsmith_api_key?: string;
   temperature?: number;
   max_tokens?: number | null;
   top_p?: number | null;
@@ -91,8 +88,8 @@ export interface UserSettingsUpdate {
   enable_reflection?: boolean;
   enable_input_guardrail?: boolean;
   enable_output_guardrail?: boolean;
-  enable_langsmith_tracing?: boolean;
-  langsmith_project?: string | null;
+  enable_phoenix_tracing?: boolean;
+  phoenix_project?: string | null;
   mission_reminders?: boolean;
   chat_alerts?: boolean;
   system_updates?: boolean;

@@ -19,7 +19,7 @@
 - OS Control — PTY shell, browser via Playwright, GUI via pyautogui, risk tier system
 - Auth — OAuth, JWT, user profiles
 - Docker — containerized
-- LangSmith — tracing connected
+- Arize Phoenix — tracing connected
 - React frontend — chat shell, sidebar, streaming, artifact page, mission page
 
 ---
