@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useCallback, Suspense } from 'react'
+import dynamic from 'next/dynamic'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { cn } from '@/shared/lib/utils'
@@ -10,9 +11,30 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
 import { NoteList } from '@/features/notes/components/NoteList'
-import { NoteEditor } from '@/features/notes/components/NoteEditor'
 import { NoteCollections } from '@/features/notes/components/NoteCollections'
 import { NoteSidePanel } from '@/features/notes/components/NoteSidePanel'
+
+// Lazy-load Monaco-based editor — 95 MB dep, only needed when editing a note
+const NoteEditor = dynamic(
+    () => import('@/features/notes/components/NoteEditor').then(m => m.NoteEditor),
+    {
+        ssr: false,
+        loading: () => (
+            <div className="flex-1 flex flex-col overflow-hidden bg-[var(--note-editor-bg)]">
+                <div className="px-6 pt-6 pb-3 border-b border-[var(--note-editor-border)] bg-[var(--note-toolbar-bg)]">
+                    <div className="h-8 w-48 rounded-lg bg-white/5 animate-pulse" />
+                    <div className="mt-2 h-3 w-32 rounded bg-white/5 animate-pulse" />
+                </div>
+                <div className="flex-1 p-6 space-y-3">
+                    <div className="h-4 w-full rounded bg-white/5 animate-pulse" />
+                    <div className="h-4 w-5/6 rounded bg-white/5 animate-pulse" />
+                    <div className="h-4 w-4/6 rounded bg-white/5 animate-pulse" />
+                    <div className="h-4 w-3/4 rounded bg-white/5 animate-pulse" />
+                </div>
+            </div>
+        ),
+    }
+)
 
 /* ═══════════════════════════════════════════════════════════════════ */
 

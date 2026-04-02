@@ -3,7 +3,8 @@
 import React, { useRef, useMemo, useState, useCallback, useEffect } from "react"
 import { Canvas, useFrame, ThreeEvent } from "@react-three/fiber"
 import { OrbitControls, Text, Line } from "@react-three/drei"
-import * as THREE from "three"
+import { DoubleSide } from "three"
+import type { Mesh } from "three"
 import type { NoteGraphNode, NoteGraphEdge } from "@/features/notes/api"
 import { useNoteStore } from "@/features/notes/store"
 
@@ -133,7 +134,7 @@ function GraphNode3D({
   onSelect,
   onHover,
 }: GraphNode3DProps) {
-  const meshRef = useRef<THREE.Mesh>(null)
+  const meshRef = useRef<Mesh>(null)
   const color = getColor(node.type)
   const scale = node.type === "collection" ? 0.55 : node.type === "note" ? 0.3 : 0.22
   const finalScale = isSelected ? scale * 1.5 : isHighlighted ? scale * 1.25 : scale
@@ -187,7 +188,7 @@ function GraphNode3D({
       {isSelected && (
         <mesh scale={finalScale * 2}>
           <ringGeometry args={[0.9, 1.1, 32]} />
-          <meshBasicMaterial color={color} transparent opacity={0.3} side={THREE.DoubleSide} />
+          <meshBasicMaterial color={color} transparent opacity={0.3} side={DoubleSide} />
         </mesh>
       )}
 

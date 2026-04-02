@@ -1,12 +1,34 @@
 "use client"
 
 import React, { useState, useEffect, useCallback, Suspense } from "react"
+import dynamic from "next/dynamic"
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { Share2, Loader2, AlertCircle, RefreshCw, Filter } from "lucide-react"
 import { cn } from "@/shared/lib/utils"
 import { apiGetNoteGraph, NoteGraphNode, NoteGraphEdge, NoteGraphStats } from "@/features/notes/api"
-import { NoteGraph } from "@/features/notes/components/NoteGraph"
+
+// Lazy-load Three.js-based graph — 42 MB dep, requires browser canvas
+const NoteGraph = dynamic(
+  () => import("@/features/notes/components/NoteGraph").then(m => m.NoteGraph),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex items-center justify-center h-full">
+        <div className="text-center">
+          <div className="relative w-20 h-20 mx-auto mb-4">
+            <div className="absolute inset-0 rounded-full border-2 border-rose-500/20 animate-ping" />
+            <div className="absolute inset-2 rounded-full border-2 border-rose-500/30 animate-pulse" />
+            <div className="absolute inset-4 rounded-full bg-rose-500/10 flex items-center justify-center">
+              <Share2 className="h-6 w-6 text-rose-500/60" />
+            </div>
+          </div>
+          <p className="text-sm text-page-muted">Loading 3D graph…</p>
+        </div>
+      </div>
+    ),
+  }
+)
 
 function GraphPageContent() {
   const [nodes, setNodes] = useState<NoteGraphNode[]>([])
