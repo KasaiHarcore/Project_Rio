@@ -66,7 +66,8 @@ class Thread(Base, TimestampMixin):
         "Message",
         back_populates="thread",
         cascade="all, delete-orphan",
-        order_by="Message.created_at"
+        order_by="Message.created_at",
+        lazy="select",
     )
 
     __table_args__ = (

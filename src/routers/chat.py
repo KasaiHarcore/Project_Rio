@@ -48,7 +48,6 @@ from utils.log import log_error
 router = APIRouter(prefix="/chat", tags=["chat"])
 
 
-# ── SSE / UIMessageStream helpers (AI SDK v6) ──────────────────────────────
 
 def _sse(payload: dict | str) -> str:
     """Wrap a JSON payload (or raw string like ``[DONE]``) as an SSE data line."""
@@ -100,7 +99,6 @@ def _done() -> str:
     return _sse("[DONE]")
 
 
-# ── Request / Response schemas ──────────────────────────────────────────────
 
 class ChatMessage(BaseModel):
     """Single message from the Vercel AI SDK useChat hook.
@@ -163,7 +161,6 @@ class ChatRequest(BaseModel):
     mode: Optional[str] = Field("chat", description="Agent mode: chat | rag | web | sql")
     character: Optional[str] = Field("rio", description="Persona ID: rio")
     workspace_context: Optional[WorkspaceContext] = Field(None, description="Smart-chunked code context from workspace files")
-    # Per-request model parameter overrides (take precedence over saved settings)
     temperature: Optional[float] = Field(None, ge=0, le=2, description="Sampling temperature (0-2)")
     max_tokens: Optional[int] = Field(None, ge=1, le=100000, description="Max tokens to generate")
     top_p: Optional[float] = Field(None, ge=0, le=1, description="Nucleus sampling (0-1)")
@@ -214,7 +211,6 @@ class MemoryListResponse(BaseModel):
     memories: List[MemoryResponse]
 
 
-# ── Streaming chat ──────────────────────────────────────────────────────────
 
 @router.post("")
 async def chat_stream(
@@ -227,7 +223,6 @@ async def chat_stream(
     Compatible with Vercel AI SDK ``useChat`` – returns a ``text/plain``
     stream of UTF-8 token chunks that the SDK accumulates on the client.
     """
-    # Collect per-request model param overrides (only non-None values)
     request_model_params = {
         k: v for k, v in {
             "temperature": body.temperature,
@@ -249,14 +244,18 @@ async def chat_stream(
     )
 
     def _generate():
-        """Sync generator – emits AI SDK v6 UIMessageStream (SSE) lines."""
+        """Sync generator – emits AI SDK v6 UIMessageStream (SSE) lines.
+
+        Guarantees: text-end, finish-step, finish-message, and [DONE]
+        are always emitted even when the workflow errors mid-stream.
+        """
         answer_parts: list[str] = []
         run_id = None
         final_stats = None
         text_part_id = uuid4().hex[:12]
         text_started = False
+        had_error = False
 
-        # ── Message envelope ────────────────────────────────────
         yield _start_message()
         yield _start_step()
 
@@ -273,7 +272,6 @@ async def chat_stream(
             ):
                 event_type = event.get("type")
 
-                # ── Text token ──────────────────────────────────
                 if event_type == "token":
                     chunk = event.get("content", "")
                     if not text_started:
@@ -282,7 +280,6 @@ async def chat_stream(
                     answer_parts.append(chunk)
                     yield _text_delta(text_part_id, chunk)
 
-                # ── Run started ─────────────────────────────────
                 elif event_type == "run_started":
                     run_id = event.get("run_id")
                     yield _data_event("run-started", {
@@ -291,18 +288,16 @@ async def chat_stream(
                         "character": prep.config.character,
                     })
 
-                # ── Supervisor decision ─────────────────────────
                 elif event_type == "supervisor":
                     decision = event.get("decision", {})
                     yield _data_event("supervisor-decision", {
                         "action": decision.get("action"),
-                        "worker": decision.get("next_worker"),
+                        "worker": decision.get("worker") or decision.get("next_worker"),
                         "reasoning": decision.get("reasoning", ""),
-                        "confidence": decision.get("confidence", 1.0),
+                        "confidence": decision.get("confidence"),
                         "iteration": event.get("iteration", 0),
                     })
 
-                # ── Worker result ───────────────────────────────
                 elif event_type == "worker":
                     yield _data_event("worker-result", {
                         "worker": event.get("worker"),
@@ -310,33 +305,30 @@ async def chat_stream(
                         "content_preview": event.get("content_preview", ""),
                     })
 
-                # ── Planning ────────────────────────────────────
                 elif event_type == "planning":
                     yield _data_event("planning", {
                         "content": event.get("content", ""),
                     })
 
-                # ── Note result (sticky notes for sidebar) ─────
                 elif event_type == "note_result":
                     yield _data_event("note-result", {
+                        "action": event.get("action", "create"),
                         "notes": event.get("notes", []),
+                        "persisted_ids": event.get("persisted_ids", []),
                     })
 
-                # ── Artifact result (AI-generated files) ────────
                 elif event_type == "artifact_result":
                     yield _data_event("artifact-result", {
                         "artifacts": event.get("artifacts", []),
                         "persisted_ids": event.get("persisted_ids", []),
                     })
 
-                # ── Mission result (persistent missions) ───────
                 elif event_type == "mission_result":
                     yield _data_event("mission-result", {
                         "missions": event.get("missions", []),
                         "persisted_ids": event.get("persisted_ids", []),
                     })
 
-                # ── Mission action (toggle step / complete) ────
                 elif event_type == "mission_action":
                     yield _data_event("mission-action", {
                         "action": event.get("action"),
@@ -344,7 +336,17 @@ async def chat_stream(
                         "step_index": event.get("step_index"),
                     })
 
-                # ── SQL approval request (interrupt) ──────────
+                elif event_type == "note_confirmation_request":
+                    yield _data_event("note-confirmation-request", {
+                        "confirmation_type": event.get("confirmation_type"),
+                        "note_id": event.get("note_id", ""),
+                        "note_title": event.get("note_title", ""),
+                        "action": event.get("action", "delete"),
+                        "update_type": event.get("update_type"),
+                        "message": event.get("message", ""),
+                        "options": event.get("options", ["approve", "reject"]),
+                    })
+
                 elif event_type == "sql_approval_request":
                     yield _data_event("sql-approval-request", {
                         "request_id": event.get("request_id"),
@@ -359,7 +361,15 @@ async def chat_stream(
                         "message": event.get("message", ""),
                     })
 
-                # ── Emotional state update ─────────────────────
+                elif event_type == "stage_assessment":
+                    yield _data_event("stage-assessment", event.get("data", {}))
+
+                elif event_type == "intervention_decision":
+                    yield _data_event("intervention-decision", event.get("data", {}))
+
+                elif event_type == "next_step":
+                    yield _data_event("next-step", event.get("data", {}))
+
                 elif event_type == "emotional_update":
                     yield _data_event("emotional-update", {
                         "mood": event.get("mood"),
@@ -371,13 +381,11 @@ async def chat_stream(
                         "interaction_count": event.get("interaction_count", 0),
                     })
 
-                # ── Final result ────────────────────────────────
                 elif event_type == "final":
                     result = event.get("result", {})
                     run_id = event.get("run_id") or run_id
                     final_stats = result.get("stats")
 
-                    # If the final answer wasn't streamed token-by-token, emit it now
                     final_answer = result.get("answer", "")
                     if not answer_parts and final_answer:
                         if not text_started:
@@ -386,7 +394,6 @@ async def chat_stream(
                         answer_parts.append(final_answer)
                         yield _text_delta(text_part_id, final_answer)
 
-                    # Emit rich metadata for the sidebar
                     yield _data_event("final", {
                         "run_id": run_id,
                         "stats": _safe_stats(final_stats),
@@ -395,36 +402,57 @@ async def chat_stream(
                         "timing": result.get("timing", {}),
                     })
 
-                # ── Error ───────────────────────────────────────
                 elif event_type == "error":
                     error_msg = event.get("error", "Unknown error")
+                    had_error = True
                     yield _error_event(error_msg)
 
+        except GeneratorExit:
+            # Client disconnected — clean up silently
+            log_info("Client disconnected mid-stream")
+            return
         except Exception as exc:
             log_error(f"Streaming error: {exc}")
+            had_error = True
             yield _error_event(str(exc))
 
-        # ── Close text part if open ────────────────────────────
+        # --- Guaranteed cleanup: always close the SSE envelope ---
         if text_started:
             yield _text_end(text_part_id)
 
-        # Persist the assistant message BEFORE sending finish signals.
-        # Once _done() is yielded the client may close the connection,
-        # which raises GeneratorExit and skips any code after the yield.
-        # persist_assistant_message is fire-and-forget (ThreadPoolExecutor)
-        # so it won't block the stream.
         full_answer = "".join(answer_parts)
-        svc.persist_assistant_message(
-            user_id=prep.user_id,
-            thread_id=prep.thread_id,
-            content=full_answer,
-            run_id=run_id,
-            character_id=prep.config.character,
-        )
 
-        # ── Finish signals ─────────────────────────────────────
+        # Persist message even if partial (best-effort)
+        try:
+            if full_answer:
+                svc.persist_assistant_message(
+                    user_id=prep.user_id,
+                    thread_id=prep.thread_id,
+                    content=full_answer,
+                    run_id=run_id,
+                    character_id=prep.config.character,
+                )
+        except Exception as persist_err:
+            log_error(f"Failed to persist assistant message: {persist_err}")
+
+        # Contextual note resurfacing — emit related notes for sidebar
+        if not had_error:
+            try:
+                from workflows.tools.note_tools import find_contextual_notes
+
+                ctx_notes = find_contextual_notes(
+                    query=prep.effective_question,
+                    user_id=str(prep.user_id),
+                    k=3,
+                )
+                if ctx_notes:
+                    yield _data_event("contextual-notes", {"notes": ctx_notes})
+            except Exception:
+                pass  # best-effort — never block the stream
+
+        finish_reason = "error" if had_error else "stop"
         yield _finish_step()
-        yield _finish_message("stop")
+        yield _finish_message(finish_reason)
         yield _done()
 
     return StreamingResponse(
@@ -450,7 +478,6 @@ def _safe_stats(stats: dict | None) -> dict:
     }
 
 
-# ── Thread CRUD ─────────────────────────────────────────────────────────────
 
 @router.get("/threads", response_model=ThreadListResponse)
 async def list_threads(
@@ -461,7 +488,6 @@ async def list_threads(
     """List the authenticated user's conversation threads."""
     uid_str = str(user.id)
 
-    # L2 cache: try Redis first
     cached = cache.get_cached_threads(uid_str)
     if cached is not None:
         return ThreadListResponse(
@@ -483,7 +509,6 @@ async def list_threads(
             for t in threads
         ]
 
-        # Backfill Redis cache
         try:
             cache.set_cached_threads(
                 uid_str, [t.model_dump() for t in thread_list]
@@ -588,7 +613,6 @@ async def delete_thread(
 
         chat_history_service.hard_delete_thread(tid)
 
-        # Invalidate L2 caches
         try:
             uid_str = str(user.id)
             cache.invalidate_threads(uid_str)
@@ -600,7 +624,6 @@ async def delete_thread(
     return None
 
 
-# ── Thread update (rename / star / pin / archive) ──────────────────────────
 
 class ThreadPatchRequest(BaseModel):
     """Partial update for a thread."""
@@ -624,7 +647,7 @@ async def update_thread(
         raise ValidationError("Invalid thread ID")
 
     def _query():
-        thread = chat_history_service.update_thread(
+        thread_snapshot = chat_history_service.update_thread(
             thread_id=tid,
             user_id=user.id,
             title=body.title,
@@ -632,23 +655,22 @@ async def update_thread(
             is_starred=body.is_starred,
             is_pinned=body.is_pinned,
         )
-        if not thread:
+        if not thread_snapshot:
             raise NotFoundError("Thread not found")
 
-        # Invalidate L2 caches
         try:
             cache.invalidate_threads(str(user.id))
         except Exception:
             pass
 
         return ThreadResponse(
-            id=str(thread.id),
-            title=thread.title,
-            status=thread.status.value if hasattr(thread.status, "value") else str(thread.status),
-            is_starred=getattr(thread, "is_starred", False),
-            is_pinned=getattr(thread, "is_pinned", False),
-            created_at=thread.created_at.isoformat() if thread.created_at else "",
-            updated_at=thread.updated_at.isoformat() if thread.updated_at else "",
+            id=thread_snapshot["id"],
+            title=thread_snapshot["title"],
+            status=thread_snapshot["status"],
+            is_starred=thread_snapshot["is_starred"],
+            is_pinned=thread_snapshot["is_pinned"],
+            created_at=thread_snapshot["created_at"],
+            updated_at=thread_snapshot["updated_at"],
         )
 
     return await concurrency_manager.run_in_thread(_query)

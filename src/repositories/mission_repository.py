@@ -136,9 +136,10 @@ class MissionRepository(BaseRepository):
         self.db.flush()
         return mission
 
-    def delete_by_id(self, mission_id: UUID, user_id: UUID) -> int:
-        return (
+    def delete_by_id(self, mission_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(Mission)
             .filter(Mission.id == mission_id, Mission.user_id == user_id)
             .delete()
         )
+        return count > 0

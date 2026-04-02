@@ -410,7 +410,6 @@ class SQLSchemaService:
 
         relevant: set[str] = set()
 
-        # ── Pass 1: direct table-name matching ──────────────────────
         for table_name in all_tables:
             name_lower = table_name.lower()
 
@@ -432,7 +431,6 @@ class SQLSchemaService:
             elif f"{name_lower}s" in query_lower:
                 relevant.add(table_name)
 
-        # ── Pass 2: natural-language synonyms ───────────────────────
         synonym_map: dict[str, list[str]] = {
             "account": ["user", "user_profile"],
             "login": ["user", "user_profile", "audit_log"],
@@ -448,7 +446,6 @@ class SQLSchemaService:
                     if snapshot.get_table(t):
                         relevant.add(t)
 
-        # ── Pass 3: FK-related tables ───────────────────────────────
         # If we matched some tables, also pull in their FK-related tables
         # so the LLM can generate proper JOINs.
         if relevant:
@@ -463,7 +460,6 @@ class SQLSchemaService:
                         fk_additions.add(ref)
             relevant.update(fk_additions)
 
-        # ── Fallback: return ALL tables so the LLM has full context ─
         if not relevant:
             return all_tables
 

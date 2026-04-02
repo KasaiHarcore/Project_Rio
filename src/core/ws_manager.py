@@ -24,7 +24,6 @@ class WebSocketManager:
         self._connections: dict[str, list[WebSocket]] = {}
         self._lock = asyncio.Lock()
 
-    # ── Connection lifecycle ────────────────────────────────────────────
 
     async def connect(self, user_id: str, websocket: WebSocket) -> None:
         """Accept a WebSocket and register it under a user ID."""
@@ -43,7 +42,6 @@ class WebSocketManager:
                 self._connections.pop(user_id, None)
         log_info(f"[WS] Disconnected: user={user_id} (total={self.connection_count})")
 
-    # ── Send helpers ────────────────────────────────────────────────────
 
     async def send_to_user(self, user_id: str, data: dict[str, Any]) -> None:
         """Send a JSON message to all connections of a specific user."""
@@ -75,7 +73,6 @@ class WebSocketManager:
         for user_id in list(self._connections.keys()):
             await self.send_to_user(user_id, data)
 
-    # ── Heartbeat ───────────────────────────────────────────────────────
 
     async def heartbeat(self, websocket: WebSocket, interval: int = 30) -> None:
         """Send periodic ping frames to keep the connection alive.
@@ -93,7 +90,6 @@ class WebSocketManager:
         except asyncio.CancelledError:
             pass
 
-    # ── Introspection ───────────────────────────────────────────────────
 
     @property
     def connection_count(self) -> int:

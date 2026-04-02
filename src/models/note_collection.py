@@ -41,7 +41,6 @@ class NoteCollection(Base, TimestampMixin):
         nullable=False,
     )
 
-    # -- Relationships --
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     notes: Mapped[list["Note"]] = relationship(
         "Note",

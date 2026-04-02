@@ -10,7 +10,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useMissionStore, type Mission } from '@/features/mission/store'
-import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration } from '@/types/mission'
+import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration, parseDeadline } from '@/types/mission'
 import { ExternalLink } from 'lucide-react'
 
 /**
@@ -46,7 +46,7 @@ export function CalendarView() {
         const map: Record<string, Mission[]> = {}
         for (const m of missions) {
             if (!m.deadline) continue
-            const d = new Date(m.deadline)
+            const d = parseDeadline(m.deadline)
             if (d.getFullYear() === year && d.getMonth() === month) {
                 const key = String(d.getDate())
                 if (!map[key]) map[key] = []
@@ -60,7 +60,7 @@ export function CalendarView() {
         const d = selectedDate
         return missions.filter(m => {
             if (!m.deadline) return false
-            const md = new Date(m.deadline)
+            const md = parseDeadline(m.deadline)
             return md.getFullYear() === d.getFullYear() && md.getMonth() === d.getMonth() && md.getDate() === d.getDate()
         })
     }, [missions, selectedDate])
@@ -481,14 +481,14 @@ export function CalendarView() {
                                         {weekDays.map((day, dayIndex) => {
                                             const dayMissions = missions.filter(m => {
                                                 if (!m.deadline) return false
-                                                const md = new Date(m.deadline)
+                                                const md = parseDeadline(m.deadline)
                                                 return md.getFullYear() === day.getFullYear() && md.getMonth() === day.getMonth() && md.getDate() === day.getDate()
                                             })
 
                                             return (
                                                 <div key={dayIndex} className="border-r border-[#2a2e37]/50 relative flex flex-col z-10 hover:bg-[#121620]/10 transition-colors">
                                                     {dayMissions.map((mission, idx) => {
-                                                        const md = new Date(mission.deadline!)
+                                                        const md = parseDeadline(mission.deadline!)
                                                         const hasTime = mission.deadline!.includes('T') || mission.deadline!.includes(' ')
                                                         const h = hasTime ? md.getHours() : 9 + (idx % 8) // default to 9AM spread out if no time
                                                         const min = hasTime ? md.getMinutes() : 0

@@ -8,13 +8,18 @@ import { MissionControl } from "@/features/mission/components/MissionControl"
 import { SplashScreen } from "@/components/layout/splash-screen"
 import { AnimatePresence, motion } from "framer-motion"
 import { useUIStore } from '@/shared/store/ui-store'
+import { useShallow } from 'zustand/react/shallow'
 
 export default function Page() {
-  const splashSeen = useUIStore((state) => state.splashSeen)
-  const setSplashSeen = useUIStore((state) => state.setSplashSeen)
-  const hydrateFromStorage = useUIStore((state) => state.hydrateFromStorage)
-  const viewMode = useUIStore((state) => state.viewMode)
-  const activeMissionId = useUIStore((state) => state.activeMissionId)
+  const { splashSeen, setSplashSeen, hydrateFromStorage, viewMode, activeMissionId } = useUIStore(
+    useShallow((state) => ({
+      splashSeen: state.splashSeen,
+      setSplashSeen: state.setSplashSeen,
+      hydrateFromStorage: state.hydrateFromStorage,
+      viewMode: state.viewMode,
+      activeMissionId: state.activeMissionId,
+    }))
+  )
 
   const hydrated = useRef(false)
   useEffect(() => {

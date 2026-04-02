@@ -37,7 +37,6 @@ class NoteLinkService:
         self._repo = link_repo
         self._note_repo = note_repo
 
-    # -- Read --
 
     def get_link(self, user_id: UUID, link_id: UUID) -> Optional[NoteLinkInDB]:
         row = self._repo.find_by_id(link_id=link_id, user_id=user_id)
@@ -182,9 +181,28 @@ class NoteLinkService:
         final = self._repo.find_links_by_note(note_id=note_id, user_id=user_id)
         return [NoteLinkInDB.model_validate(r) for r in final]
 
-    def get_note_graph(self, user_id: UUID) -> NoteGraphResponse:
-        """Build a graph from all note links for visualization."""
-        links = self._repo.get_graph_data(user_id=user_id)
+    def get_note_graph(
+        self,
+        user_id: UUID,
+        center_node_id: Optional[UUID] = None,
+        limit: int = 500,
+    ) -> NoteGraphResponse:
+        """Build a graph from note links for visualization.
+
+        Args:
+            center_node_id: If provided, return a 1-hop subgraph around this
+                note using a targeted DB query (no full-graph load).
+            limit: Max nodes to return for the full-graph path. Ignored when
+                center_node_id is set.
+        """
+        if center_node_id:
+            links = self._repo.get_subgraph_data(
+                user_id=user_id, center_note_id=center_node_id,
+            )
+        else:
+            links = self._repo.get_graph_data_limited(
+                user_id=user_id, limit=limit * 2,
+            )
 
         nodes: Dict[UUID, NoteGraphNode] = {}
         edges: List[NoteGraphEdge] = []
@@ -216,12 +234,31 @@ class NoteLinkService:
                     target_type=link.target_type,
                 ))
 
+        # Truncate to limit (full-graph path only)
+        truncated = False
+        if not center_node_id and len(nodes) > limit:
+            truncated = True
+            kept_ids = set(list(nodes.keys())[:limit])
+            nodes = {k: v for k, v in nodes.items() if k in kept_ids}
+            edges = [
+                e for e in edges
+                if e.source_id in kept_ids and e.target_id in kept_ids
+            ]
+
+        # Get true totals for the full-graph path
+        total_links = len(links)
+        if not center_node_id and truncated:
+            total_links = self._repo.count_by_user(user_id)
+
         note_count = sum(1 for n in nodes.values() if n.type == "note")
         stats = NoteGraphStats(
-            total_nodes=len(nodes),
+            total_nodes=len(nodes) if not truncated else self._repo.count_by_user(user_id),
             total_edges=len(edges),
             total_notes=note_count,
-            total_links=len(links),
+            total_links=total_links,
+            returned_nodes=len(nodes),
+            returned_edges=len(edges),
+            truncated=truncated,
         )
 
         return NoteGraphResponse(
@@ -230,7 +267,6 @@ class NoteLinkService:
             stats=stats,
         )
 
-    # -- Private helpers --
 
     @staticmethod
     def _link_fingerprint(link: NoteLink) -> Tuple:

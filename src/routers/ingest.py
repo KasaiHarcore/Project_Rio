@@ -127,11 +127,20 @@ async def ingest_url(
                 },
             )
 
-            chunk_count = 0
-            for word in result_msg.split():
-                if word.isdigit():
-                    chunk_count = int(word)
-                    break
+            import re as _re
+            _match = _re.search(r'(\d+)\s+chunk', result_msg)
+            chunk_count = int(_match.group(1)) if _match else 0
+
+            if chunk_count == 0:
+                log_error(f"[Ingest] Ingestion returned 0 chunks: {result_msg}")
+                doc_svc.mark_error(doc.id, user.id, "Ingestion produced 0 chunks")
+                from fastapi.responses import JSONResponse
+                payload = DocumentUploadResponse(
+                    success=False,
+                    document=_doc_to_response(doc),
+                    message=f"Ingestion produced 0 chunks. The file may be empty or unsupported. Raw: {result_msg}",
+                ).model_dump()
+                return JSONResponse(status_code=422, content=payload)
 
             doc_svc.mark_ready(doc.id, user.id, chunk_count)
             log_success(f"[Ingest] URL ingested: doc_id={doc.id} chunks={chunk_count}")

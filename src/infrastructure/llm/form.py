@@ -7,7 +7,6 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Iterable
 
-from utils.log import log_info, log_success
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 
@@ -59,14 +58,11 @@ class Model(ABC):
 
         if system_prompt:
             messages.append(SystemMessage(content=system_prompt))
-            log_info("System Prompt detected")
 
         if ai_prompt:
             messages.append(AIMessage(content=ai_prompt))
-            log_info("AI output format detected")
 
         messages.append(HumanMessage(content=user_prompt))
-        log_success("Prompt Fetch Successfully")
         return messages
 
     def get_overall_exec_stats(self):

@@ -17,6 +17,7 @@ export interface LogicEntry {
   kind: 'thinking' | 'decision' | 'tool-call' | 'info'
 }
 
+
 /** A sticky note the agent (or user) creates */
 export interface StickyNote {
   id: string
@@ -74,6 +75,19 @@ export interface MemoryEntry {
   tag?: string
 }
 
+/* ─── Support State (Layer 1A) ──────────────────────────────────── */
+
+export interface SupportAssessment {
+  currentStage: string | null
+  primaryGoal: string | null
+  currentFriction: string | null
+}
+
+export interface SupportIntervention {
+  intervention: string | null
+  reasoning: string | null
+}
+
 /* ─── Store ──────────────────────────────────────────────────────── */
 
 interface SidebarState {
@@ -82,6 +96,14 @@ interface SidebarState {
   /* Agents tab */
   logicEntries: LogicEntry[]
   stickyNotes: StickyNote[]
+
+  /* Support state (Layer 1A) */
+  supportAssessment: SupportAssessment | null
+  supportIntervention: SupportIntervention | null
+  supportNextStep: string | null
+
+  /* Contextual notes (resurfaced from existing notes) */
+  contextualNotes: Array<{ id: string; title: string; snippet: string; score: number; created_at: string }>
 
   /* Workspace tab */
   workspaceFiles: WorkspaceFile[]
@@ -99,9 +121,20 @@ interface SidebarState {
   addLogicEntry: (entry: Omit<LogicEntry, 'id' | 'timestamp'>) => void
   clearLogicEntries: () => void
 
+  // Support state (Layer 1A)
+  setSupportAssessment: (assessment: SupportAssessment) => void
+  setSupportIntervention: (intervention: SupportIntervention) => void
+  setSupportNextStep: (nextStep: string | null) => void
+
+  // Contextual Notes
+  setContextualNotes: (notes: SidebarState['contextualNotes']) => void
+  clearContextualNotes: () => void
+
   // Sticky Notes
   addStickyNote: (note: Omit<StickyNote, 'id' | 'timestamp' | 'pinned'>) => void
   removeStickyNote: (id: string) => void
+  removeStickyNoteByDbId: (dbId: string) => void
+  updateStickyNoteByDbId: (dbId: string, patch: Partial<Pick<StickyNote, 'content' | 'todos'>>) => void
   toggleStickyPin: (id: string) => void
   toggleStickyTodo: (noteId: string, todoIndex: number) => void
 
@@ -151,6 +184,10 @@ export const useSidebarStore = create<SidebarState>((set) => ({
 
   logicEntries: [],
   stickyNotes: [],
+  supportAssessment: null,
+  supportIntervention: null,
+  supportNextStep: null,
+  contextualNotes: [],
   workspaceFiles: [],
   searchReferences: [],
   memoryEntries: [],
@@ -165,11 +202,19 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   })),
   clearLogicEntries: () => set({ logicEntries: [] }),
 
+  /* ── Contextual Notes ── */
+  setContextualNotes: (notes) => set({ contextualNotes: notes }),
+  clearContextualNotes: () => set({ contextualNotes: [] }),
+
+  /* ── Support State (Layer 1A) ── */
+  setSupportAssessment: (assessment) => set({ supportAssessment: assessment }),
+  setSupportIntervention: (intervention) => set({ supportIntervention: intervention }),
+  setSupportNextStep: (nextStep) => set({ supportNextStep: nextStep }),
+
   /* ── Sticky Notes ── */
   addStickyNote: (note) => set((s) => {
     const next = [{ ...note, id: uid(), timestamp: Date.now(), pinned: false }, ...s.stickyNotes]
     if (next.length > LIMITS.STICKY_NOTES) {
-      // Drop oldest unpinned first; if all pinned, drop oldest overall
       const unpinnedIdx = [...next].reverse().findIndex((n) => !n.pinned)
       if (unpinnedIdx >= 0) next.splice(next.length - 1 - unpinnedIdx, 1)
       else next.pop()
@@ -178,6 +223,14 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   }),
   removeStickyNote: (id) => set((s) => ({
     stickyNotes: s.stickyNotes.filter((n) => n.id !== id),
+  })),
+  removeStickyNoteByDbId: (dbId) => set((s) => ({
+    stickyNotes: s.stickyNotes.filter((n) => n.dbId !== dbId),
+  })),
+  updateStickyNoteByDbId: (dbId, patch) => set((s) => ({
+    stickyNotes: s.stickyNotes.map((n) =>
+      n.dbId === dbId ? { ...n, ...patch } : n
+    ),
   })),
   toggleStickyPin: (id) => set((s) => ({
     stickyNotes: s.stickyNotes.map((n) => n.id === id ? { ...n, pinned: !n.pinned } : n),
@@ -271,6 +324,10 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   resetSession: () => set({
     logicEntries: [],
     stickyNotes: [],
+    supportAssessment: null,
+    supportIntervention: null,
+    supportNextStep: null,
+    contextualNotes: [],
     searchReferences: [],
     memoryEntries: [],
     persistedMemories: [],

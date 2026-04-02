@@ -37,7 +37,7 @@ export function useActivityMonitor() {
   const lastActivityRef = useRef(Date.now())
   const eventCountRef = useRef(0)
 
-  // Track activity events
+  // Track activity events (throttled — only update ref, no re-render)
   const updateActivity = useCallback(() => {
     lastActivityRef.current = Date.now()
     eventCountRef.current += 1
@@ -45,19 +45,30 @@ export function useActivityMonitor() {
 
   // Listen to user activity events
   useEffect(() => {
-    const events = ['mousemove', 'keydown', 'click', 'scroll', 'touchstart', 'wheel']
+    // Throttle mousemove to avoid excessive calls
+    let moveTimer: ReturnType<typeof setTimeout> | null = null
+    const throttledMove = () => {
+      if (moveTimer) return
+      moveTimer = setTimeout(() => { moveTimer = null }, 500)
+      updateActivity()
+    }
 
-    events.forEach((event) => {
+    const directEvents = ['keydown', 'click', 'scroll', 'touchstart'] as const
+    directEvents.forEach((event) => {
       window.addEventListener(event, updateActivity, { passive: true })
     })
+    window.addEventListener('mousemove', throttledMove, { passive: true })
 
     return () => {
-      events.forEach((event) => {
+      directEvents.forEach((event) => {
         window.removeEventListener(event, updateActivity)
       })
+      window.removeEventListener('mousemove', throttledMove)
+      if (moveTimer) clearTimeout(moveTimer)
     }
   }, [updateActivity])
 
+  // Update state at a relaxed interval (10s instead of 1s)
   useEffect(() => {
     const interval = setInterval(() => {
       const now = Date.now()
@@ -80,7 +91,7 @@ export function useActivityMonitor() {
         isWeekend,
         eventCount: eventCountRef.current,
       })
-    }, 1000)
+    }, 10_000)
 
     return () => clearInterval(interval)
   }, [])

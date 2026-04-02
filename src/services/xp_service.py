@@ -26,7 +26,7 @@ from typing import Optional
 
 from infrastructure.cache.service import CacheService
 from repositories.user_profile_repository import UserProfileRepository
-from utils.log import log_info
+from utils.log import log_info, log_warning
 
 
 class XPService:
@@ -74,7 +74,6 @@ class XPService:
             "xp_for_next": next_floor - current_floor,
         }
 
-    # -- DB-backed operations --
 
     def award_xp(self, user_id, amount: int, reason: str = "") -> int:
         """Add *amount* XP to the user's profile. Returns new total XP."""
@@ -92,8 +91,8 @@ class XPService:
         if self._cache:
             try:
                 self._cache.set_cached_xp(str(user_id), profile.xp)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"XP cache write failed: {e}")
 
         return profile.xp
 
@@ -108,8 +107,8 @@ class XPService:
                 cached = self._cache.get_cached_xp(uid_str)
                 if cached is not None:
                     return int(cached)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"XP cache read failed: {e}")
 
         xp = self._repo.get_xp(user_id)
 
@@ -117,8 +116,8 @@ class XPService:
         if self._cache:
             try:
                 self._cache.set_cached_xp(uid_str, xp)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"XP cache backfill failed: {e}")
 
         return xp
 

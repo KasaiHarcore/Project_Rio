@@ -1,7 +1,16 @@
-"""Mission Tool — Database-backed operations for the Mission Worker.
+"""Mission Tool — Read-only DB access and dict serialisation.
 
-Provides read/update capabilities so the agent can interact with
-existing missions: list active missions, toggle steps, mark complete.
+This tool handles:
+- Session management
+- Listing / querying missions (read-only)
+- Serialising MissionInDB models to plain dicts
+
+This tool does NOT:
+- Perform mutations (create, update, delete, toggle, complete)
+- Enforce business rules
+- Make domain decisions
+
+All mutations go through MissionService directly from the handlers.
 """
 
 from __future__ import annotations
@@ -17,31 +26,54 @@ from infrastructure.database.session import get_session_factory
 from utils.log import log_info, log_warning
 
 
+# ------------------------------------------------------------------
+# Shared session helper — used by handlers for mutations
+# ------------------------------------------------------------------
+
+@contextmanager
+def get_mission_service_session() -> Generator[Tuple[MissionService, Any], None, None]:
+    """Yield (MissionService, db_session) inside a managed session.
+
+    Handlers use this to call MissionService directly for mutations.
+    Commits on clean exit, rolls back on exception.
+    """
+    SessionLocal = get_session_factory()
+    db = SessionLocal()
+    try:
+        repo = MissionRepository(db)
+        try:
+            from infrastructure.cache.service import CacheService
+            cache = CacheService()
+        except Exception:
+            cache = None
+        svc = MissionService(repo, cache_service=cache)
+        yield svc, db
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 class MissionTool:
-    """Thin wrapper that gives the Mission Worker DB access."""
+    """Read-only DB access for the Mission subgraph.
+
+    Used by:
+    - load_missions_node (list active missions)
+    - query_node (filtered queries with stats)
+    - verify_node (re-read after mutation)
+    """
 
     @contextmanager
     def _session_service(self) -> Generator[Tuple[MissionService, Any], None, None]:
         """Yield (MissionService, db_session) inside a managed session."""
-        SessionLocal = get_session_factory()
-        db = SessionLocal()
-        try:
-            repo = MissionRepository(db)
-            try:
-                from infrastructure.cache.service import CacheService
-                cache = CacheService()
-            except Exception:
-                cache = None
-            svc = MissionService(repo, cache_service=cache)
+        with get_mission_service_session() as (svc, db):
             yield svc, db
-            db.commit()
-        except Exception:
-            db.rollback()
-            raise
-        finally:
-            db.close()
 
-    # ── Read ──────────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # READ operations
+    # ------------------------------------------------------------------
 
     def list_active_missions(self, user_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         """Return the user's active (and draft) missions as plain dicts."""
@@ -51,16 +83,13 @@ class MissionTool:
             missions: list = []
             for status in (MissionStatus.ACTIVE, MissionStatus.DRAFT):
                 batch = svc.list_missions(uid, status=status, limit=limit)
-                log_info(f"MissionTool: status={status.value} → {len(batch)} mission(s)")
+                log_info(f"MissionTool: status={status.value} -> {len(batch)} mission(s)")
                 missions.extend(batch)
-            # Also log total count (all statuses) for debugging
             all_count = svc.mission_repo.count_total(uid)
             log_info(f"MissionTool: total missions across all statuses for user={uid}: {all_count}")
             result = [self._mission_to_dict(m) for m in missions]
             log_info(f"MissionTool.list_active_missions: returning {len(result)} active/draft")
             return result
-
-    # ── Query ────────────────────────────────────────────────────
 
     def query_missions(
         self,
@@ -85,7 +114,6 @@ class MissionTool:
         with self._session_service() as (svc, _db):
             repo = svc.mission_repo
 
-            # ── base counts ──
             stats: Dict[str, Any] = {
                 "total": repo.count_total(uid),
                 "active": repo.count_by_status(uid, MissionStatus.ACTIVE),
@@ -95,7 +123,6 @@ class MissionTool:
                 "overdue": repo.count_overdue(uid),
             }
 
-            # ── completed-since count ──
             if completed_since:
                 try:
                     since_dt = datetime.fromisoformat(completed_since)
@@ -106,7 +133,6 @@ class MissionTool:
                 except ValueError:
                     pass
 
-            # ── completion rate ──
             if stats["total"] > 0:
                 stats["completion_rate_pct"] = round(
                     stats["completed"] / stats["total"] * 100, 1
@@ -114,11 +140,9 @@ class MissionTool:
             else:
                 stats["completion_rate_pct"] = 0.0
 
-            # ── categories breakdown ──
             categories = repo.get_distinct_categories(uid)
             stats["categories"] = categories
 
-            # ── parse list-filters ──
             ms = None
             if status and status != "all":
                 try:
@@ -151,14 +175,12 @@ class MissionTool:
                 except ValueError:
                     pass
 
-            # ── urgent list (due within 3 days) ──
             urgent_missions: List[Dict[str, Any]] = []
             if urgent_only:
                 threshold = datetime.now(timezone.utc) + timedelta(days=3)
                 raw_urgent = repo.find_urgent(uid, deadline_threshold=threshold, limit=10)
                 urgent_missions = [self._mission_to_dict(m) for m in raw_urgent]
 
-            # ── main filtered list ──
             missions = repo.list_by_user(
                 uid,
                 status=ms,
@@ -170,7 +192,6 @@ class MissionTool:
                 limit=50,
             )
 
-            # ── tag filter (post-query, JSONB array) ──
             if tag:
                 tag_lower = tag.lower()
                 missions = [
@@ -180,7 +201,6 @@ class MissionTool:
 
             mission_dicts = [self._mission_to_dict(m) for m in missions]
 
-            # ── step & time aggregation across matching missions ──
             total_steps = 0
             done_steps = 0
             total_estimated_minutes = 0
@@ -194,7 +214,6 @@ class MissionTool:
                         done_steps += 1
                 est = m.estimated_minutes or 0
                 total_estimated_minutes += est
-                # Scale remaining time by incomplete step ratio
                 if steps:
                     incomplete_ratio = 1 - (sum(
                         1 for s in steps
@@ -225,65 +244,9 @@ class MissionTool:
 
             return result
 
-    # ── Toggle step ───────────────────────────────────────────────
-
-    def toggle_step(
-        self, user_id: str, mission_id: str, step_index: int
-    ) -> Optional[Dict[str, Any]]:
-        """Toggle a single step. Returns updated mission dict or None."""
-        with self._session_service() as (svc, _db):
-            result = svc.toggle_step(UUID(user_id), UUID(mission_id), step_index)
-            if not result:
-                return None
-            log_info(f"Agent toggled step {step_index} on mission {mission_id}")
-            return self._mission_to_dict(result)
-
-    # ── Complete mission ──────────────────────────────────────────
-
-    def complete_mission(
-        self, user_id: str, mission_id: str
-    ) -> Optional[Dict[str, Any]]:
-        """Mark an entire mission as completed. Returns updated dict or None."""
-        with self._session_service() as (svc, _db):
-            from schemas.mission import MissionUpdate
-            result = svc.update_mission(
-                UUID(user_id),
-                UUID(mission_id),
-                MissionUpdate(status=MissionStatus.COMPLETED, progress=100),
-            )
-            if not result:
-                return None
-            log_info(f"Agent completed mission {mission_id}")
-            return self._mission_to_dict(result)
-
-    # ── Update mission ────────────────────────────────────────────
-
-    def update_mission(
-        self, user_id: str, mission_id: str, updates: Dict[str, Any]
-    ) -> Optional[Dict[str, Any]]:
-        """Apply partial updates to a mission. Returns updated dict or None."""
-        from schemas.mission import MissionUpdate
-
-        # Build MissionUpdate from only the fields provided
-        update_data = MissionUpdate(**updates)
-        with self._session_service() as (svc, _db):
-            result = svc.update_mission(UUID(user_id), UUID(mission_id), update_data)
-            if not result:
-                return None
-            log_info(f"Agent updated mission {mission_id}: fields={list(updates.keys())}")
-            return self._mission_to_dict(result)
-
-    # ── Delete mission ────────────────────────────────────────────
-
-    def delete_mission(self, user_id: str, mission_id: str) -> bool:
-        """Delete a mission. Returns True if deleted."""
-        with self._session_service() as (svc, _db):
-            deleted = svc.delete_mission(UUID(user_id), UUID(mission_id))
-            if deleted:
-                log_info(f"Agent deleted mission {mission_id}")
-            return deleted
-
-    # ── Helpers ───────────────────────────────────────────────────
+    # ------------------------------------------------------------------
+    # Serialisation (used by read ops and verify_node)
+    # ------------------------------------------------------------------
 
     @staticmethod
     def _step_to_dict(index: int, step: Any) -> Dict[str, Any]:

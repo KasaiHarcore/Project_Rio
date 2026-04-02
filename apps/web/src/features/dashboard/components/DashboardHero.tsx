@@ -120,7 +120,7 @@ export function DashboardHero({
                         className="flex items-center gap-4"
                     >
                         <button
-                            onClick={() => router.push('/operation?new=true')}
+                            onClick={() => router.push('/operation')}
                             className="group/btn relative overflow-hidden flex items-center gap-3 px-8 py-4 bg-white text-indigo-950 rounded-[1.25rem] font-black text-sm tracking-wide transition-transform hover:scale-105 active:scale-95"
                         >
                             <span className="absolute inset-0 bg-gradient-to-r from-indigo-100 to-white opacity-0 group-hover/btn:opacity-100 transition-opacity" />

@@ -30,6 +30,8 @@ import {
     isOverdue,
     formatDuration,
     formatDeadline,
+    deadlineToInputValue,
+    parseDeadline,
     getCategoryColor,
 } from '@/types/mission'
 import { toast } from '@/shared/hooks/use-toast'
@@ -197,9 +199,9 @@ export function MissionView() {
                                             "bg-slate-800 text-slate-300 border border-slate-700"
                                         )}
                                     >
-                                        <option value="">All Categories</option>
+                                        <option className="bg-[#1e293b] text-[#cbd5e1]" value="">All Categories</option>
                                         {categories.map((c) => (
-                                            <option key={c} value={c}>{c}</option>
+                                            <option className="bg-[#1e293b] text-[#cbd5e1]" key={c} value={c}>{c}</option>
                                         ))}
                                     </select>
                                 )}
@@ -213,10 +215,10 @@ export function MissionView() {
                                         "bg-slate-800 text-slate-300 border border-slate-700"
                                     )}
                                 >
-                                    <option value="">All Priorities</option>
-                                    <option value="critical">🔴 Critical</option>
-                                    <option value="normal">🔵 Normal</option>
-                                    <option value="low">⚪ Low</option>
+                                    <option className="bg-[#1e293b] text-[#cbd5e1]" value="">All Priorities</option>
+                                    <option className="bg-[#1e293b] text-[#cbd5e1]" value="critical">🔴 Critical</option>
+                                    <option className="bg-[#1e293b] text-[#cbd5e1]" value="normal">🔵 Normal</option>
+                                    <option className="bg-[#1e293b] text-[#cbd5e1]" value="low">⚪ Low</option>
                                 </select>
 
                                 {/* Clear */}
@@ -641,7 +643,7 @@ function CalendarView({ missions, calendarDate, setCalendarDate, onStatusCycle }
         const map: Record<string, Mission[]> = {}
         for (const m of missions) {
             if (!m.deadline) continue
-            const d = new Date(m.deadline)
+            const d = parseDeadline(m.deadline)
             if (d.getFullYear() === year && d.getMonth() === month) {
                 const key = String(d.getDate())
                 if (!map[key]) map[key] = []
@@ -903,14 +905,20 @@ function MissionCard({ mission, expanded, onToggleExpand, onStatusCycle, onDelet
                                 <label className={cn("text-[10px] font-bold uppercase", "text-slate-600")}>Deadline:</label>
                                 <input
                                     type="datetime-local"
-                                    value={mission.deadline ? new Date(mission.deadline).toISOString().slice(0, 16) : ''}
+                                    value={deadlineToInputValue(mission.deadline)}
                                     onChange={(e) => onUpdate({ deadline: e.target.value ? new Date(e.target.value).toISOString() : null } as Partial<Mission>)}
                                     className={cn(
                                         "text-xs px-2 py-1 rounded-lg outline-none border",
                                         "bg-slate-900 border-slate-700 text-slate-300"
                                     )}
+                                    style={{ colorScheme: 'dark' }}
                                     onClick={(e) => e.stopPropagation()}
                                 />
+                                {mission.deadline && (
+                                    <span className={cn("text-[10px] font-semibold", overdue ? "text-red-500" : "text-slate-400")}>
+                                        {formatDeadline(mission.deadline)}
+                                    </span>
+                                )}
                                 <label className={cn("text-[10px] font-bold uppercase", "text-slate-600")}>Estimate:</label>
                                 <input
                                     type="number"
@@ -1121,11 +1129,11 @@ function CreateMissionModal({ categories, onClose, onCreate }: {
                                 onChange={(e) => setCategory(e.target.value)}
                                 className={cn(inputCn, "appearance-none cursor-pointer")}
                             >
-                                <option value="">None</option>
+                                <option className="bg-[#0f172a] text-[#e2e8f0]" value="">None</option>
                                 {categories.map((c) => (
-                                    <option key={c} value={c}>{c}</option>
+                                    <option className="bg-[#0f172a] text-[#e2e8f0]" key={c} value={c}>{c}</option>
                                 ))}
-                                <option value="__new__">+ New Category</option>
+                                <option className="bg-[#0f172a] text-[#e2e8f0]" value="__new__">+ New Category</option>
                             </select>
                             {category === '__new__' && (
                                 <input
@@ -1151,6 +1159,7 @@ function CreateMissionModal({ categories, onClose, onCreate }: {
                                 value={deadline}
                                 onChange={(e) => setDeadline(e.target.value)}
                                 className={inputCn}
+                                style={{ colorScheme: 'dark' }}
                             />
                         </div>
                         <div>
@@ -1163,6 +1172,7 @@ function CreateMissionModal({ categories, onClose, onCreate }: {
                                 value={scheduledStart}
                                 onChange={(e) => setScheduledStart(e.target.value)}
                                 className={inputCn}
+                                style={{ colorScheme: 'dark' }}
                             />
                         </div>
                         <div>

@@ -42,12 +42,17 @@ def _load_pem_key(env_value: str) -> bytes:
         return f.read()
 
 
-# ── HS256 secret (always loaded for legacy fallback) ─────────────────────
 
 _env_secret = os.getenv("JWT_SECRET_KEY")
+_is_production = os.getenv("APP_ENV", "").lower() == "production" or os.getenv("ENVIRONMENT", "").lower() == "production"
 
 if _env_secret:
     JWT_SECRET_KEY: str = _env_secret
+elif _is_production:
+    raise RuntimeError(
+        "FATAL: JWT_SECRET_KEY is required in production. "
+        "Set the JWT_SECRET_KEY environment variable before starting."
+    )
 else:
     JWT_SECRET_KEY = secrets.token_urlsafe(32)
     log_warning(
@@ -56,7 +61,6 @@ else:
         "Set JWT_SECRET_KEY env var before deploying to production!"
     )
 
-# ── Algorithm-aware signing / verification keys ─────────────────────────
 
 if JWT_ALGORITHM == "RS256":
     _private_key_env = os.getenv("JWT_PRIVATE_KEY")
@@ -73,6 +77,11 @@ if JWT_ALGORITHM == "RS256":
         JWT_SIGNING_KEY = load_pem_private_key(_private_pem, password=None)
         JWT_VERIFY_KEY = load_pem_public_key(_public_pem)
         log_info("JWT RS256: loaded RSA key pair from environment")
+    elif _is_production:
+        raise RuntimeError(
+            "FATAL: JWT_PRIVATE_KEY and JWT_PUBLIC_KEY are required in production "
+            "when using RS256. Set both environment variables before starting."
+        )
     else:
         # Dev mode: generate ephemeral RSA 2048-bit key pair
         from cryptography.hazmat.primitives.asymmetric import rsa

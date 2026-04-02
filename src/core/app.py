@@ -77,7 +77,6 @@ def create_app() -> FastAPI:
         lifespan=lifespan,
     )
 
-    # ── Middleware (order matters: last added = first executed) ─────────
 
     # 1. CORS — config-driven
     cors = get_cors_config()

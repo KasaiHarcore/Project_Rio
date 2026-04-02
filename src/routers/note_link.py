@@ -35,7 +35,6 @@ from services.note_link_service import NoteLinkService
 router = APIRouter(prefix="/note-links", tags=["note-links"])
 
 
-# -- Create --
 
 @router.post("", response_model=NoteLinkInDB, status_code=status.HTTP_201_CREATED)
 async def create_link(
@@ -59,7 +58,6 @@ async def bulk_create_links(
     )
 
 
-# -- List --
 
 @router.get("", response_model=List[NoteLinkInDB])
 async def list_links(
@@ -81,18 +79,26 @@ async def list_links(
     )
 
 
-# -- Graph --
 
 @router.get("/graph", response_model=NoteGraphResponse)
 async def get_graph(
+    center_node_id: Optional[UUID] = Query(None, description="Center note UUID for 1-hop subgraph"),
+    limit: int = Query(500, ge=1, le=5000, description="Max nodes to return"),
     user: User = Depends(get_current_user),
     svc: NoteLinkService = Depends(get_note_link_service),
 ):
-    """Get note graph data for visualization."""
-    return await concurrency_manager.run_in_thread(svc.get_note_graph, user.id)
+    """Get note graph data for visualization.
+
+    Without center_node_id: returns full graph capped at ``limit`` nodes.
+    With center_node_id: returns 1-hop subgraph around that note.
+    """
+    return await concurrency_manager.run_in_thread(
+        svc.get_note_graph, user.id,
+        center_node_id=center_node_id,
+        limit=limit,
+    )
 
 
-# -- Backlinks --
 
 @router.get("/backlinks/{note_id}", response_model=List[NoteLinkInDB])
 async def get_backlinks(
@@ -106,7 +112,6 @@ async def get_backlinks(
     )
 
 
-# -- Get single --
 
 @router.get("/{link_id}", response_model=NoteLinkInDB)
 async def get_link(
@@ -121,7 +126,6 @@ async def get_link(
     return link
 
 
-# -- Update --
 
 @router.patch("/{link_id}", response_model=NoteLinkInDB)
 async def update_link(
@@ -139,7 +143,6 @@ async def update_link(
     return link
 
 
-# -- Delete --
 
 @router.delete("/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_link(

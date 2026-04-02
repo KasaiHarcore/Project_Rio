@@ -25,7 +25,6 @@ from core.settings import get_oauth_config
 from utils.log import log_info, log_error, log_debug, log_warning
 
 
-# ── Shared data model ──────────────────────────────────────────────────────
 
 class OAuthUserInfo(BaseModel):
     """Normalized user info returned by any OAuth2 provider."""
@@ -37,7 +36,6 @@ class OAuthUserInfo(BaseModel):
     avatar_url: Optional[str] = Field(None, description="Profile picture URL")
 
 
-# ── Abstract base ──────────────────────────────────────────────────────────
 
 class OAuthProvider(ABC):
     """Base class for OAuth2 providers."""
@@ -57,7 +55,6 @@ class OAuthProvider(ABC):
         ...
 
 
-# ── Google OAuth2 ──────────────────────────────────────────────────────────
 
 class GoogleOAuthProvider(OAuthProvider):
     """Google OAuth2 provider using Authorization Code flow."""
@@ -111,7 +108,6 @@ class GoogleOAuthProvider(OAuthProvider):
             if not access_token:
                 raise OAuthError("Google did not return an access token")
 
-            # ── OIDC: try parsing the ID token first ──────────────
             config = get_oauth_config()
             if config.google_oidc_enabled:
                 raw_id_token = tokens.get("id_token")
@@ -143,7 +139,6 @@ class GoogleOAuthProvider(OAuthProvider):
                     except Exception as oidc_err:
                         log_warning(f"OIDC ID token parsing failed, falling back to /userinfo: {oidc_err}")
 
-            # ── Fallback: fetch user info via /userinfo API ───────
             userinfo_resp = await client.get(
                 self.USERINFO_URL,
                 headers={"Authorization": f"Bearer {access_token}"},
@@ -164,7 +159,6 @@ class GoogleOAuthProvider(OAuthProvider):
             )
 
 
-# ── GitHub OAuth2 ──────────────────────────────────────────────────────────
 
 class GitHubOAuthProvider(OAuthProvider):
     """GitHub OAuth2 provider using Authorization Code flow."""
@@ -253,7 +247,6 @@ class GitHubOAuthProvider(OAuthProvider):
             )
 
 
-# ── Provider factory ───────────────────────────────────────────────────────
 
 _PROVIDERS: dict[str, type[OAuthProvider]] = {
     "google": GoogleOAuthProvider,

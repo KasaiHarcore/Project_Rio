@@ -13,6 +13,7 @@ from typing import Any, Dict, List, Optional
 import redis as _redis
 
 from infrastructure.cache.schemas import (
+	CachedExtractResult,
 	CachedRetrievalResult,
 	CachedWebResult,
 	HotMessage,
@@ -135,6 +136,31 @@ class CacheService:
 		except Exception as e:
 			log_warning(f"Redis web cache set failed: {e}")
 
+	# Extract cache
+	def get_extract_cache(self, *, urls: List[str], params: Dict[str, Any]) -> Optional[CachedExtractResult]:
+		key = make_cache_key(prefix=redis_tool._key("extract", "cache"), parts={"urls": sorted(urls), "params": params})
+		try:
+			raw = redis_tool.client().get(key)
+			if not raw:
+				return None
+			return CachedExtractResult.model_validate_json(raw.decode("utf-8"))
+		except _CONN_ERRORS:
+			return None
+		except Exception as e:
+			log_warning(f"Redis extract cache read failed: {e}")
+			return None
+
+	def set_extract_cache(self, *, urls: List[str], params: Dict[str, Any], result: Dict[str, Any], ttl_seconds: Optional[int] = None) -> None:
+		exp = int(ttl_seconds or self._cfg.extract_cache_ttl_seconds)
+		key = make_cache_key(prefix=redis_tool._key("extract", "cache"), parts={"urls": sorted(urls), "params": params})
+		try:
+			obj = CachedExtractResult(urls=sorted(urls), params=params, result=result)
+			redis_tool.client().set(key, obj.model_dump_json().encode("utf-8"), ex=exp)
+		except _CONN_ERRORS as e:
+			log_warning(f"Redis unavailable (extract cache set): {e}")
+		except Exception as e:
+			log_warning(f"Redis extract cache set failed: {e}")
+
 	# Retrieval cache
 	def get_retrieval_cache(self, *, query: str, k: int) -> Optional[CachedRetrievalResult]:
 		key = make_cache_key(prefix=redis_tool._key("retrieval", "cache"), parts={"query": query, "k": int(k)})
@@ -160,7 +186,6 @@ class CacheService:
 		except Exception as e:
 			log_warning(f"Redis retrieval cache set failed: {e}")
 
-	# ── Entity L2 cache (Postgres → Redis) ─────────────────────────────────
 
 	_NS_USER = "user"
 	_NS_DASHBOARD = "dashboard"
@@ -168,7 +193,6 @@ class CacheService:
 	_NS_XP = "xp"
 	_NS_MISSION_STATS = "mission_stats"
 
-	# -- T0: User auth cache --
 
 	def get_cached_user(self, user_id: str) -> Optional[Dict[str, Any]]:
 		"""Load a cached user dict (id, username, email, role)."""
@@ -185,7 +209,6 @@ class CacheService:
 		"""Evict the cached user (on role change, password reset, etc.)."""
 		redis_tool.cache_delete(namespace=self._NS_USER, key=user_id)
 
-	# -- T1: Dashboard stats cache --
 
 	def get_cached_dashboard(self, user_id: str) -> Optional[Dict[str, Any]]:
 		return redis_tool.cache_get_json(namespace=self._NS_DASHBOARD, key=user_id)
@@ -199,7 +222,6 @@ class CacheService:
 	def invalidate_dashboard(self, user_id: str) -> None:
 		redis_tool.cache_delete(namespace=self._NS_DASHBOARD, key=user_id)
 
-	# -- T2: Thread list cache --
 
 	def get_cached_threads(self, user_id: str) -> Optional[List[Dict[str, Any]]]:
 		return redis_tool.cache_get_json(namespace=self._NS_THREADS, key=user_id)
@@ -213,7 +235,6 @@ class CacheService:
 	def invalidate_threads(self, user_id: str) -> None:
 		redis_tool.cache_delete(namespace=self._NS_THREADS, key=user_id)
 
-	# -- T3: XP / Level cache --
 
 	def get_cached_xp(self, user_id: str) -> Optional[int]:
 		return redis_tool.cache_get_json(namespace=self._NS_XP, key=user_id)
@@ -227,7 +248,6 @@ class CacheService:
 	def invalidate_xp(self, user_id: str) -> None:
 		redis_tool.cache_delete(namespace=self._NS_XP, key=user_id)
 
-	# -- T4: Mission stats cache --
 
 	def get_cached_mission_stats(self, user_id: str) -> Optional[Dict[str, Any]]:
 		return redis_tool.cache_get_json(namespace=self._NS_MISSION_STATS, key=user_id)
@@ -241,7 +261,6 @@ class CacheService:
 	def invalidate_mission_stats(self, user_id: str) -> None:
 		redis_tool.cache_delete(namespace=self._NS_MISSION_STATS, key=user_id)
 
-	# ── Diagnostics ────────────────────────────────────────────────────────
 
 	def health(self) -> Dict[str, Any]:
 		ok = redis_tool.ping()

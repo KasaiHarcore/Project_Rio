@@ -125,7 +125,6 @@ class Mission(Base, TimestampMixin):
         server_default="[]",
     )
 
-    # ── Notion-style properties ────────────────────────────────────
     deadline: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True),
         nullable=True,
@@ -165,11 +164,9 @@ class Mission(Base, TimestampMixin):
         server_default="0",
     )
 
-    # ── Relationships ──────────────────────────────────────────────
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
 
-    # ── Composite indexes ──────────────────────────────────────────
     __table_args__ = (
         Index("ix_mission_user_status", "user_id", "status"),
         Index("ix_mission_user_deadline", "user_id", "deadline"),

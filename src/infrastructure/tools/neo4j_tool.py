@@ -17,11 +17,19 @@ GraphDBTool.__init__()  → only store config, no connection
 from __future__ import annotations
 
 import atexit
+import re
 from typing import Optional, Dict, Any, List
 from concurrent.futures import ThreadPoolExecutor
 
 from utils.log import log_info, log_success, log_error, log_warning
 from core.settings import get_neo4j_config
+
+# Cypher keywords that indicate a write/destructive operation
+_CYPHER_WRITE_PATTERN = re.compile(
+    r"\b(CREATE|MERGE|SET|DELETE|DETACH\s+DELETE|REMOVE|DROP|CALL\s+\{)"
+    r"\b",
+    re.IGNORECASE,
+)
 
 
 class GraphDBTool:
@@ -113,7 +121,6 @@ class GraphDBTool:
             )
         return self._qa_chain
 
-    # ── Ingestion ────────────────────────────────────────────────────────
 
     def extract_and_store(
         self,
@@ -179,7 +186,6 @@ class GraphDBTool:
             log_error(f"Graph extraction failed: {e}")
             return f"Graph extraction error: {e}"
 
-    # ── Retrieval ────────────────────────────────────────────────────────
 
     def search_graph(
         self,
@@ -208,6 +214,15 @@ class GraphDBTool:
         try:
             qa_chain = self._get_qa_chain()
             result = qa_chain.invoke({"query": query})
+
+            # Safety check: reject if the generated Cypher was destructive
+            generated_cypher = result.get("intermediate_steps", [{}])
+            if isinstance(generated_cypher, list) and generated_cypher:
+                cypher_str = str(generated_cypher[0].get("query", ""))
+                if _CYPHER_WRITE_PATTERN.search(cypher_str):
+                    log_warning(f"search_graph rejected destructive Cypher: {cypher_str[:200]}")
+                    return ""
+
             answer = result.get("result", "")
 
             if not answer or answer.strip().lower() in (
@@ -285,7 +300,6 @@ class GraphDBTool:
             log_warning(f"Entity traversal failed: {e}")
             return f"Entity traversal error: {e}"
 
-    # ── Management ───────────────────────────────────────────────────────
 
     def get_graph_stats(self) -> Dict[str, Any]:
         """Return graph statistics (node/relationship counts)."""
@@ -376,7 +390,6 @@ class GraphDBTool:
             return {"enabled": True, "status": "error", "error": str(e)}
 
 
-# ── Singleton ────────────────────────────────────────────────────────────
 
 _graph_db_tool_instance: Optional[GraphDBTool] = None
 

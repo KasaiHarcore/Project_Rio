@@ -90,7 +90,6 @@ class OpenRouterModel(Model):
         if not api_key:
             raise RuntimeError("API key cannot be empty")
 
-        os.environ["OPENROUTER_API_KEY"] = api_key
         log_success("OpenRouter API key provided manually")
         return api_key
 

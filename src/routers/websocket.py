@@ -45,7 +45,6 @@ async def websocket_chat(websocket: WebSocket):
     try:
         await websocket.accept()
 
-        # ── Step 1: Authenticate ────────────────────────────────────────
         try:
             raw = await asyncio.wait_for(
                 websocket.receive_text(),
@@ -95,7 +94,6 @@ async def websocket_chat(websocket: WebSocket):
         # Start heartbeat task
         heartbeat_task = asyncio.create_task(ws_manager.heartbeat(websocket, interval=30))
 
-        # ── Step 2: Message loop ────────────────────────────────────────
         try:
             while True:
                 raw = await websocket.receive_text()
@@ -196,19 +194,35 @@ async def _handle_chat_message(
     run_id = None
 
     try:
-        # Run the agent in a thread (it's sync/generator-based)
-        def _stream_events():
-            return list(AgentService().stream_query(
-                question=content,
-                config=config,
-                history=[],
-                thread_id=thread_id,
-                user_id=user_id,
-            ))
+        # Stream events via queue — avoids materializing the full list in memory
+        import asyncio as _asyncio
+        _event_queue: _asyncio.Queue = _asyncio.Queue(maxsize=256)
+        _loop = _asyncio.get_running_loop()
 
-        events = await concurrency_manager.run_in_thread(_stream_events)
+        def _producer():
+            try:
+                for event in AgentService().stream_query(
+                    question=content,
+                    config=config,
+                    history=[],
+                    thread_id=thread_id,
+                    user_id=user_id,
+                ):
+                    _loop.call_soon_threadsafe(_event_queue.put_nowait, event)
+            except Exception as exc:
+                _loop.call_soon_threadsafe(
+                    _event_queue.put_nowait,
+                    {"type": "error", "error": str(exc)},
+                )
+            finally:
+                _loop.call_soon_threadsafe(_event_queue.put_nowait, None)
 
-        for event in events:
+        concurrency_manager.submit_fire_and_forget(_producer)
+
+        while True:
+            event = await _event_queue.get()
+            if event is None:
+                break
             event_type = event.get("type")
 
             if event_type == "token":

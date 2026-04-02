@@ -51,6 +51,9 @@ export interface NoteGraphStats {
   total_edges: number;
   total_notes: number;
   total_links: number;
+  returned_nodes: number;
+  returned_edges: number;
+  truncated: boolean;
 }
 
 export interface NoteGraphResponse {
@@ -163,8 +166,15 @@ export async function apiDeleteCollection(id: string): Promise<void> {
 
 // ── Note Links API ────────────────────────────────────────────────────────
 
-export async function apiGetNoteGraph(): Promise<NoteGraphResponse> {
-  return apiFetch<NoteGraphResponse>("/note-links/graph");
+export async function apiGetNoteGraph(opts?: {
+  centerNodeId?: string;
+  limit?: number;
+}): Promise<NoteGraphResponse> {
+  const params = new URLSearchParams();
+  if (opts?.centerNodeId) params.set("center_node_id", opts.centerNodeId);
+  if (opts?.limit) params.set("limit", String(opts.limit));
+  const qs = params.toString();
+  return apiFetch<NoteGraphResponse>(`/note-links/graph${qs ? `?${qs}` : ""}`);
 }
 
 export async function apiListNoteLinks(

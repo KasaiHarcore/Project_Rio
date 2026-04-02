@@ -1,7 +1,7 @@
 """Message model for chat history."""
 
 from typing import List, Optional
-from sqlalchemy import String, Text, ForeignKey, Enum as SQLEnum
+from sqlalchemy import String, Text, ForeignKey, Enum as SQLEnum, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy import Index
@@ -71,7 +71,7 @@ class Message(Base):
     
     created_at: Mapped[datetime] = mapped_column(
         nullable=False,
-        default=datetime.utcnow,
+        server_default=func.now(),
         index=True
     )
     

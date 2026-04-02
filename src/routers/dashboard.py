@@ -16,7 +16,6 @@ from services.dashboard_service import DashboardService
 router = APIRouter(prefix="/dashboard", tags=["dashboard"])
 
 
-# ── Response schemas ────────────────────────────────────────────────────────
 
 class ThreadStat(BaseModel):
     id: str
@@ -44,7 +43,6 @@ class DashboardStats(BaseModel):
     xp_for_next: int
 
 
-# ── Endpoint ────────────────────────────────────────────────────────────────
 
 @router.get("/stats", response_model=DashboardStats)
 async def get_dashboard_stats(
@@ -78,7 +76,6 @@ async def get_dashboard_stats(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# ── Briefing Response Schemas ──────────────────────────────────────────────
 
 class BriefingMission(BaseModel):
     """Simplified mission for briefing."""
@@ -130,7 +127,6 @@ class DashboardBriefing(BaseModel):
     suggested_actions: List[SuggestedAction]
 
 
-# ── Briefing Endpoint ──────────────────────────────────────────────────────
 
 @router.get("/briefing", response_model=DashboardBriefing)
 async def get_dashboard_briefing(

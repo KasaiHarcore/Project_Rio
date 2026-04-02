@@ -244,40 +244,27 @@ class NoteKnowledgeTool:
         return json.dumps(result, ensure_ascii=False)
 
     def get_note_graph(self, user_id: str, note_id: Optional[str] = None) -> str:
-        """Get graph data. If note_id given, return 1-hop subgraph."""
+        """Get graph data. If note_id given, return 1-hop subgraph (DB-optimised)."""
         uid = UUID(user_id)
-
-        graph = self._link_service.get_note_graph(uid)
 
         if note_id:
             nid = UUID(note_id)
-            neighbor_ids = {nid}
-            for edge in graph.edges:
-                if edge.source_id == nid:
-                    neighbor_ids.add(edge.target_id)
-                if edge.target_id == nid:
-                    neighbor_ids.add(edge.source_id)
-
-            filtered_nodes = [n for n in graph.nodes if n.id in neighbor_ids]
-            filtered_edges = [
-                e for e in graph.edges
-                if e.source_id in neighbor_ids and e.target_id in neighbor_ids
-            ]
-            result = {
-                "nodes": [{"id": str(n.id), "type": n.type, "label": n.label} for n in filtered_nodes],
-                "edges": [{"source": str(e.source_id), "target": str(e.target_id), "label": e.label} for e in filtered_edges],
-                "center_node": note_id,
-            }
+            graph = self._link_service.get_note_graph(uid, center_node_id=nid)
         else:
-            result = {
-                "nodes": [{"id": str(n.id), "type": n.type, "label": n.label} for n in graph.nodes],
-                "edges": [{"source": str(e.source_id), "target": str(e.target_id), "label": e.label} for e in graph.edges],
-                "stats": {
-                    "total_nodes": graph.stats.total_nodes,
-                    "total_edges": graph.stats.total_edges,
-                    "total_notes": graph.stats.total_notes,
-                },
-            }
+            graph = self._link_service.get_note_graph(uid, limit=200)
+
+        result: dict = {
+            "nodes": [{"id": str(n.id), "type": n.type, "label": n.label} for n in graph.nodes],
+            "edges": [{"source": str(e.source_id), "target": str(e.target_id), "label": e.label} for e in graph.edges],
+            "stats": {
+                "total_nodes": graph.stats.total_nodes,
+                "total_edges": graph.stats.total_edges,
+                "total_notes": graph.stats.total_notes,
+                "truncated": graph.stats.truncated,
+            },
+        }
+        if note_id:
+            result["center_node"] = note_id
         return json.dumps(result, ensure_ascii=False, default=str)
 
     def get_backlinks(self, user_id: str, note_id: str) -> str:

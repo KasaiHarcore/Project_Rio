@@ -24,7 +24,7 @@ class MissionStepSchema(BaseModel):
 class MissionBase(BaseModel):
     """Base mission schema — shared fields."""
     title: str = Field(..., min_length=1, max_length=500, description="Mission title")
-    description: Optional[str] = Field(None, max_length=2000, description="Longer description")
+    description: Optional[str] = Field(None, max_length=10000, description="Longer description")
     priority: MissionPriority = Field(MissionPriority.NORMAL, description="Priority level")
     tags: List[str] = Field(default_factory=list, description="Tag labels")
     steps: List[MissionStepSchema] = Field(default_factory=list, description="Checklist steps")
@@ -47,7 +47,7 @@ class MissionCreate(MissionBase):
 class MissionUpdate(BaseModel):
     """Schema for partial mission update."""
     title: Optional[str] = Field(None, max_length=500)
-    description: Optional[str] = Field(None, max_length=2000)
+    description: Optional[str] = Field(None, max_length=10000)
     status: Optional[MissionStatus] = None
     priority: Optional[MissionPriority] = None
     tags: Optional[List[str]] = None

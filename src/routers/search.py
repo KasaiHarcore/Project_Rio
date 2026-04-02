@@ -8,7 +8,7 @@ Provides:
 
 from __future__ import annotations
 
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Literal
 
 from fastapi import APIRouter, Depends, status
 from pydantic import BaseModel, Field
@@ -22,7 +22,6 @@ from utils.log import log_info, log_error
 router = APIRouter(prefix="/search", tags=["search"])
 
 
-# -- Request / Response schemas -----------------------------------------------
 
 class DocumentSearchRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=1000, description="Search query text")
@@ -44,6 +43,16 @@ class WebSearchRequest(BaseModel):
 class WebSearchResponse(BaseModel):
     query: str
     results: Dict[str, Any] = Field(default_factory=dict, description="Web search results")
+
+
+class WebExtractRequest(BaseModel):
+    urls: List[str] = Field(..., min_length=1, max_length=5, description="URLs to extract content from")
+    extract_depth: Literal["basic", "advanced"] = Field("basic", description="Extraction depth: basic or advanced")
+    query: Optional[str] = Field(None, description="Optional query to focus extraction on relevant content")
+
+
+class WebExtractResponse(BaseModel):
+    results: Dict[str, Any] = Field(default_factory=dict, description="Extraction results")
 
 
 class GraphSearchRequest(BaseModel):
@@ -81,7 +90,6 @@ async def search_documents(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# -- Web search ---------------------------------------------------------------
 
 @router.post("/web", response_model=WebSearchResponse)
 async def search_web(
@@ -111,7 +119,37 @@ async def search_web(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# -- Graph search --------------------------------------------------------------
+
+@router.post("/extract", response_model=WebExtractResponse)
+async def extract_web(
+    body: WebExtractRequest,
+    user: User = Depends(get_current_user),
+):
+    """Extract full page content from one or more URLs via Tavily Extract."""
+
+    def _query():
+        from infrastructure.tools.web_extract_tool import web_extract_tool
+
+        log_info(f"[Search] extract: user={user.username} urls={len(body.urls)}")
+
+        if not body.urls:
+            raise ValidationError("At least one URL is required")
+
+        try:
+            results = web_extract_tool.extract(
+                urls=body.urls,
+                extract_depth=body.extract_depth,
+                query=body.query,
+            )
+        except Exception as e:
+            log_error(f"[Search] extract failed: {e}")
+            raise ExternalServiceError(f"Web extract failed: {e}")
+
+        return WebExtractResponse(results=results)
+
+    return await concurrency_manager.run_in_thread(_query)
+
+
 
 @router.post("/graph", response_model=GraphSearchResponse)
 async def search_graph(

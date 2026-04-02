@@ -27,7 +27,6 @@ from utils.log import log_error
 router = APIRouter(prefix="/auth/oauth", tags=["oauth"])
 
 
-# ── Redirect to provider ───────────────────────────────────────────────────
 
 @router.get("/{provider}")
 async def oauth_redirect(provider: str):
@@ -52,7 +51,6 @@ async def oauth_redirect(provider: str):
     return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
 
 
-# ── Callback ───────────────────────────────────────────────────────────────
 
 class OAuthCallbackResponse(BaseModel):
     """Response returned by the callback endpoint."""

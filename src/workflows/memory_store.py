@@ -199,8 +199,11 @@ def memory_store_context(
             "Install with: pip install langgraph-checkpoint-postgres"
         ) from e
     except Exception as e:
-        log_error(f"Failed to initialize PostgresStore: {e}")
-        raise RuntimeError(f"Memory store initialization failed: {e}") from e
+        # This block can also catch exceptions raised while the caller is
+        # using the yielded store (contextmanager semantics), not only during
+        # setup. Keep the message accurate to reduce debugging confusion.
+        log_error(f"PostgresStore context failed: {e}")
+        raise RuntimeError(f"Memory store context failed: {e}") from e
 
 
 def get_memory_store(enable_semantic_search: bool = True) -> Any:

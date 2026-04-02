@@ -20,7 +20,7 @@ from models.user import User, UserRole
 from services.chat_history_service import ChatHistoryService
 from services.settings_service import SettingsService
 from services.xp_service import XPService
-from utils.log import log_debug, log_error, log_info
+from utils.log import log_debug, log_error, log_info, log_warning
 
 
 @dataclass
@@ -67,7 +67,6 @@ class ChatService:
 
         Returns a ChatPrepResult with all data needed by the streaming generator.
         """
-        # ── Input validation ──────────────────────────────────────────────
         if not messages:
             raise ValidationError("messages array is empty")
 
@@ -80,7 +79,6 @@ class ChatService:
         if not last_user_msg:
             raise ValidationError("No user message found")
 
-        # ── Thread resolution ─────────────────────────────────────────────
         user_id = user.id
         is_new_thread = thread_id is None
         resolved_thread_id = self._history.ensure_thread(
@@ -89,14 +87,12 @@ class ChatService:
             title=last_user_msg[:60],
         )
 
-        # ── XP awarding ──────────────────────────────────────────────────
         xp_amount = 2 + (5 if is_new_thread else 0)
         try:
             self._xp.award_xp(user_id, xp_amount, reason="chat_message")
-        except Exception:
-            pass  # XP failure should never block chat
+        except Exception as e:
+            log_warning(f"XP award failed (user={user_id}): {e}")
 
-        # ── Cache invalidation ────────────────────────────────────────────
         if self._cache:
             try:
                 uid_str = str(user_id)
@@ -104,27 +100,24 @@ class ChatService:
                 self._cache.invalidate_xp(uid_str)
                 if is_new_thread:
                     self._cache.invalidate_threads(uid_str)
-            except Exception:
-                pass
+            except Exception as e:
+                log_warning(f"Cache invalidation failed (user={user_id}): {e}")
 
         history = [
             {"role": m.role, "content": m.content}
             for m in messages[:-1]
         ]
 
-        # ── SQL mode authorization ────────────────────────────────────────
         requested_mode = mode or "chat"
         if requested_mode == "sql" and user.role != UserRole.ADMIN:
             raise AuthorizationError("SQL mode is restricted to admin users only")
 
-        # ── AgentConfig ───────────────────────────────────────────────────
         config = AgentConfig(
             mode=requested_mode,
             character=character or "rio",
             user_role=user.role.value,
         )
 
-        # ── User settings / API key resolution ────────────────────────────
         user_settings = None
         api_resolver = None
         try:
@@ -140,7 +133,6 @@ class ChatService:
         except Exception as e:
             log_error(f"Failed to load user settings: {e}")
 
-        # ── API key resolution ────────────────────────────────────────────
         user_api_key = None
         all_user_api_keys = None
         if user_settings and api_resolver:
@@ -156,7 +148,6 @@ class ChatService:
                 "cohere": api_resolver.get_cohere_key(),
             }
 
-            # ── LangSmith tracing setup ──────────────────────────────────
             langsmith_key = api_resolver.get_langsmith_key()
             if langsmith_key is not None or not config.enable_langsmith_tracing:
                 from infrastructure.telemetry.langsmith import apply_user_langsmith_settings
@@ -181,7 +172,6 @@ class ChatService:
                 user_model_params = {}
             user_model_params.update(request_model_params)
 
-        # ── Workspace context formatting ──────────────────────────────────
         workspace_context_str = ""
         if workspace_context and workspace_context.chunks:
             ws = workspace_context
@@ -202,7 +192,6 @@ class ChatService:
 
         log_info(f"[REST] chat_stream: user={user.username} thread={resolved_thread_id} q={last_user_msg[:80]}")
 
-        # ── Persist user message ──────────────────────────────────────────
         self._history.append_message_async(
             user_id=user_id,
             thread_id=resolved_thread_id,

@@ -76,7 +76,9 @@ function GraphPageContent() {
               <div>
                 <h1 className="text-lg font-black text-page-title">Note Graph</h1>
                 <p className="text-[10px] font-bold tracking-wider uppercase text-page-subtitle">
-                  Knowledge Visualization
+                  {stats?.truncated
+                    ? `Showing ${stats.returned_nodes} of ${stats.total_nodes} nodes`
+                    : "Knowledge Visualization"}
                 </p>
               </div>
             </div>
@@ -92,9 +94,9 @@ function GraphPageContent() {
                   onChange={(e) => setFilterType(e.target.value || null)}
                   className="text-xs rounded-lg border px-2 py-1.5 outline-none bg-[var(--page-search-bg)] border-[var(--page-search-border)] text-[var(--page-search-text)]"
                 >
-                  <option value="">All types</option>
+                  <option className="bg-[#0d1117] text-[#e6edf3]" value="">All types</option>
                   {nodeTypes.map((t) => (
-                    <option key={t} value={t}>
+                    <option className="bg-[#0d1117] text-[#e6edf3]" key={t} value={t}>
                       {t.charAt(0).toUpperCase() + t.slice(1)}
                     </option>
                   ))}

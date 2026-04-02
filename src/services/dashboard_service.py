@@ -73,8 +73,13 @@ class DashboardService:
             "xp_for_next": lp["xp_for_next"],
         }
 
-    def get_briefing(self, user_id: UUID) -> Dict[str, Any]:
-        """Generate personalized briefing with context-aware message."""
+    def get_briefing(self, user_id: UUID, messages_today: Optional[int] = None) -> Dict[str, Any]:
+        """Generate personalized briefing with context-aware message.
+
+        Args:
+            messages_today: Pre-fetched count to avoid redundant DB query.
+                If None, will be queried from the repository.
+        """
         now = datetime.now(timezone.utc)
         today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
         week_start = now - timedelta(days=7)
@@ -116,8 +121,9 @@ class DashboardService:
             "interaction_count": emotional_state.interaction_count,
         }
 
-        # Session stats
-        messages_today = self._repo.get_message_stats(user_id)["today"]
+        # Session stats — reuse pre-fetched count if available
+        if messages_today is None:
+            messages_today = self._repo.get_message_stats(user_id)["today"]
         missions_completed_today = self._repo.get_missions_completed_since(user_id, today_start)
         sessions_this_week = self._repo.get_sessions_since(user_id, week_start)
 

@@ -63,11 +63,26 @@ export const STATUS_CONFIG: Record<MissionStatus, { label: string; color: string
 
 /* ── Helpers ──────────────────────────────────────────────────────── */
 
+/** Parse a deadline string into a local-aware Date.
+ *
+ *  ISO date-only strings ("2025-03-25") are parsed by `new Date()` as UTC
+ *  midnight, which in negative-UTC timezones displays as the previous day.
+ *  This helper detects date-only strings and constructs the Date in local
+ *  time so "March 25" always shows as "March 25" regardless of timezone. */
+export function parseDeadline(deadline: string): Date {
+  // Date-only: "2025-03-25" (10 chars, no 'T')
+  if (/^\d{4}-\d{2}-\d{2}$/.test(deadline)) {
+    const [y, m, d] = deadline.split('-').map(Number)
+    return new Date(y, m - 1, d)
+  }
+  return new Date(deadline)
+}
+
 /** Check if a mission is overdue (deadline in the past, not completed/archived) */
 export function isOverdue(m: Mission): boolean {
   if (!m.deadline) return false
   if (m.status === 'completed' || m.status === 'archived') return false
-  return new Date(m.deadline) < new Date()
+  return parseDeadline(m.deadline) < new Date()
 }
 
 /** Format a duration in minutes to human-readable */
@@ -79,19 +94,31 @@ export function formatDuration(minutes: number | null): string {
   return m ? `${h}h ${m}m` : `${h}h`
 }
 
-/** Format deadline relative to now */
+/** Format deadline relative to now, with the actual date always visible. */
 export function formatDeadline(deadline: string | null): string {
   if (!deadline) return ''
-  const d = new Date(deadline)
+  const d = parseDeadline(deadline)
+  if (isNaN(d.getTime())) return ''
   const now = new Date()
   const diffMs = d.getTime() - now.getTime()
   const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24))
 
-  if (diffDays < 0) return `${Math.abs(diffDays)}d overdue`
-  if (diffDays === 0) return 'Due today'
-  if (diffDays === 1) return 'Due tomorrow'
-  if (diffDays <= 7) return `${diffDays}d left`
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const dateStr = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  if (diffDays < 0) return `${dateStr} (${Math.abs(diffDays)}d overdue)`
+  if (diffDays === 0) return `${dateStr} (today)`
+  if (diffDays === 1) return `${dateStr} (tomorrow)`
+  if (diffDays <= 7) return `${dateStr} (${diffDays}d left)`
+  return dateStr
+}
+
+/** Format deadline to local datetime-local input value (for inline editors). */
+export function deadlineToInputValue(deadline: string | null): string {
+  if (!deadline) return ''
+  const d = parseDeadline(deadline)
+  if (isNaN(d.getTime())) return ''
+  // Build YYYY-MM-DDThh:mm in local time
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** Category color palette — cycles through a set of soft colors */

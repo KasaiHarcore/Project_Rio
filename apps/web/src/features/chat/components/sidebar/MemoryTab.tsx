@@ -92,11 +92,6 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
           <h3 className="text-[10px] font-black tracking-[0.25em] uppercase text-[var(--chat-sidebar-heading)]">
             {headerLabel}
           </h3>
-          {allEntries.length > 0 && (
-            <span className="rounded-full px-1.5 py-0.5 text-[8px] font-bold bg-violet-500/20 text-violet-400">
-              {allEntries.length}
-            </span>
-          )}
           {memoriesLoading && (
             <Loader2 className="h-3 w-3 animate-spin text-[var(--chat-sidebar-stat-label)]" />
           )}
@@ -247,7 +242,7 @@ export function MemoryTab({ threadId }: MemoryTabProps) {
                   </div>
 
                   {/* Content */}
-                  <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug whitespace-pre-wrap line-clamp-3">
+                  <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug whitespace-pre-wrap line-clamp-3 break-words">
                     {entry.content}
                   </p>
 

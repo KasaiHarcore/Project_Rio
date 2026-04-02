@@ -42,9 +42,16 @@ def _build_jwk() -> Dict[str, Any]:
     }
 
 
+_CACHED_JWKS: Dict[str, List[Dict[str, Any]]] | None = None
+
+
 @router.get("/.well-known/jwks.json")
 async def jwks_endpoint() -> Dict[str, List[Dict[str, Any]]]:
     """Return the JSON Web Key Set for public key verification."""
-    if JWT_ALGORITHM == "RS256":
-        return {"keys": [_build_jwk()]}
-    return {"keys": []}
+    global _CACHED_JWKS
+    if _CACHED_JWKS is None:
+        if JWT_ALGORITHM == "RS256":
+            _CACHED_JWKS = {"keys": [_build_jwk()]}
+        else:
+            _CACHED_JWKS = {"keys": []}
+    return _CACHED_JWKS

@@ -8,7 +8,7 @@ import { cn } from '@/shared/lib/utils'
 import { MissionControl } from "@/features/mission/components/MissionControl"
 
 import { apiListThreads, apiDeleteThread, apiUpdateThread, ThreadSummary } from '@/features/chat/api'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 
 function relativeTime(iso: string): string {
     if (!iso) return ''
@@ -26,16 +26,17 @@ function relativeTime(iso: string): string {
     return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function OperationView() {
+export function OperationView({ initialThreadId }: { initialThreadId?: string } = {}) {
     return (
         <Suspense>
-            <OperationContent />
+            <OperationContent initialThreadId={initialThreadId} />
         </Suspense>
     )
 }
 
-function OperationContent() {
-    const [selectedOpId, setSelectedOpId] = useState<string | null>(null)
+function OperationContent({ initialThreadId }: { initialThreadId?: string }) {
+    const router = useRouter()
+    const [selectedOpId, setSelectedOpId] = useState<string | null>(initialThreadId ?? null)
     // Separate key that only changes on explicit user navigation (click thread / new),
     // NOT when handleThreadCreated resolves a '__new__' → UUID transition.
     // This prevents React from unmounting MissionControl mid-stream.
@@ -54,6 +55,7 @@ function OperationContent() {
     const menuRef = useRef<HTMLDivElement>(null)
     const renameInputRef = useRef<HTMLInputElement>(null)
 
+    // Handle legacy ?thread= and ?new= query params (redirect to path-based URL)
     useEffect(() => {
         if (hasHandledNewParam.current) return
         const threadParam = searchParams.get('thread')
@@ -62,12 +64,22 @@ function OperationContent() {
             hasHandledNewParam.current = true
             setSelectedOpId(threadParam)
             setMissionKey(k => k + 1)
+            router.replace(`/operation/${threadParam}`)
         } else if (isNew) {
             hasHandledNewParam.current = true
             setSelectedOpId('__new__')
             setMissionKey(k => k + 1)
+            router.replace('/operation')
         }
-    }, [searchParams])
+    }, [searchParams, router])
+
+    // If mounted with initialThreadId, ensure MissionControl mounts
+    useEffect(() => {
+        if (initialThreadId) {
+            setMissionKey(k => k + 1)
+        }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
 
     // ── Fetch threads ────────────────────────────────────────────────────
     const fetchThreads = useCallback(async () => {
@@ -94,8 +106,9 @@ function OperationContent() {
     // messages continue on the same thread, and refresh the list.
     const handleThreadCreated = useCallback((newThreadId: string) => {
         setSelectedOpId(newThreadId)
+        router.replace(`/operation/${newThreadId}`)
         fetchThreads()
-    }, [fetchThreads])
+    }, [fetchThreads, router])
 
     // Refresh thread list when a message exchange completes
     const handleMessageComplete = useCallback(() => {
@@ -105,7 +118,8 @@ function OperationContent() {
     // Mobile: go back to thread list (deselect, don't leave the page)
     const handleBackToList = useCallback(() => {
         setSelectedOpId(null)
-    }, [])
+        router.replace('/operation')
+    }, [router])
 
     // ── Close menu on outside click ────────────────────────────────────
     useEffect(() => {
@@ -281,7 +295,7 @@ function OperationContent() {
                             filteredThreads.map((op) => (
                                 <div
                                     key={op.id}
-                                    onClick={() => { if (!renamingId) { setSelectedOpId(op.id); setMissionKey(k => k + 1) } }}
+                                    onClick={() => { if (!renamingId) { setSelectedOpId(op.id); setMissionKey(k => k + 1); router.replace(`/operation/${op.id}`) } }}
                                     className={cn(
                                         "group relative p-3 rounded-xl cursor-pointer transition-all flex items-center gap-3",
                                         selectedOpId === op.id
@@ -333,7 +347,7 @@ function OperationContent() {
                                                     <div className="flex items-center gap-1.5 min-w-0 flex-1">
                                                         {op.is_pinned && <Pin size={12} className={cn("shrink-0", "text-rose-400")} />}
                                                         {op.is_starred && <Star size={12} className="shrink-0 text-amber-400 fill-amber-400" />}
-                                                        <h3 className="font-bold text-sm truncate text-page-card-title">
+                                                        <h3 className="font-bold text-sm truncate text-page-card-title flex-1 min-w-0">
                                                             {op.title ?? 'Untitled Operation'}
                                                         </h3>
                                                     </div>
@@ -408,7 +422,7 @@ function OperationContent() {
 
                 {/* Right Panel: Active Chat Area */}
                 <main className={cn(
-                    "flex-1 relative flex flex-col transition-colors",
+                    "flex-1 min-w-0 relative flex flex-col transition-colors overflow-hidden",
                     !selectedOpId ? "hidden md:flex" : "flex",
                     "bg-[#0d1117]/50"
                 )}>

@@ -15,6 +15,10 @@ from models.relationship_event import RelationshipEvent, RelationshipEventType
 from models.artifact import Artifact
 from models.note_link import NoteLink, NoteLinkTargetType
 from models.note_collection_membership import NoteCollectionMembership
+from models.flashcard_deck import FlashcardDeck
+from models.flashcard import Flashcard, FlashcardSource
+from models.automation import Automation, AutomationDelivery
+from models.audio_overview import AudioOverview, AudioFormat, AudioSourceType, AudioStatus
 
 from sqlalchemy.orm import configure_mappers
 configure_mappers()
@@ -47,4 +51,13 @@ __all__ = [
     "NoteLink",
     "NoteLinkTargetType",
     "NoteCollectionMembership",
+    "FlashcardDeck",
+    "Flashcard",
+    "FlashcardSource",
+    "Automation",
+    "AutomationDelivery",
+    "AudioOverview",
+    "AudioFormat",
+    "AudioSourceType",
+    "AudioStatus",
 ]

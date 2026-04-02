@@ -99,10 +99,8 @@ class RelationshipEvent(Base):
         server_default=func.now(),
     )
 
-    # ── Relationships ──────────────────────────────────────────────
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
 
-    # ── Indexes ────────────────────────────────────────────────────
     __table_args__ = (
         Index("ix_relationship_event_user_character", "user_id", "character_id"),
         Index("ix_relationship_event_user_created", "user_id", "created_at"),

@@ -38,7 +38,6 @@ from utils.log import log_info, log_warning
 router = APIRouter(prefix="/os", tags=["os-control"])
 
 
-# -- Request schemas ---------------------------------------------------------
 
 class ShellExecuteRequest(BaseModel):
     command: str = Field(..., min_length=1, max_length=4096, description="Shell command to execute")
@@ -74,7 +73,6 @@ class GUIExecuteRequest(BaseModel):
     confidence: float = Field(0.9, ge=0.5, le=1.0)
 
 
-# -- Shell endpoints ---------------------------------------------------------
 
 @router.post("/shell", response_model=ShellResult, status_code=status.HTTP_200_OK)
 async def execute_shell(
@@ -135,7 +133,6 @@ async def close_shell_session(
     os_control_service.close_shell_session(str(user.id))
 
 
-# -- Browser endpoints -------------------------------------------------------
 
 @router.post("/browser", response_model=BrowserResult)
 async def execute_browser(
@@ -166,7 +163,6 @@ async def execute_browser(
     return await concurrency_manager.run_in_thread(_run)
 
 
-# -- GUI endpoints -----------------------------------------------------------
 
 @router.post("/gui", response_model=GUIResult)
 async def execute_gui(

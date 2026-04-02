@@ -146,6 +146,21 @@ class ConcurrencyManager:
             ))
         return list(await asyncio.gather(*coros))
 
+    def submit_fire_and_forget(self, fn: Callable[..., Any], *args: Any) -> None:
+        """Submit a task to the thread pool without waiting for the result.
+
+        Ideal for background work like cache updates, embedding upserts,
+        and disk writes that should not block the caller.
+        """
+        if not self._started or not self._thread_pool:
+            # Fallback: run inline (best effort)
+            try:
+                fn(*args)
+            except Exception as e:
+                log_warning(f"Fire-and-forget inline failed: {e}")
+            return
+        self._thread_pool.submit(fn, *args)
+
     @property
     def thread_pool(self) -> ThreadPoolExecutor | None:
         return self._thread_pool

@@ -105,7 +105,7 @@ export function SmartDataCard({ role, content, timestamp, senderName, isStreamin
       </div>
 
       {/* Main Content Area */}
-      <div className="prose prose-sm max-w-none break-words dark:prose-invert prose-p:text-foreground/80 prose-headings:text-foreground/90 prose-pre:bg-surface-inset prose-pre:border-border">
+      <div className="prose prose-sm max-w-full break-words overflow-hidden dark:prose-invert prose-p:text-foreground/80 prose-p:break-words prose-headings:text-foreground/90 prose-li:break-words prose-a:break-all prose-pre:bg-surface-inset prose-pre:border-border prose-pre:overflow-x-auto">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
           components={{
@@ -203,7 +203,7 @@ export function SmartDataCard({ role, content, timestamp, senderName, isStreamin
               if (isBlock) {
                 const text = String(children).replace(/\n$/, '')
                 return (
-                  <div className="relative group rounded-lg overflow-hidden my-4 border border-opacity-20 bg-opacity-50">
+                  <div className="relative group rounded-lg overflow-hidden my-4 border border-opacity-20 bg-opacity-50 w-full max-w-full">
                     <div className="flex items-center justify-between px-3 py-1 text-[10px] font-mono border-b bg-[var(--msg-code-block-header-bg)] border-[var(--msg-code-block-header-border)] text-[var(--msg-code-block-header-text)]">
                       <div className="flex items-center gap-1">
                         <Terminal size={10} />

@@ -34,6 +34,9 @@ from repositories.document_repository import DocumentRepository
 from repositories.user_profile_repository import UserProfileRepository
 from repositories.dashboard_repository import DashboardRepository
 from repositories.note_link_repository import NoteLinkRepository
+from repositories.flashcard_repository import FlashcardRepository
+from repositories.automation_repository import AutomationRepository
+from repositories.audio_overview_repository import AudioOverviewRepository
 
 from infrastructure.cache.service import CacheService
 from services.auth_service import AuthService
@@ -48,6 +51,9 @@ from services.chat_service import ChatService
 from services.dashboard_service import DashboardService
 from services.document_service import DocumentService
 from services.note_link_service import NoteLinkService
+from services.flashcard_service import FlashcardService
+from services.automation_service import AutomationService
+from services.audio_service import AudioService
 
 def get_cache_service() -> CacheService:
     """Provide the CacheService singleton via DI."""
@@ -85,20 +91,24 @@ async def get_current_user(
     except ValueError:
         raise AuthenticationError("Invalid user ID in token")
 
-    # L2 cache: try Redis first
+    # L2 cache: try Redis first — use identity-map (db.get) which
+    # returns from session cache if already loaded, else a single PK lookup.
     cached = cache.get_cached_user(str(user_id))
     if cached:
+        # Cache confirms user exists; use session identity map (no SQL if
+        # already loaded, otherwise a fast PK get instead of a filter query).
         user = db.get(User, user_id)
         if user is not None:
             return user
+        # Cache stale — fall through to full query and evict below
 
-    # Cache miss → Postgres
+    # Cache miss or stale → Postgres
     user = db.query(User).filter(User.id == user_id).first()
     if user is None:
         log_warning(f"Token valid but user not found: {token_data.user_id}")
         raise AuthenticationError("User not found")
 
-    # Backfill cache
+    # Backfill / refresh cache
     try:
         cache.set_cached_user(str(user_id), {
             "id": str(user.id),
@@ -191,6 +201,19 @@ def get_dashboard_repository(db: Session = Depends(get_db)) -> DashboardReposito
 def get_note_link_repository(db: Session = Depends(get_db)) -> NoteLinkRepository:
     return NoteLinkRepository(db)
 
+
+def get_flashcard_repository(db: Session = Depends(get_db)) -> FlashcardRepository:
+    return FlashcardRepository(db)
+
+
+def get_automation_repository(db: Session = Depends(get_db)) -> AutomationRepository:
+    return AutomationRepository(db)
+
+
+def get_audio_overview_repository(db: Session = Depends(get_db)) -> AudioOverviewRepository:
+    return AudioOverviewRepository(db)
+
+
 def get_auth_service(
     user_repo: UserRepository = Depends(get_user_repository),
     audit_repo: AuditLogRepository = Depends(get_audit_log_repository),
@@ -208,9 +231,10 @@ def get_mission_service(
 def get_note_service(
     note_repo: NoteRepository = Depends(get_note_repository),
     link_repo: NoteLinkRepository = Depends(get_note_link_repository),
+    collection_repo: CollectionRepository = Depends(get_collection_repository),
 ) -> NoteService:
     link_service = NoteLinkService(link_repo, note_repo)
-    return NoteService(note_repo, note_link_service=link_service)
+    return NoteService(note_repo, note_link_service=link_service, collection_repo=collection_repo)
 
 
 def get_artifact_service(
@@ -264,6 +288,24 @@ def get_document_service(
     document_repo: DocumentRepository = Depends(get_document_repository),
 ) -> DocumentService:
     return DocumentService(document_repo)
+
+
+def get_flashcard_service(
+    repo: FlashcardRepository = Depends(get_flashcard_repository),
+) -> FlashcardService:
+    return FlashcardService(repo)
+
+
+def get_automation_service(
+    repo: AutomationRepository = Depends(get_automation_repository),
+) -> AutomationService:
+    return AutomationService(repo)
+
+
+def get_audio_service(
+    repo: AudioOverviewRepository = Depends(get_audio_overview_repository),
+) -> AudioService:
+    return AudioService(repo)
 
 
 def get_chat_service(

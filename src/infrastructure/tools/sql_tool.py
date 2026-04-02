@@ -102,10 +102,16 @@ class SQLTool:
             log_error(error_msg)
             raise DatabaseError(error_msg)
 
+    def _get_inspector(self):
+        """Return cached SQLAlchemy inspector (avoids re-introspection per call)."""
+        if not hasattr(self, "_inspector") or self._inspector is None:
+            self._inspector = inspect(self.engine)
+        return self._inspector
+
     def get_table_info(self, table_name: Optional[str] = None) -> Dict[str, Any]:
         """Get information about database tables."""
         try:
-            inspector = inspect(self.engine)
+            inspector = self._get_inspector()
             
             if table_name:
                 log_debug(f"Getting info for table: {table_name}")

@@ -8,8 +8,9 @@ import {
   Brain, Lightbulb, Route, Wrench, Info,
   StickyNote, Pin, PinOff, X, Plus,
   CheckSquare, Square, ChevronDown, ChevronRight,
-  ExternalLink,
+  ExternalLink, FileSearch,
 } from 'lucide-react'
+import { useRouter } from 'next/navigation'
 import { useNoteStore, noteUid, blockUid } from '@/features/notes/store'
 
 const LOGIC_ICONS: Record<string, React.ComponentType<Record<string, unknown>>> = {
@@ -45,7 +46,12 @@ export function AgentsTab() {
     }
   }
 
+  const contextualNotes = useSidebarStore((s) => s.contextualNotes)
+  const clearContextualNotes = useSidebarStore((s) => s.clearContextualNotes)
+  const router = useRouter()
+
   const [logicExpanded, setLogicExpanded] = useState(true)
+  const [contextualExpanded, setContextualExpanded] = useState(true)
   const [notesExpanded, setNotesExpanded] = useState(true)
   const [newNoteOpen, setNewNoteOpen] = useState(false)
   const [newNoteText, setNewNoteText] = useState('')
@@ -57,7 +63,6 @@ export function AgentsTab() {
   /* ── Handle new user note ── */
   function handleAddNote() {
     if (!newNoteText.trim()) return
-    // Parse TODO lines: lines starting with "- [ ]" or "- [x]"
     const lines = newNoteText.split('\n')
     const todoLines = lines.filter((l) => /^\s*-\s*\[[ x]\]/i.test(l))
     const todos = todoLines.length > 0
@@ -81,12 +86,10 @@ export function AgentsTab() {
   const addNoteToGlobal = useNoteStore((s) => s.addNote)
 
   function handleOpenNotePopup(note: { id: string; content: string; author: 'agent' | 'user'; timestamp: number; todos?: { text: string; done: boolean }[] }) {
-    // Ensure note exists in global note store so popup can find it
     const existingNote = useNoteStore.getState().notes.find((n) => n.sidebarNoteId === note.id || n.id === note.id)
     if (existingNote) {
       setPopupNoteId(existingNote.id)
     } else {
-      // Create a global note entry from the sidebar note
       const now = new Date().toISOString()
       const globalNote = {
         id: noteUid(),
@@ -114,8 +117,67 @@ export function AgentsTab() {
     }
   }
 
+  const supportAssessment = useSidebarStore((s) => s.supportAssessment)
+  const supportIntervention = useSidebarStore((s) => s.supportIntervention)
+  const supportNextStep = useSidebarStore((s) => s.supportNextStep)
+  const hasSupport = !!(supportAssessment?.primaryGoal || supportAssessment?.currentStage || supportNextStep)
+
   return (
     <div className="space-y-0">
+      {/* ───── Support Panel (Layer 1A) ───── */}
+      {hasSupport && (
+        <div className="border-b border-[var(--chat-sidebar-section-border)]">
+          <div className="p-4 pb-3 space-y-2.5">
+            {/* What Rio understands */}
+            {(supportAssessment?.primaryGoal || supportAssessment?.currentStage) && (
+              <div className="rounded-xl border p-3 bg-[var(--chat-sidebar-artifact-bg)] border-[var(--chat-sidebar-artifact-border)]">
+                <h4 className="text-[8px] font-black tracking-[0.2em] uppercase text-[var(--chat-sidebar-stat-label)] mb-1.5">
+                  What Rio understands
+                </h4>
+                {supportAssessment?.currentStage && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-emerald-500/15 text-emerald-400">
+                      {supportAssessment.currentStage}
+                    </span>
+                  </div>
+                )}
+                {supportAssessment?.primaryGoal && (
+                  <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug">
+                    {supportAssessment.primaryGoal}
+                  </p>
+                )}
+                {supportAssessment?.currentFriction && (
+                  <p className="text-[9px] text-amber-400/80 mt-1 leading-snug">
+                    Friction: {supportAssessment.currentFriction}
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* What Rio thinks you need next */}
+            {(supportNextStep || supportIntervention?.intervention) && (
+              <div className="rounded-xl border p-3 bg-[var(--chat-sidebar-artifact-bg)] border-[var(--chat-sidebar-artifact-border)]">
+                <h4 className="text-[8px] font-black tracking-[0.2em] uppercase text-[var(--chat-sidebar-stat-label)] mb-1.5">
+                  What Rio thinks you need next
+                </h4>
+                {supportIntervention?.intervention && (
+                  <div className="flex items-center gap-1.5 mb-1">
+                    <span className="text-[7px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-md bg-violet-500/15 text-violet-400">
+                      {supportIntervention.intervention.replace(/_/g, ' ')}
+                    </span>
+                  </div>
+                )}
+                {supportNextStep && (
+                  <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug">
+                    {supportNextStep}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ───── Logic Feed ───── */}
       <div className="border-b border-[var(--chat-sidebar-section-border)]">
         <div
@@ -166,9 +228,9 @@ export function AgentsTab() {
                   >
                     <Icon className={cn('h-3 w-3 mt-0.5 flex-shrink-0', color)} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold text-[var(--chat-sidebar-value)] leading-tight">{entry.title}</p>
+                      <p className="text-[10px] font-bold text-[var(--chat-sidebar-value)] leading-tight truncate">{entry.title}</p>
                       {entry.detail && (
-                        <p className="text-[8px] text-[var(--chat-sidebar-stat-label)] mt-0.5 leading-snug line-clamp-2">{entry.detail}</p>
+                        <p className="text-[8px] text-[var(--chat-sidebar-stat-label)] mt-0.5 leading-snug line-clamp-2 break-words">{entry.detail}</p>
                       )}
                       <p className="text-[7px] font-mono text-[var(--chat-sidebar-stat-label)]/60 mt-0.5">
                         {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
@@ -181,6 +243,65 @@ export function AgentsTab() {
           </div>
         )}
       </div>
+
+      {/* ───── Contextual / Related Notes ───── */}
+      {contextualNotes.length > 0 && (
+        <div className="border-b border-[var(--chat-sidebar-section-border)]">
+          <div
+            onClick={() => setContextualExpanded(!contextualExpanded)}
+            className="flex w-full items-center justify-between p-4 pb-2 text-left group cursor-pointer select-none"
+            role="button"
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setContextualExpanded(!contextualExpanded) } }}
+          >
+            <div className="flex items-center gap-2">
+              {contextualExpanded ? <ChevronDown className="h-3 w-3 text-[var(--chat-sidebar-stat-label)]" /> : <ChevronRight className="h-3 w-3 text-[var(--chat-sidebar-stat-label)]" />}
+              <h3 className="text-[10px] font-black tracking-[0.25em] uppercase text-[var(--chat-sidebar-heading)]">
+                Related Notes
+              </h3>
+              <span className="ml-1 rounded-full px-1.5 py-0.5 text-[8px] font-bold bg-cyan-500/20 text-cyan-400">
+                {contextualNotes.length}
+              </span>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); clearContextualNotes() }}
+              className="text-[8px] font-bold uppercase tracking-wider text-[var(--chat-sidebar-stat-label)] hover:text-[var(--chat-sidebar-stat-text)] transition-colors"
+            >
+              Clear
+            </button>
+          </div>
+
+          {contextualExpanded && (
+            <div className="px-4 pb-4 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
+              {contextualNotes.map((note) => (
+                <div
+                  key={note.id}
+                  onClick={() => router.push(`/notes?id=${note.id}`)}
+                  className={cn(
+                    "group rounded-lg px-2.5 py-2 cursor-pointer transition-all",
+                    "bg-[var(--chat-sidebar-artifact-bg)]/60 border border-[var(--chat-sidebar-artifact-border)]/50",
+                    "hover:border-cyan-500/30 hover:bg-cyan-500/5"
+                  )}
+                >
+                  <div className="flex items-center justify-between mb-0.5">
+                    <p className="text-[10px] font-bold text-[var(--chat-sidebar-value)] leading-tight truncate flex-1">
+                      {note.title || 'Untitled'}
+                    </p>
+                    <span className="ml-2 flex-shrink-0 text-[7px] font-bold px-1.5 py-0.5 rounded-md bg-cyan-500/15 text-cyan-400">
+                      {Math.round(note.score * 100)}%
+                    </span>
+                  </div>
+                  {note.snippet && (
+                    <p className="text-[9px] text-[var(--chat-sidebar-stat-label)] leading-snug line-clamp-2 break-words">
+                      {note.snippet}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ───── Sticky Notes ───── */}
       <div className="border-[var(--chat-sidebar-section-border)]">
@@ -286,14 +407,14 @@ export function AgentsTab() {
                     </div>
                     <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => toggleStickyPin(note.id)}
+                        onClick={(e) => { e.stopPropagation(); toggleStickyPin(note.id) }}
                         className="rounded p-0.5 text-[var(--chat-sidebar-stat-label)] hover:text-amber-400 transition-colors"
                         title={note.pinned ? 'Unpin' : 'Pin'}
                       >
                         {note.pinned ? <PinOff className="h-3 w-3" /> : <Pin className="h-3 w-3" />}
                       </button>
                       <button
-                        onClick={() => handleRemoveNote(note)}
+                        onClick={(e) => { e.stopPropagation(); handleRemoveNote(note) }}
                         className="rounded p-0.5 text-[var(--chat-sidebar-stat-label)] hover:text-red-400 transition-colors"
                         title="Remove"
                       >
@@ -308,7 +429,7 @@ export function AgentsTab() {
                       {note.todos.map((todo, i) => (
                         <button
                           key={i}
-                          onClick={() => toggleStickyTodo(note.id, i)}
+                          onClick={(e) => { e.stopPropagation(); toggleStickyTodo(note.id, i) }}
                           className="flex items-start gap-1.5 w-full text-left group/todo"
                         >
                           {todo.done
@@ -316,7 +437,7 @@ export function AgentsTab() {
                             : <Square className="h-3 w-3 mt-0.5 flex-shrink-0 text-[var(--chat-sidebar-stat-label)] group-hover/todo:text-[var(--chat-sidebar-stat-text)]" />
                           }
                           <span className={cn(
-                            "text-[10px] leading-tight",
+                            "text-[10px] leading-tight break-words",
                             todo.done
                               ? "line-through text-[var(--chat-sidebar-stat-label)]"
                               : "text-[var(--chat-sidebar-value)]"
@@ -327,7 +448,7 @@ export function AgentsTab() {
                       ))}
                     </div>
                   ) : (
-                    <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug whitespace-pre-wrap line-clamp-4">
+                    <p className="text-[10px] text-[var(--chat-sidebar-value)] leading-snug whitespace-pre-wrap line-clamp-4 break-words">
                       {note.content}
                     </p>
                   )}

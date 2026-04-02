@@ -89,8 +89,8 @@ class ChatHistoryService:
         status: Optional[str] = None,
         is_starred: Optional[bool] = None,
         is_pinned: Optional[bool] = None,
-    ) -> Optional[Thread]:
-        """Update a thread if owned by user. Returns updated thread or None."""
+    ) -> Optional[Dict[str, Any]]:
+        """Update a thread if owned by user. Returns detached-safe snapshot or None."""
         with get_db_context() as session:
             thread_repo = ThreadRepository(session)
             thread = thread_repo.find_owned(thread_id, user_id)
@@ -107,7 +107,17 @@ class ChatHistoryService:
                 thread.is_pinned = is_pinned
 
             thread_repo.flush()
-            return thread
+            # Return plain data while session is still active to avoid
+            # DetachedInstanceError after context manager closes the session.
+            return {
+                "id": str(thread.id),
+                "title": thread.title,
+                "status": thread.status.value if hasattr(thread.status, "value") else str(thread.status),
+                "is_starred": bool(getattr(thread, "is_starred", False)),
+                "is_pinned": bool(getattr(thread, "is_pinned", False)),
+                "created_at": thread.created_at.isoformat() if thread.created_at else "",
+                "updated_at": thread.updated_at.isoformat() if thread.updated_at else "",
+            }
 
     def ensure_thread(self, user_id: UUID, thread_id: Optional[str], title: Optional[str]) -> str:
         """Ensure a thread exists and return its ID."""
@@ -254,13 +264,13 @@ class ChatHistoryService:
 
         with get_db_context() as session:
             message_repo = MessageRepository(session)
-            messages = message_repo.find_by_thread(thread_id=thread_id, limit=1000, order_asc=True)
+            messages = message_repo.find_by_thread(thread_id=thread_id, limit=500, order_asc=True)
 
         # Backfill Redis hot window (best-effort) if empty.
         if self._cache:
             try:
                 if not self._cache.get_hot_messages(thread_id=str(thread_id)):
-                    for m in messages[-500:]:
+                    for m in messages:
                         self._cache.append_hot_message(
                             thread_id=str(thread_id),
                             role=m.role.value,
@@ -305,7 +315,12 @@ class ChatHistoryService:
         return list(reversed(buffer))
 
     def _compact_if_needed(self, message_repo: MessageRepository, thread_id: UUID) -> None:
-        """Summarize and compact when window exceeds threshold."""
+        """Summarize and compact when window exceeds threshold.
+
+        Safety: if total message count exceeds 2× WINDOW_ROUNDS and LLM
+        summarisation previously failed, fall back to trimming the oldest
+        messages outright so the thread doesn't grow unbounded.
+        """
         messages = message_repo.find_by_thread(thread_id=thread_id, limit=1000, order_asc=True)
 
         last_summary = None
@@ -333,6 +348,17 @@ class ChatHistoryService:
 
         summary_text = self._summarize_messages(selected)
         if not summary_text:
+            # Safety: if we can't summarize but the thread is very long,
+            # trim the oldest messages to prevent unbounded growth.
+            if len(messages) > WINDOW_ROUNDS * 3:
+                trim_count = len(selected) // 2
+                to_trim = selected[:trim_count]
+                if to_trim:
+                    message_repo.delete_batch(to_trim)
+                    log_warning(
+                        f"Summarization failed; trimmed {len(to_trim)} oldest messages "
+                        f"for thread {thread_id} to prevent unbounded growth"
+                    )
             return
 
         # Cache warm summary (Redis).

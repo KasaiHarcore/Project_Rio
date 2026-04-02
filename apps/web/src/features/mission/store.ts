@@ -1,4 +1,12 @@
 import { create } from 'zustand'
+import {
+  apiListMissions,
+  apiGetMissionStats,
+  apiCreateMission,
+  apiUpdateMission,
+  apiDeleteMission,
+  apiToggleStep,
+} from './api'
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 
@@ -74,23 +82,6 @@ interface MissionState {
   setFilterPriority: (p: MissionPriority | null) => void
 }
 
-async function apiFetch<T>(
-  path: string,
-  opts?: RequestInit,
-): Promise<T | null> {
-  try {
-    const res = await fetch(path, {
-      headers: { 'Content-Type': 'application/json' },
-      ...opts,
-    })
-    if (!res.ok) return null
-    if (res.status === 204) return null
-    return (await res.json()) as T
-  } catch {
-    return null
-  }
-}
-
 export const useMissionStore = create<MissionState>((set, get) => ({
   missions: [],
   stats: null,
@@ -103,74 +94,72 @@ export const useMissionStore = create<MissionState>((set, get) => ({
   /* ── Fetch ── */
   fetchMissions: async (status) => {
     set({ loading: true, error: null })
-    const qs = status ? `?status=${status}` : ''
-    const data = await apiFetch<Mission[]>(`/api/missions${qs}`)
-    set({
-      missions: data ?? [],
-      loading: false,
-      error: data === null ? 'Failed to fetch missions' : null,
-    })
+    try {
+      const data = await apiListMissions(status)
+      set({ missions: data, loading: false })
+    } catch {
+      set({ missions: [], loading: false, error: 'Failed to fetch missions' })
+    }
   },
 
   /* ── Stats ── */
   fetchStats: async () => {
-    const data = await apiFetch<MissionStats>('/api/missions/stats')
-    if (data) set({ stats: data })
+    try {
+      const data = await apiGetMissionStats()
+      set({ stats: data })
+    } catch { /* stats are non-critical */ }
   },
 
   /* ── Create ── */
   createMission: async (data) => {
-    const created = await apiFetch<Mission>('/api/missions', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    })
-    if (created) {
+    try {
+      const created = await apiCreateMission(data)
       set((s) => ({ missions: [created, ...s.missions] }))
-      // Refresh stats
       get().fetchStats()
+      return created
+    } catch {
+      return null
     }
-    return created
   },
 
   /* ── Update ── */
   updateMission: async (id, data) => {
-    const updated = await apiFetch<Mission>(`/api/missions/${id}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    })
-    if (updated) {
+    try {
+      const updated = await apiUpdateMission(id, data)
       set((s) => ({
         missions: s.missions.map((m) => (m.id === id ? updated : m)),
       }))
       get().fetchStats()
+      return updated
+    } catch {
+      return null
     }
-    return updated
   },
 
   /* ── Delete ── */
   deleteMission: async (id) => {
-    const res = await fetch(`/api/missions/${id}`, { method: 'DELETE' })
-    if (res.ok) {
+    try {
+      await apiDeleteMission(id)
       set((s) => ({ missions: s.missions.filter((m) => m.id !== id) }))
       get().fetchStats()
       return true
+    } catch {
+      return false
     }
-    return false
   },
 
   /* ── Toggle Step ── */
   toggleStep: async (missionId, stepIndex) => {
-    const updated = await apiFetch<Mission>(
-      `/api/missions/${missionId}/steps/${stepIndex}/toggle`,
-      { method: 'PATCH' },
-    )
-    if (updated) {
+    try {
+      const updated = await apiToggleStep(missionId, stepIndex)
       set((s) => ({
         missions: s.missions.map((m) => (m.id === missionId ? updated : m)),
       }))
       get().fetchStats()
+      return updated
+    } catch {
+      return null
     }
-    return updated
   },
 
   /* ── Agent-created (real-time from chat-transport) ── */
@@ -197,7 +186,7 @@ export const useMissionStore = create<MissionState>((set, get) => ({
         sort_order: 0,
         thread_id: null,
         deadline: m.deadline ? String(m.deadline) : null,
-        scheduled_start: null,
+        scheduled_start: m.scheduled_start ? String(m.scheduled_start) : null,
         estimated_minutes: typeof m.estimated_minutes === 'number' ? m.estimated_minutes : null,
         category: m.category ? String(m.category) : null,
         notes: null,
@@ -218,35 +207,42 @@ export const useMissionStore = create<MissionState>((set, get) => ({
     if (!missionId) return
 
     if (action === 'toggle_step' || action === 'complete_mission' || action === 'update_mission') {
-      // Update the mission in-place with data from the backend
-      set((s) => ({
-        missions: s.missions.map((m) => {
-          if (m.id !== missionId) return m
-          return {
-            ...m,
-            ...(mission.title != null && { title: String(mission.title) }),
-            ...(mission.description !== undefined && { description: mission.description ? String(mission.description) : null }),
-            status: (mission.status as MissionStatus) ?? m.status,
-            priority: (mission.priority as MissionPriority) ?? m.priority,
-            progress: typeof mission.progress === 'number' ? mission.progress : m.progress,
-            steps: Array.isArray(mission.steps)
-              ? (mission.steps as Array<Record<string, unknown>>).map((step) => ({
-                  text: String(step.text ?? ''),
-                  done: Boolean(step.done),
-                }))
-              : m.steps,
-            ...(mission.deadline !== undefined && { deadline: mission.deadline ? String(mission.deadline) : null }),
-            ...(mission.category !== undefined && { category: mission.category ? String(mission.category) : null }),
-            ...(mission.estimated_minutes !== undefined && {
-              estimated_minutes: typeof mission.estimated_minutes === 'number' ? mission.estimated_minutes : null,
-            }),
-            ...(mission.tags !== undefined && {
-              tags: Array.isArray(mission.tags) ? (mission.tags as string[]).map(String) : m.tags,
-            }),
-            updated_at: new Date().toISOString(),
-          }
-        }),
-      }))
+      const found = get().missions.some((m) => m.id === missionId)
+
+      if (found) {
+        // Update the mission in-place with data from the backend
+        set((s) => ({
+          missions: s.missions.map((m) => {
+            if (m.id !== missionId) return m
+            return {
+              ...m,
+              ...(mission.title != null && { title: String(mission.title) }),
+              ...(mission.description !== undefined && { description: mission.description ? String(mission.description) : null }),
+              status: (mission.status as MissionStatus) ?? m.status,
+              priority: (mission.priority as MissionPriority) ?? m.priority,
+              progress: typeof mission.progress === 'number' ? mission.progress : m.progress,
+              steps: Array.isArray(mission.steps)
+                ? (mission.steps as Array<Record<string, unknown>>).map((step) => ({
+                    text: String(step.text ?? ''),
+                    done: Boolean(step.done),
+                  }))
+                : m.steps,
+              ...(mission.deadline !== undefined && { deadline: mission.deadline ? String(mission.deadline) : null }),
+              ...(mission.category !== undefined && { category: mission.category ? String(mission.category) : null }),
+              ...(mission.estimated_minutes !== undefined && {
+                estimated_minutes: typeof mission.estimated_minutes === 'number' ? mission.estimated_minutes : null,
+              }),
+              ...(mission.tags !== undefined && {
+                tags: Array.isArray(mission.tags) ? (mission.tags as string[]).map(String) : m.tags,
+              }),
+              updated_at: new Date().toISOString(),
+            }
+          }),
+        }))
+      } else {
+        // Mission not in store yet — fetch all missions from DB to sync
+        get().fetchMissions()
+      }
       get().fetchStats()
     } else if (action === 'delete_mission') {
       // Remove the mission from the list

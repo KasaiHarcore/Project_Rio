@@ -44,7 +44,6 @@ def _error_line(message: str) -> str:
     return f'e:{json.dumps({"finishReason": "error", "message": message})}\n'
 
 
-# ── Request schema ─────────────────────────────────────────────────
 
 class SQLApprovalResumeRequest(BaseModel):
     """Body sent by the frontend when user responds to an SQL approval card."""
@@ -59,7 +58,6 @@ class SQLApprovalResumeRequest(BaseModel):
     character: Optional[str] = Field("rio", description="Persona ID")
 
 
-# ── Resume endpoint ───────────────────────────────────────────────
 
 @router.post("/resume")
 async def resume_sql(

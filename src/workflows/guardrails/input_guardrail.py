@@ -83,26 +83,17 @@ def _check_input_safety(text: str) -> tuple[bool, str]:
 def input_guardrail_node(state: Dict[str, Any]) -> Dict[str, Any]:
     """Input guardrail LangGraph node.
 
-    Runs deterministic check first, then LLM-based check.
-    Sets ``guardrail_passed`` and ``guardrail_rejection`` in state.
+    Runs deterministic length check only. LLM-based safety check removed —
+    the agent's system prompt handles safety boundaries.
     """
     log_info("=== Input Guardrail Node ===")
 
     text = state.get("original_question", "")
 
-    # 1. Deterministic length check
+    # Deterministic length check only
     passed, reason = _check_input_length(text)
     if not passed:
         log_warning(f"[InputGuardrail] Rejected (length): {reason}")
-        return {
-            "guardrail_passed": False,
-            "guardrail_rejection": reason,
-        }
-
-    # 2. LLM-based safety check
-    passed, reason = _check_input_safety(text)
-    if not passed:
-        log_warning(f"[InputGuardrail] Rejected (LLM): {reason}")
         return {
             "guardrail_passed": False,
             "guardrail_rejection": reason,
@@ -116,7 +107,7 @@ def input_guardrail_node(state: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def route_after_input_guardrail(state: Dict[str, Any]) -> str:
-    """Route after input guardrail: to supervisor if passed, reject if failed."""
+    """Route after input guardrail: to support assessment if passed, reject if failed."""
     if state.get("guardrail_passed", True):
-        return "supervisor"
+        return "assess_support_state"
     return "guardrail_reject"

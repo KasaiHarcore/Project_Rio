@@ -20,7 +20,6 @@ from core.concurrency import concurrency_manager
 from utils.log import log_info, log_success, log_error, log_warning
 
 
-# ── Pydantic schemas for structured LLM output ────────────────────────────
 
 class HypotheticalDocuments(BaseModel):
     """Structured output for multiple hypothetical documents."""
@@ -36,7 +35,6 @@ class NormalizedQuery(BaseModel):
     )
 
 
-# ── Internal helpers ───────────────────────────────────────────────────────
 
 def _get_llm():
     """Return the active LLM instance, ensuring it's ready."""
@@ -57,7 +55,6 @@ def _parse_json_response(content: str) -> dict:
     return json.loads(text)
 
 
-# ── HyDE ───────────────────────────────────────────────────────────────────
 
 HYDE_SYSTEM_PROMPT = """You are an expert document generator. Given a user query, generate 3 DIFFERENT hypothetical answers/documents that would answer the query from different angles or perspectives.
 
@@ -178,7 +175,6 @@ def hyde_search(question: str, k: int = 10, *, user_id: Optional[str] = None) ->
         return get_vector_db_tool().search_documents(question, k=k, user_id=user_id)
 
 
-# ── Query Rewrite ──────────────────────────────────────────────────────────
 
 REWRITE_SYSTEM_PROMPT = """You are an expert search query normalizer for an internal policy knowledge base.
 

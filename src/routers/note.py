@@ -26,7 +26,6 @@ from schemas.note import NoteCreate, NoteUpdate, NoteInDB
 router = APIRouter(prefix="/notes", tags=["notes"])
 
 
-# -- List --
 
 @router.get("", response_model=List[NoteInDB])
 async def list_notes(
@@ -48,7 +47,6 @@ async def list_notes(
     )
 
 
-# -- Get single --
 
 @router.get("/{note_id}", response_model=NoteInDB)
 async def get_note(
@@ -63,7 +61,6 @@ async def get_note(
     return n
 
 
-# -- Create --
 
 @router.post("", response_model=NoteInDB, status_code=status.HTTP_201_CREATED)
 async def create_note(
@@ -75,7 +72,6 @@ async def create_note(
     return await concurrency_manager.run_in_thread(svc.create_note, user.id, body)
 
 
-# -- Update --
 
 @router.patch("/{note_id}", response_model=NoteInDB)
 async def update_note(
@@ -91,7 +87,6 @@ async def update_note(
     return n
 
 
-# -- Toggle todo --
 
 @router.patch("/{note_id}/todos/{todo_index}/toggle", response_model=NoteInDB)
 async def toggle_note_todo(
@@ -107,7 +102,6 @@ async def toggle_note_todo(
     return n
 
 
-# -- Delete --
 
 @router.delete("/{note_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_note(

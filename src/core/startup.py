@@ -5,13 +5,14 @@ application starts. These ensure all required resources are
 properly configured before handling requests.
 
 Startup sequence:
-1. Load secrets from environment
-2. Register LLM models
+1. Register LLM models (fast, no I/O)
+2. Validate configuration
 3. Configure logging
-4. Create database tables (if enabled)
-5. Initialize vector DB
-6. Enable Redis LLM cache
+4. Parallel I/O: database tables + vector DB + Redis cache
 """
+
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 
 from models.base import Base
 from infrastructure.database.session import get_engine
@@ -53,16 +54,29 @@ def create_database_tables() -> None:
         raise
 
 
+def _init_vector_db() -> None:
+    """Initialize vector DB (heavy: downloads embedding models)."""
+    try:
+        get_vector_db_tool().startup_check()
+    except Exception as e:
+        log_warning(f"Vector DB initialization failed (will retry lazily): {e}")
+
+
+def _init_redis_cache() -> None:
+    """Enable Redis LLM cache."""
+    try:
+        redis_tool.enable_llm_cache()
+    except Exception as e:
+        log_warning(f"Redis LLM cache init failed: {e}")
+
+
 def run_startup_tasks() -> None:
     """
-    Execute all startup tasks in order.
-    
-    This is the main entry point for application initialization.
-    Call this once when the application starts.
+    Execute all startup tasks. I/O-bound tasks run in parallel.
     """
     log_info("Running startup tasks...")
 
-    # 1. Register LLM models
+    # 1. Register LLM models (fast, no I/O)
     register_all_models()
 
     # 2. Validate configuration
@@ -79,15 +93,25 @@ def run_startup_tasks() -> None:
 
     # 3. Configure logging
     configure_logging_from_env()
-    
-    create_database_tables()
-    
-    # 5. Initialize vector DB
-    get_vector_db_tool().startup_check()
-    
-    # 6. Enable Redis LLM cache
-    redis_tool.enable_llm_cache()
-    
+
+    # 4. Parallel I/O: database + vector DB + Redis
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="startup") as pool:
+        fut_db = pool.submit(create_database_tables)
+        fut_vec = pool.submit(_init_vector_db)
+        fut_redis = pool.submit(_init_redis_cache)
+
+        # Wait for all — database is required, others are best-effort
+        fut_db.result()  # raises on failure
+        fut_vec.result()
+        fut_redis.result()
+
+    # 5. Start automation scheduler
+    try:
+        from core.scheduler import start_scheduler
+        start_scheduler()
+    except Exception as e:
+        log_warning(f"Automation scheduler failed to start: {e}")
+
     log_success("All startup tasks completed")
 
 
@@ -98,4 +122,9 @@ def run_shutdown_tasks() -> None:
     Call this when the application is shutting down gracefully.
     """
     log_info("Running shutdown tasks...")
+    try:
+        from core.scheduler import stop_scheduler
+        stop_scheduler()
+    except Exception:
+        pass
     log_success("Shutdown tasks completed")

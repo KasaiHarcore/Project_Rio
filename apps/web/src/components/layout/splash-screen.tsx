@@ -41,7 +41,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
 
     const t = SPLASH_CONFIG
 
-    // Simulated Loading Sequence
+    // Simulated Loading Sequence (faster: larger increments, wider interval)
     useEffect(() => {
         const timer = setInterval(() => {
             setProgress(prev => {
@@ -50,9 +50,9 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
                     setIsReady(true)
                     return 100
                 }
-                return prev + Math.floor(Math.random() * 5) + 1
+                return prev + Math.floor(Math.random() * 12) + 4
             })
-        }, 100)
+        }, 150)
         return () => clearInterval(timer)
     }, [])
 
@@ -95,7 +95,7 @@ export function SplashScreen({ onComplete }: SplashScreenProps) {
 }
 
 function TechBackground({ t }: { t: SplashTheme }) {
-    const hexagons = useMemo(() => Array.from({ length: 20 }, (_, i) => i), [])
+    const hexagons = useMemo(() => Array.from({ length: 8 }, (_, i) => i), [])
 
     return (
         <>

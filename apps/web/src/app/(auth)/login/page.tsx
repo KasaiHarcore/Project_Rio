@@ -103,11 +103,11 @@ function LoginContent() {
           </div>
 
           <div className="grid grid-cols-2 gap-4">
-            <button type="button" className="flex items-center justify-center rounded-xl border py-3 transition-colors border-rose-900/20 hover:bg-rose-900/10 text-slate-400">
+            <button type="button" onClick={() => { window.location.href = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/auth/oauth/google` }} className="flex items-center justify-center rounded-xl border py-3 transition-colors border-rose-900/20 hover:bg-rose-900/10 text-slate-400">
               <img src="https://www.svgrepo.com/show/475656/google-color.svg" className="mr-2 h-5 w-5" alt="Google" />
               <span className="text-sm font-semibold">Google</span>
             </button>
-            <button type="button" className="flex items-center justify-center rounded-xl border py-3 transition-colors border-rose-900/20 hover:bg-rose-900/10 text-slate-400">
+            <button type="button" onClick={() => { window.location.href = `${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000'}/api/v1/auth/oauth/github` }} className="flex items-center justify-center rounded-xl border py-3 transition-colors border-rose-900/20 hover:bg-rose-900/10 text-slate-400">
               <img src="https://www.svgrepo.com/show/475654/github-color.svg" className="mr-2 h-5 w-5" alt="Github" />
               <span className="text-sm font-semibold">Github</span>
             </button>

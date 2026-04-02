@@ -18,10 +18,10 @@ from __future__ import annotations
 
 import time
 from datetime import datetime, timezone
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Callable, Dict, Iterator, List, Optional
 from uuid import uuid4
 
-from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage
+from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
 from langgraph.types import Command
 
 from utils.timezone import utc_now
@@ -47,16 +47,52 @@ from workflows.checkpointer import (
     load_checkpoint as _load_checkpoint,
 )
 from workflows.memory_store import memory_store_context
-from workflows.graph import build_workflow_graph
+from workflows.react_graph import build_react_graph
 from workflows.state import (
     AgentState,
     ExecutionStatus,
-    WorkerType,
     build_messages_from_history,
     create_initial_state,
-    extract_answer_from_state,
-    get_gathered_context,
 )
+
+
+def _build_standard_mission_action_event(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Build mission_action event for standard mission interactions."""
+    return {
+        "type": "mission_action",
+        "action": action,
+        "mission": payload.get("mission", {}),
+        "step_index": payload.get("step_index"),
+    }
+
+
+def _build_delete_mission_action_event(action: str, payload: Dict[str, Any]) -> Dict[str, Any]:
+    """Build mission_action event for mission deletion."""
+    return {
+        "type": "mission_action",
+        "action": action,
+        "mission": {
+            "id": payload.get("mission_id"),
+            "title": payload.get("title"),
+        },
+        "step_index": None,
+    }
+
+
+_MISSION_ACTION_EVENT_BUILDERS: Dict[str, Callable[[str, Dict[str, Any]], Dict[str, Any]]] = {
+    "toggle_step": _build_standard_mission_action_event,
+    "complete_mission": _build_standard_mission_action_event,
+    "update_mission": _build_standard_mission_action_event,
+    "delete_mission": _build_delete_mission_action_event,
+}
+
+
+def _build_mission_action_event(action: str, payload: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+    """Build a mission event from action metadata using declarative dispatch."""
+    builder = _MISSION_ACTION_EVENT_BUILDERS.get(action)
+    if not builder:
+        return None
+    return builder(action, payload)
 
 
 def run_workflow(
@@ -100,7 +136,6 @@ def run_workflow(
         - timing: Timing information
         - metadata: Additional execution metadata
     """
-    # Identifiers
     thread_id = thread_id or str(uuid4())
     run_id = uuid4().hex
     checkpoint_ns = checkpoint_ns or config.state_scope
@@ -108,14 +143,12 @@ def run_workflow(
     log_trace_hint(run_id)
     log_info(f"Starting workflow: run_id={run_id}, thread_id={thread_id}, mode={config.mode}")
     
-    # Build checkpoint config
     config_payload = build_config_payload(
         thread_id=thread_id,
         checkpoint_id=checkpoint_id,
         checkpoint_ns=checkpoint_ns,
     )
     
-    # Tracking
     current_stage = "init"
     phase_timings: Dict[str, int] = {}
     worker_results_list: List[Dict[str, Any]] = []
@@ -138,7 +171,6 @@ def run_workflow(
         ) as trace_cfg:
             config_payload.update(trace_cfg or {})
             
-            # Build initial state
             current_stage = "build_state"
             history_messages = build_messages_from_history(history) if history else []
             
@@ -152,10 +184,8 @@ def run_workflow(
                 metadata={"run_id": run_id, "user_role": config.user_role, "character": config.character},
             )
             
-            # Execute with checkpointing (short-term) and memory store (long-term)
             current_stage = "execute"
             with checkpoint_context() as checkpointer, memory_store_context() as store:
-                # Check if there's an existing completed checkpoint that would block execution
                 if not checkpoint_id:  # Only clear if not explicitly resuming
                     try:
                         from workflows.checkpointer import get_latest_checkpoint_state
@@ -179,11 +209,9 @@ def run_workflow(
                             except Exception:
                                 status_str = str(status or "").lower()
 
-                            # Detect mismatches that should force a fresh execution.
                             question_mismatch = bool(checkpoint_question) and checkpoint_question != (question or "").strip()
                             mode_mismatch = bool(checkpoint_mode) and checkpoint_mode != (config.mode or "").strip()
 
-                            # If a previous in-progress run got stuck, don't keep resuming it forever.
                             stale_in_progress = False
                             if status_str in (ExecutionStatus.PENDING.value, ExecutionStatus.RUNNING.value):
                                 ts = checkpoint_state.get("ts")
@@ -226,7 +254,6 @@ def run_workflow(
                                 from workflows.checkpointer import delete_checkpoints
                                 deleted = delete_checkpoints(thread_id=thread_id, checkpoint_ns=checkpoint_ns)
                                 log_info(f"Deleted {deleted} checkpoints (ns={checkpoint_ns!r})")
-                                # Also clear Redis graph state to prevent stale data
                                 try:
                                     redis_tool.delete_graph_state(thread_id=thread_id)
                                     log_debug(f"Cleared Redis graph state for thread {thread_id}")
@@ -235,55 +262,59 @@ def run_workflow(
                     except Exception as e:
                         log_warning(f"Failed to check/clear checkpoint: {e}")
                 
-                # Build the graph with checkpointer (short-term) and store (long-term)
-                graph = build_workflow_graph(
+                graph = build_react_graph(
                     config=config,
                     checkpointer=checkpointer,
                     store=store,
+                    user_id=user_id,
+                    question=question,
                 )
-                
-                # Execute the workflow (auto-traced by LangSmith via config metadata)
+
+                # Inject planner config into the configurable dict
+                rio_cfg = getattr(graph, "_rio_config", {})
+                if rio_cfg:
+                    config_payload.setdefault("configurable", {}).update(rio_cfg)
+
                 start_time = time.time()
-                
+
                 final_state = graph.invoke(
                     initial_state,
                     config=config_payload,
                     durability="sync",
                 )
                 
-                # Extract results
-                answer = extract_answer_from_state(final_state)
-                worker_results = final_state.get("worker_results") or []
-                worker_results_list = [r.to_dict() for r in worker_results]
-                phase_timings = final_state.get("timing") or {}
-                
+                # Extract answer from last AIMessage in messages
+                answer = ""
+                messages = final_state.get("messages") or []
+                for msg in reversed(messages):
+                    if isinstance(msg, AIMessage) and msg.content:
+                        tool_calls = getattr(msg, "tool_calls", None)
+                        if not tool_calls:
+                            answer = msg.content
+                            break
+
                 invoke_time_ms = int((time.time() - start_time) * 1000)
                 phase_timings["total_ms"] = invoke_time_ms
-                
-                # Save state to Redis for quick access
+
                 try:
+                    # Truncate to last 50 messages to prevent unbounded state growth
+                    checkpoint_messages = (final_state.get("messages") or [])[-50:]
                     redis_tool.save_graph_state(
                         thread_id=thread_id,
-                        state={
-                            "schema_version": final_state.get("schema_version", 1),
-                            "messages": final_state.get("messages") or [],
-                        },
+                        state={"messages": checkpoint_messages},
                     )
                 except Exception as e:
                     log_warning(f"Failed to save state to Redis: {e}")
-            
-            # Finalize
+
             stats = form.SELECTED_MODEL.get_overall_exec_stats()
             log_success(f"Workflow completed: run_id={run_id}")
-            
+
             return {
                 "answer": answer,
                 "stats": stats,
                 "run_id": run_id,
                 "thread_id": thread_id,
-                "worker_results": worker_results_list,
                 "timing": phase_timings,
-                "iterations": final_state.get("iteration_count", 0),
                 "status": "success",
             }
     
@@ -334,7 +365,6 @@ def stream_workflow(
     Yields:
         Event dictionaries
     """
-    # Generate identifiers
     thread_id = thread_id or str(uuid4())
     run_id = uuid4().hex
     checkpoint_ns = checkpoint_ns or config.state_scope
@@ -344,11 +374,9 @@ def stream_workflow(
     
     log_info(f"Starting streaming workflow: run_id={run_id}, question={question[:100]}")
     
-    # Emit run_started event (frontend expects this name)
     yield {"type": "run_started", "run_id": run_id, "thread_id": thread_id}
     log_debug("Emitted run_started event")
     
-    # Build checkpoint config
     config_payload = build_config_payload(
         thread_id=thread_id,
         checkpoint_id=checkpoint_id,
@@ -372,7 +400,6 @@ def stream_workflow(
         ) as trace_cfg:
             config_payload.update(trace_cfg or {})
             
-            # Build initial state
             history_messages = build_messages_from_history(history) if history else []
             state_metadata = {
                 "run_id": run_id,
@@ -392,337 +419,167 @@ def stream_workflow(
                 metadata=state_metadata,
             )
             
-            # Execute with checkpointing (short-term) and memory store (long-term)
             current_stage = "execute"
             with checkpoint_context() as checkpointer, memory_store_context() as store:
-                # Check if there's an existing completed checkpoint that would block execution
-                # LangGraph doesn't re-run a graph if it's already at END state
-                # So we need to clear the checkpoint for fresh execution
-                if not checkpoint_id:  # Only clear if not explicitly resuming
+                # ── Always clear checkpoint for new requests ──
+                # The ReAct graph is rebuilt fresh each time with current emotional
+                # context and memories.  Stale checkpoints cause the agent to replay
+                # old answers instead of processing the new question.
+                if not checkpoint_id:
                     try:
-                        from workflows.checkpointer import get_latest_checkpoint_state
-                        existing = get_latest_checkpoint_state(
-                            thread_id=thread_id,
-                            checkpoint_ns=checkpoint_ns,
-                        )
-                        if existing:
-                            checkpoint_state = existing.get("checkpoint", {})
-                            channel_values = checkpoint_state.get("channel_values", {})
-                            checkpoint_question = (channel_values.get("original_question") or "").strip()
-                            checkpoint_mode = (channel_values.get("mode") or "").strip()
-                            log_info(
-                                "Found existing checkpoint: "
-                                f"ns={checkpoint_ns!r} status={channel_values.get('status')} "
-                                f"mode={checkpoint_mode!r} question={checkpoint_question[:120]!r}"
-                            )
-                            # Check if the previous run reached a terminal state.
-                            # NOTE: the graph stores `status` as an ExecutionStatus enum, not its `.value`.
-                            status = channel_values.get("status")
-                            status_str = None
-                            try:
-                                status_str = (status.value if hasattr(status, "value") else str(status or "")).lower()
-                            except Exception:
-                                status_str = str(status or "").lower()
-
-                            # If a new question arrives on the same thread_id, we must not resume
-                            # an old in-progress checkpoint with a different `original_question`.
-                            question_mismatch = bool(checkpoint_question) and checkpoint_question != (question or "").strip()
-                            mode_mismatch = bool(checkpoint_mode) and checkpoint_mode != (config.mode or "").strip()
-
-                            stale_in_progress = False
-                            if status_str in (ExecutionStatus.PENDING.value, ExecutionStatus.RUNNING.value):
-                                ts = checkpoint_state.get("ts")
-                                if ts:
-                                    try:
-                                        if isinstance(ts, (int, float)):
-                                            checkpoint_dt = datetime.fromtimestamp(float(ts), tz=timezone.utc)
-                                        else:
-                                            checkpoint_dt = datetime.fromisoformat(str(ts).replace("Z", "+00:00"))
-                                        if checkpoint_dt.tzinfo is None:
-                                            checkpoint_dt = checkpoint_dt.replace(tzinfo=timezone.utc)
-                                        age_seconds = (utc_now() - checkpoint_dt).total_seconds()
-                                        max_exec = int(getattr(config, "max_execution_seconds", 120) or 120)
-                                        stale_in_progress = age_seconds > max(300, max_exec * 5)
-                                    except Exception:
-                                        stale_in_progress = False
-
-                            is_terminal = (
-                                status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED, ExecutionStatus.WAITING_HUMAN)
-                                or status_str in (
-                                    ExecutionStatus.COMPLETED.value,
-                                    ExecutionStatus.FAILED.value,
-                                    ExecutionStatus.WAITING_HUMAN.value,
-                                )
-                                or status_str.endswith(f".{ExecutionStatus.COMPLETED.value}")
-                                or status_str.endswith(f".{ExecutionStatus.FAILED.value}")
-                                or status_str.endswith(f".{ExecutionStatus.WAITING_HUMAN.value}")
-                            )
-
-                            if is_terminal or question_mismatch or mode_mismatch or stale_in_progress:
-                                if is_terminal:
-                                    reason = "terminal checkpoint"
-                                elif question_mismatch:
-                                    reason = "question mismatch"
-                                elif mode_mismatch:
-                                    reason = "mode mismatch"
-                                else:
-                                    reason = "stale in-progress checkpoint"
-                                log_info(f"Clearing checkpoint for fresh execution (thread_id={thread_id}, {reason})")
-                                from workflows.checkpointer import delete_checkpoints
-                                deleted = delete_checkpoints(thread_id=thread_id, checkpoint_ns=checkpoint_ns)
-                                log_info(f"Deleted {deleted} checkpoints (ns={checkpoint_ns!r})")
-                                # Also clear Redis graph state to prevent stale data
-                                try:
-                                    redis_tool.delete_graph_state(thread_id=thread_id)
-                                    log_debug(f"Cleared Redis graph state for thread {thread_id}")
-                                except Exception as redis_err:
-                                    log_warning(f"Failed to clear Redis graph state: {redis_err}")
+                        from workflows.checkpointer import delete_checkpoints
+                        deleted = delete_checkpoints(thread_id=thread_id, checkpoint_ns=checkpoint_ns)
+                        if deleted:
+                            log_info(f"Cleared {deleted} stale checkpoint(s) for thread {thread_id}")
+                        try:
+                            redis_tool.delete_graph_state(thread_id=thread_id)
+                        except Exception:
+                            pass
                     except Exception as e:
-                        log_warning(f"Failed to check/clear checkpoint: {e}")
-                
-                # Build the graph with checkpointer (short-term) and store (long-term)
-                graph = build_workflow_graph(
+                        log_warning(f"Failed to clear checkpoint: {e}")
+
+                graph = build_react_graph(
                     config=config,
                     checkpointer=checkpointer,
                     store=store,
+                    user_id=user_id,
+                    question=question,
                 )
-                
+
+                # Inject planner config into the configurable dict
+                rio_cfg = getattr(graph, "_rio_config", {})
+                if rio_cfg:
+                    config_payload.setdefault("configurable", {}).update(rio_cfg)
+
                 start_time = time.time()
                 token_buffer = ""
-                final_state = None
-                
-                # Stream the graph execution
-                seen_workers = set()
-                seen_decisions = 0
+                answer = ""
+
                 event_count = 0
                 answer_streamed = False
-                
-                log_info("Starting graph.stream() iteration...")
-                log_debug(f"Initial state: original_question={initial_state.get('original_question')[:100] if initial_state.get('original_question') else 'None'}")
-                log_debug(f"Initial state: final_response={initial_state.get('final_response')}")
-                log_debug(f"Initial state: status={initial_state.get('status')}")
-                
+                seen_tool_call_ids: set = set()
+
+                log_info("Starting graph.stream() with stream_mode='messages'...")
+
+                # ── Use stream_mode="messages" for real-time streaming ──
+                # This yields individual message chunks as they are produced
+                # INSIDE the ReAct agent loop, not after the entire subgraph
+                # finishes.  Each yielded item is (message_chunk, metadata).
                 stream_iter = graph.stream(
                     initial_state,
                     config=config_payload,
-                    stream_mode="values",
-                    durability="sync",
+                    stream_mode="messages",
+                    subgraphs=True,
                 )
 
-                for event in stream_iter:
+                for stream_event in stream_iter:
                     event_count += 1
-                    log_debug(f"Graph event {event_count}: keys={list(event.keys()) if isinstance(event, dict) else type(event)}")
-                    
-                    # Log important state fields
-                    if isinstance(event, dict):
-                        log_debug(f"  -> status={event.get('status')}, final_response={bool(event.get('final_response'))}")
-                        log_debug(f"  -> iteration_count={event.get('iteration_count')}, workers={len(event.get('worker_results') or [])}")
-                    # event is the current state after each node
-                    if isinstance(event, dict):
-                        final_state = event
 
-                        # Check for guardrail state changes
-                        if event.get("guardrail_passed") is not None:
-                            yield {
-                                "type": "guardrail",
-                                "guardrail": "input",
-                                "passed": event["guardrail_passed"],
-                                "reason": event.get("guardrail_rejection") or "",
-                            }
-                        if event.get("guardrail_output_passed") is not None:
-                            yield {
-                                "type": "guardrail",
-                                "guardrail": "output",
-                                "passed": event["guardrail_output_passed"],
-                                "reason": event.get("guardrail_output_rejection") or "",
-                            }
+                    # stream_mode="messages" with subgraphs=True yields:
+                    #   (namespace_tuple, (message_chunk, metadata))
+                    # Without subgraphs it yields:
+                    #   (message_chunk, metadata)
+                    if isinstance(stream_event, tuple) and len(stream_event) == 2:
+                        first, second = stream_event
+                        if isinstance(first, tuple):
+                            # subgraphs=True: (namespace, (chunk, meta))
+                            chunk = second[0] if isinstance(second, tuple) else second
+                        elif isinstance(second, dict):
+                            # (chunk, metadata)
+                            chunk = first
+                        else:
+                            chunk = first
+                    else:
+                        continue
 
-                        # Check for supervisor decisions
-                        decisions = event.get("supervisor_decisions") or []
-                        if len(decisions) > seen_decisions:
-                            latest_decision = decisions[-1]
-                            seen_decisions = len(decisions)
-                            yield {
-                                "type": "supervisor",
-                                "decision": latest_decision.to_dict(),
-                                "iteration": event.get("iteration_count", 0),
-                            }
-                        
-                        # Check for worker results
-                        worker_results = event.get("worker_results") or []
-                        for result in worker_results:
-                            result_key = f"{result.worker_type.value}_{result.timestamp}"
-                            if result_key not in seen_workers:
-                                seen_workers.add(result_key)
-                                
-                                # Emit planning event for planning worker (frontend shows this)
-                                if result.worker_type.value == "planning" and result.success:
+                    # ── AIMessageChunk: streaming tokens or tool calls ──
+                    if isinstance(chunk, (AIMessage, AIMessageChunk)):
+                        content = getattr(chunk, "content", "") or ""
+                        tool_calls = getattr(chunk, "tool_calls", None) or []
+                        tool_call_chunks = getattr(chunk, "tool_call_chunks", None) or []
+
+                        # Emit Logic events for tool calls (delegation / direct)
+                        for tc in tool_calls:
+                            tc_id = tc.get("id", "")
+                            if tc_id and tc_id not in seen_tool_call_ids:
+                                seen_tool_call_ids.add(tc_id)
+                                tool_name = tc.get("name", "unknown")
+                                if tool_name.startswith("delegate_"):
+                                    domain = tool_name.replace("delegate_", "").replace("_task", "")
                                     yield {
-                                        "type": "planning",
-                                        "content": result.content,
+                                        "type": "supervisor",
+                                        "decision": {
+                                            "action": "delegate",
+                                            "worker": domain,
+                                            "reasoning": str(tc.get("args", {}).get("instruction", ""))[:80],
+                                            "confidence": None,
+                                        },
+                                        "iteration": event_count,
                                     }
-                                
-                                # Emit note_result for note worker (frontend renders sticky notes)
-                                # Also persist to DB so notes survive page reloads.
-                                if result.worker_type.value == "note" and result.success and result.content:
-                                    try:
-                                        import json as _json
-                                        notes = _json.loads(result.content)
-                                        if isinstance(notes, list) and notes:
-                                            # Persist to database
-                                            persisted_note_ids: list[str] = []
-                                            if user_id:
-                                                try:
-                                                    from services.note_service import NoteService
-                                                    from uuid import UUID as _UUID
-                                                    saved = NoteService.create_notes_from_agent(
-                                                        user_id=_UUID(user_id),
-                                                        notes_json=notes,
-                                                        thread_id=thread_id,
-                                                    )
-                                                    persisted_note_ids = [str(n.id) for n in saved]
-                                                    log_info(f"Persisted {len(saved)} agent notes to DB")
-                                                except Exception as db_err:
-                                                    log_warning(f"Failed to persist agent notes: {db_err}")
+                                else:
+                                    yield {
+                                        "type": "supervisor",
+                                        "decision": {
+                                            "action": "delegate",
+                                            "worker": tool_name,
+                                            "reasoning": f"Calling {tool_name}",
+                                            "confidence": None,
+                                        },
+                                        "iteration": event_count,
+                                    }
 
-                                            yield {
-                                                "type": "note_result",
-                                                "notes": notes,
-                                                "persisted_ids": persisted_note_ids,
-                                            }
-                                    except Exception:
-                                        pass
-                                
-                                # Emit mission events for mission worker.
-                                # Handles both creation (mission_result) and
-                                # interaction actions (mission_action).
-                                if result.worker_type.value == "mission" and result.success and result.content:
-                                    try:
-                                        import json as _json2
-                                        payload = _json2.loads(result.content)
-                                        action = (result.metadata or {}).get("action", "create")
-
-                                        if action == "create" and isinstance(payload, list) and payload:
-                                            # Original flow — persist new missions
-                                            persisted_ids: list[str] = []
-                                            if user_id:
-                                                try:
-                                                    from services.mission_service import MissionService
-                                                    from repositories.mission_repository import MissionRepository
-                                                    from models.mission import MissionStatus
-                                                    from infrastructure.database.session import get_session_factory
-                                                    from uuid import UUID as _UUID
-                                                    _SL = get_session_factory()
-                                                    _db = _SL()
-                                                    try:
-                                                        _repo = MissionRepository(_db)
-                                                        _svc = MissionService(_repo)
-
-                                                        # Dedup: skip missions whose title already exists
-                                                        existing = _svc.list_missions(
-                                                            _UUID(user_id),
-                                                            status=MissionStatus.ACTIVE,
-                                                            limit=100,
-                                                        )
-                                                        existing_titles = {
-                                                            m.title.strip().lower() for m in existing
-                                                        }
-                                                        new_payload = [
-                                                            m for m in payload
-                                                            if m.get("title", "").strip().lower()
-                                                            not in existing_titles
-                                                        ]
-                                                        skipped = len(payload) - len(new_payload)
-                                                        if skipped:
-                                                            log_warning(
-                                                                f"Dedup: skipped {skipped} duplicate mission(s) "
-                                                                f"(title already exists)"
-                                                            )
-                                                        if not new_payload:
-                                                            log_info("Dedup: all missions already exist — nothing to persist")
-                                                            payload = []
-                                                        else:
-                                                            saved = _svc.create_missions_from_agent(
-                                                                user_id=_UUID(user_id),
-                                                                missions_json=new_payload,
-                                                                thread_id=thread_id,
-                                                            )
-                                                            persisted_ids = [str(m.id) for m in saved]
-                                                            _db.commit()
-                                                            log_info(f"Persisted {len(saved)} agent missions to DB")
-                                                    except Exception as db_err:
-                                                        _db.rollback()
-                                                        log_warning(f"Failed to persist agent missions: {db_err}")
-                                                    finally:
-                                                        _db.close()
-                                                except Exception as db_err:
-                                                    log_warning(f"Failed to persist agent missions: {db_err}")
-
-                                            yield {
-                                                "type": "mission_result",
-                                                "missions": payload,
-                                                "persisted_ids": persisted_ids,
-                                            }
-
-                                        elif action in ("toggle_step", "complete_mission", "update_mission") and isinstance(payload, dict):
-                                            # Interaction actions — already persisted by MissionTool
-                                            yield {
-                                                "type": "mission_action",
-                                                "action": action,
-                                                "mission": payload.get("mission", {}),
-                                                "step_index": payload.get("step_index"),
-                                            }
-
-                                        elif action == "delete_mission" and isinstance(payload, dict):
-                                            # Delete action — already persisted by MissionTool
-                                            yield {
-                                                "type": "mission_action",
-                                                "action": "delete_mission",
-                                                "mission": {"id": payload.get("mission_id"), "title": payload.get("title")},
-                                                "step_index": None,
-                                            }
-                                    except Exception:
-                                        pass
-                                
-                                # Emit worker event
-                                yield {
-                                    "type": "worker",
-                                    "worker": result.worker_type.value,
-                                    "success": result.success,
-                                    "content_preview": (result.content or "")[:TOOL_PREVIEW_LENGTH],
-                                }
-                        
-                        # Check for final response (only stream once —
-                        # subsequent nodes re-emit the same state value)
-                        final_response = event.get("final_response")
-                        if final_response and not answer_streamed:
-                            answer_streamed = True
-                            # Stream the final response token by token
-                            for char in final_response:
-                                token_buffer += char
-                                if len(token_buffer) >= STREAM_TOKEN_BATCH_SIZE:
-                                    yield {"type": "token", "content": token_buffer}
-                                    token_buffer = ""
-                            
-                            if token_buffer:
+                        # Stream text tokens in real-time (skip tool-call-only chunks)
+                        if content and not tool_calls and not tool_call_chunks:
+                            if not answer_streamed:
+                                answer_streamed = True
+                            answer += content
+                            token_buffer += content
+                            if len(token_buffer) >= STREAM_TOKEN_BATCH_SIZE:
                                 yield {"type": "token", "content": token_buffer}
                                 token_buffer = ""
-                            
-                            answer = final_response
+
+                    # ── ToolMessage: tool result → Logic worker-result ──
+                    elif isinstance(chunk, ToolMessage):
+                        raw_name = getattr(chunk, "name", "tool")
+                        # Clean up tool name for display
+                        display_name = raw_name
+                        if raw_name.startswith("delegate_"):
+                            display_name = raw_name.replace("delegate_", "").replace("_task", "") + " agent"
+                        content = getattr(chunk, "content", "") or ""
+                        yield {
+                            "type": "worker",
+                            "worker": display_name,
+                            "success": True,
+                            "content_preview": content[:TOOL_PREVIEW_LENGTH] if content else "",
+                        }
+
+                # Flush remaining token buffer
+                if token_buffer:
+                    yield {"type": "token", "content": token_buffer}
+                    token_buffer = ""
+
+                # Collect full answer from the final graph state
+                if not answer:
+                    try:
+                        state_cfg = {"configurable": dict((config_payload or {}).get("configurable") or {})}
+                        final_snapshot = graph.get_state(state_cfg)
+                        if final_snapshot and final_snapshot.values:
+                            msgs = final_snapshot.values.get("messages") or []
+                            for msg in reversed(msgs):
+                                if isinstance(msg, AIMessage) and msg.content and not getattr(msg, "tool_calls", None):
+                                    answer = msg.content
+                                    break
+                    except Exception:
+                        pass
                 
                 invoke_time_ms = int((time.time() - start_time) * 1000)
                 phase_timings["total_ms"] = invoke_time_ms
 
                 log_info(f"Graph streaming completed: {event_count} events, answer={bool(answer)}")
 
-                # Detect if graph didn't actually run (returned checkpoint state)
                 if event_count == 0:
                     log_warning("No graph events emitted - graph may have returned cached checkpoint state")
 
-                # ── Interrupt detection ────────────────────────────
-                # When the SQL worker calls interrupt(), the stream
-                # ends silently.  Check the graph snapshot for
-                # pending interrupts and emit them to the frontend.
                 try:
                     state_cfg = {"configurable": dict((config_payload or {}).get("configurable") or {})}
                     snapshot = graph.get_state(state_cfg)
@@ -731,60 +588,50 @@ def stream_workflow(
                         for task in pending_interrupts:
                             for intr in getattr(task, "interrupts", []):
                                 interrupt_value = getattr(intr, "value", None)
-                                if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "sql_approval":
-                                    log_info(f"SQL approval interrupt detected: {interrupt_value.get('request_id')}")
-                                    yield {
-                                        "type": "sql_approval_request",
-                                        "request_id": interrupt_value.get("request_id"),
-                                        "sql": interrupt_value.get("sql"),
-                                        "natural_query": interrupt_value.get("natural_query"),
-                                        "operation_type": interrupt_value.get("operation_type"),
-                                        "danger_level": interrupt_value.get("danger_level"),
-                                        "affected_tables": interrupt_value.get("affected_tables", []),
-                                        "estimated_rows_affected": interrupt_value.get("estimated_rows_affected"),
-                                        "warnings": interrupt_value.get("warnings", []),
-                                        "explanation": interrupt_value.get("explanation", ""),
-                                        "message": interrupt_value.get("message", ""),
-                                    }
+                                if isinstance(interrupt_value, dict):
+                                    intr_type = interrupt_value.get("type", "")
+                                    if intr_type == "sql_approval":
+                                        log_info(f"SQL approval interrupt detected: {interrupt_value.get('request_id')}")
+                                        yield {
+                                            "type": "sql_approval_request",
+                                            "request_id": interrupt_value.get("request_id"),
+                                            "sql": interrupt_value.get("sql"),
+                                            "natural_query": interrupt_value.get("natural_query"),
+                                            "operation_type": interrupt_value.get("operation_type"),
+                                            "danger_level": interrupt_value.get("danger_level"),
+                                            "affected_tables": interrupt_value.get("affected_tables", []),
+                                            "estimated_rows_affected": interrupt_value.get("estimated_rows_affected"),
+                                            "warnings": interrupt_value.get("warnings", []),
+                                            "explanation": interrupt_value.get("explanation", ""),
+                                            "message": interrupt_value.get("message", ""),
+                                        }
+                                    elif intr_type in ("note_create_confirmation", "note_delete_confirmation", "note_update_confirmation"):
+                                        log_info(f"Note confirmation interrupt detected: {intr_type} note_id={interrupt_value.get('note_id')}")
+                                        yield {
+                                            "type": "note_confirmation_request",
+                                            "confirmation_type": intr_type,
+                                            "note_id": interrupt_value.get("note_id", ""),
+                                            "note_title": interrupt_value.get("note_title", ""),
+                                            "action": "delete" if "delete" in intr_type else "create" if "create" in intr_type else "update",
+                                            "update_type": interrupt_value.get("update_type"),
+                                            "message": interrupt_value.get("message", ""),
+                                            "options": interrupt_value.get("options", ["approve", "reject"]),
+                                        }
                 except Exception as intr_err:
                     if "Subgraph thread not found" in str(intr_err):
                         log_debug(f"Interrupt check skipped: {intr_err}")
                     else:
                         log_warning(f"Failed to check for interrupts: {intr_err}")
 
-                if final_state:
-                    phase_timings.update(final_state.get("timing") or {})
-                
-                # Save to Redis
                 try:
-                    if final_state:
-                        redis_tool.save_graph_state(
-                            thread_id=thread_id,
-                            state={
-                                "schema_version": final_state.get("schema_version", 1),
-                                "messages": final_state.get("messages") or [],
-                            },
-                        )
+                    redis_tool.save_graph_state(
+                        thread_id=thread_id,
+                        state={"answer": answer[:2000] if answer else ""},
+                    )
                 except Exception:
                     pass
-            
-            # Finalize
+
             stats = form.SELECTED_MODEL.get_overall_exec_stats()
-
-            # Emit emotional update if present
-            if final_state:
-                emotional_ctx = final_state.get("emotional_context")
-                if emotional_ctx and isinstance(emotional_ctx, dict):
-                    yield {
-                        "type": "emotional_update",
-                        **emotional_ctx,
-                    }
-
-            # Final result
-            worker_results_list = []
-            if final_state:
-                worker_results = final_state.get("worker_results") or []
-                worker_results_list = [r.to_dict() for r in worker_results]
 
             yield {
                 "type": "final",
@@ -792,8 +639,7 @@ def stream_workflow(
                     "answer": answer,
                     "stats": stats,
                     "timing": phase_timings,
-                    "worker_results": worker_results_list,
-                    "iterations": final_state.get("iteration_count", 0) if final_state else 0,
+                    "iterations": event_count,
                 },
                 "run_id": run_id,
             }
@@ -882,7 +728,6 @@ def resume_from_checkpoint(
     """
     log_info(f"Resuming from checkpoint: {checkpoint_id}")
     
-    # Load the checkpoint state
     checkpoint_data = load_checkpoint(
         thread_id=thread_id,
         checkpoint_id=checkpoint_id,
@@ -892,8 +737,6 @@ def resume_from_checkpoint(
     if not checkpoint_data:
         return {"error": f"Checkpoint not found: {checkpoint_id}", "status": "failed"}
     
-    # If human response provided, add it to the input
-    # The graph will continue from the checkpoint with the new input
     
     return run_workflow(
         question=human_response or "",  # Continue with human response
@@ -936,20 +779,15 @@ def resume_sql_approval(
 
     checkpoint_ns = checkpoint_ns or config.state_scope
 
-    # Validate the approval response
     action = approval_response.get("action", "reject")
     valid_actions = {"approve", "edit", "reject", "always_approve"}
     if action not in valid_actions:
         yield {"type": "error", "error": f"Invalid action: {action}. Must be one of {valid_actions}"}
         return
 
-    # Build the resume value that will be received by interrupt() in SQL worker
-    # The SQL worker expects: {"action": "approve"|"edit"|"reject", "modified_sql": "...", "reason": "..."}
     resume_value: Dict[str, Any] = {"action": action}
 
     if action == "always_approve":
-        # "always_approve" behaves like "approve" for this query,
-        # but we also set a flag in thread metadata below.
         resume_value["action"] = "approve"
 
     if action == "edit":
@@ -962,7 +800,6 @@ def resume_sql_approval(
     if approval_response.get("reason"):
         resume_value["reason"] = approval_response["reason"]
 
-    # Build config for resuming
     config_payload = build_config_payload(
         thread_id=thread_id,
         checkpoint_ns=checkpoint_ns,
@@ -974,14 +811,12 @@ def resume_sql_approval(
 
     try:
         with checkpoint_context() as checkpointer, memory_store_context() as store:
-            graph = build_workflow_graph(
+            graph = build_react_graph(
                 config=config,
                 checkpointer=checkpointer,
                 store=store,
             )
 
-            # If "always_approve", set the auto-approve flag in graph state
-            # so future SQL operations in this thread skip the interrupt.
             if action == "always_approve":
                 try:
                     state_cfg = {"configurable": dict((config_payload or {}).get("configurable") or {})}
@@ -997,8 +832,6 @@ def resume_sql_approval(
                     else:
                         log_warning(f"Failed to set sql_auto_approve flag: {meta_err}")
 
-            # Resume with Command(resume=value) — this delivers the value
-            # directly to the interrupt() call in the SQL worker.
             start_time = time.time()
             token_buffer = ""
             final_state = None
@@ -1019,7 +852,6 @@ def resume_sql_approval(
                 if isinstance(event, dict):
                     final_state = event
 
-                    # Supervisor decisions
                     decisions = event.get("supervisor_decisions") or []
                     if len(decisions) > seen_decisions:
                         latest_decision = decisions[-1]
@@ -1030,7 +862,6 @@ def resume_sql_approval(
                             "iteration": event.get("iteration_count", 0),
                         }
 
-                    # Worker results
                     worker_results = event.get("worker_results") or []
                     for result in worker_results:
                         result_key = f"{result.worker_type.value}_{result.timestamp}"
@@ -1043,7 +874,6 @@ def resume_sql_approval(
                                 "content_preview": (result.content or "")[:TOOL_PREVIEW_LENGTH],
                             }
 
-                    # Final response tokens
                     final_response = event.get("final_response")
                     if final_response:
                         for char in final_response:
@@ -1056,7 +886,6 @@ def resume_sql_approval(
                             token_buffer = ""
                         answer = final_response
 
-            # Check for new interrupts (e.g. retry with re-approval)
             try:
                 state_cfg = {"configurable": dict((config_payload or {}).get("configurable") or {})}
                 snapshot = graph.get_state(state_cfg)
@@ -1065,20 +894,33 @@ def resume_sql_approval(
                     for task in pending_interrupts:
                         for intr in getattr(task, "interrupts", []):
                             interrupt_value = getattr(intr, "value", None)
-                            if isinstance(interrupt_value, dict) and interrupt_value.get("type") == "sql_approval":
-                                yield {
-                                    "type": "sql_approval_request",
-                                    "request_id": interrupt_value.get("request_id"),
-                                    "sql": interrupt_value.get("sql"),
-                                    "natural_query": interrupt_value.get("natural_query"),
-                                    "operation_type": interrupt_value.get("operation_type"),
-                                    "danger_level": interrupt_value.get("danger_level"),
-                                    "affected_tables": interrupt_value.get("affected_tables", []),
-                                    "estimated_rows_affected": interrupt_value.get("estimated_rows_affected"),
-                                    "warnings": interrupt_value.get("warnings", []),
-                                    "explanation": interrupt_value.get("explanation", ""),
-                                    "message": interrupt_value.get("message", ""),
-                                }
+                            if isinstance(interrupt_value, dict):
+                                intr_type = interrupt_value.get("type", "")
+                                if intr_type == "sql_approval":
+                                    yield {
+                                        "type": "sql_approval_request",
+                                        "request_id": interrupt_value.get("request_id"),
+                                        "sql": interrupt_value.get("sql"),
+                                        "natural_query": interrupt_value.get("natural_query"),
+                                        "operation_type": interrupt_value.get("operation_type"),
+                                        "danger_level": interrupt_value.get("danger_level"),
+                                        "affected_tables": interrupt_value.get("affected_tables", []),
+                                        "estimated_rows_affected": interrupt_value.get("estimated_rows_affected"),
+                                        "warnings": interrupt_value.get("warnings", []),
+                                        "explanation": interrupt_value.get("explanation", ""),
+                                        "message": interrupt_value.get("message", ""),
+                                    }
+                                elif intr_type in ("note_create_confirmation", "note_delete_confirmation", "note_update_confirmation"):
+                                    yield {
+                                        "type": "note_confirmation_request",
+                                        "confirmation_type": intr_type,
+                                        "note_id": interrupt_value.get("note_id", ""),
+                                        "note_title": interrupt_value.get("note_title", ""),
+                                        "action": "delete" if "delete" in intr_type else "create" if "create" in intr_type else "update",
+                                        "update_type": interrupt_value.get("update_type"),
+                                        "message": interrupt_value.get("message", ""),
+                                        "options": interrupt_value.get("options", ["approve", "reject"]),
+                                    }
             except Exception as intr_err:
                 if "Subgraph thread not found" in str(intr_err):
                     log_debug(f"Interrupt check after resume skipped: {intr_err}")
@@ -1091,7 +933,6 @@ def resume_sql_approval(
             if final_state:
                 phase_timings.update(final_state.get("timing") or {})
 
-            # Save to Redis
             try:
                 if final_state:
                     redis_tool.save_graph_state(
@@ -1104,7 +945,6 @@ def resume_sql_approval(
             except Exception:
                 pass
 
-            # Final result
             stats = form.SELECTED_MODEL.get_overall_exec_stats()
             worker_results_list = []
             if final_state:
@@ -1128,4 +968,169 @@ def resume_sql_approval(
         raise
     except Exception as e:
         log_error(f"SQL approval resume failed: {e}")
+        yield {"type": "error", "error": str(e), "run_id": run_id}
+
+
+def resume_note_confirmation(
+    *,
+    thread_id: str,
+    config: AgentConfig,
+    decision: str,
+    checkpoint_ns: str = "",
+) -> Iterator[Dict[str, Any]]:
+    """Resume workflow after note HITL confirmation (delete / full-rewrite).
+
+    Uses LangGraph ``Command(resume=value)`` so the value reaches the
+    ``interrupt()`` call inside the note handler.
+
+    Args:
+        thread_id: Thread to resume
+        config: Agent configuration
+        decision: "approve" or "reject"
+        checkpoint_ns: Namespace
+
+    Yields:
+        Event dicts (same protocol as stream_workflow)
+    """
+    log_info(f"Resuming note confirmation for thread: {thread_id}, decision={decision}")
+
+    checkpoint_ns = checkpoint_ns or config.state_scope
+
+    if decision not in ("approve", "reject"):
+        yield {"type": "error", "error": f"Invalid decision: {decision}. Must be 'approve' or 'reject'."}
+        return
+
+    resume_value = {"decision": decision}
+
+    config_payload = build_config_payload(
+        thread_id=thread_id,
+        checkpoint_ns=checkpoint_ns,
+    )
+
+    run_id = uuid4().hex
+    yield {"type": "run_started", "run_id": run_id, "thread_id": thread_id}
+
+    try:
+        with checkpoint_context() as checkpointer, memory_store_context() as store:
+            graph = build_react_graph(
+                config=config,
+                checkpointer=checkpointer,
+                store=store,
+            )
+
+            start_time = time.time()
+            token_buffer = ""
+            final_state = None
+            answer = ""
+            seen_workers = set()
+            seen_decisions = 0
+            event_count = 0
+
+            stream_iter = graph.stream(
+                Command(resume=resume_value),
+                config=config_payload,
+                stream_mode="values",
+            )
+
+            for event in stream_iter:
+                event_count += 1
+                if isinstance(event, dict):
+                    final_state = event
+
+                    decisions = event.get("supervisor_decisions") or []
+                    if len(decisions) > seen_decisions:
+                        latest_decision = decisions[-1]
+                        seen_decisions = len(decisions)
+                        yield {
+                            "type": "supervisor",
+                            "decision": latest_decision.to_dict(),
+                            "iteration": event.get("iteration_count", 0),
+                        }
+
+                    worker_results = event.get("worker_results") or []
+                    for result in worker_results:
+                        result_key = f"{result.worker_type.value}_{result.timestamp}"
+                        if result_key not in seen_workers:
+                            seen_workers.add(result_key)
+                            yield {
+                                "type": "worker",
+                                "worker": result.worker_type.value,
+                                "success": result.success,
+                                "content_preview": (result.content or "")[:TOOL_PREVIEW_LENGTH],
+                            }
+
+                    # Emit note_result events for sidebar updates
+                    for result in worker_results:
+                        if result.worker_type.value == "note" and result.success:
+                            metadata = result.metadata or {}
+                            action = metadata.get("action", "")
+                            if action in ("create", "update", "delete"):
+                                note_content = result.content or ""
+                                note_id = metadata.get("note_id", "")
+                                try:
+                                    import json as _json
+                                    parsed = _json.loads(note_content) if note_content.startswith("{") else {}
+                                    note_id = note_id or parsed.get("note_id") or parsed.get("id", "")
+                                except Exception:
+                                    parsed = {}
+                                yield {
+                                    "type": "note_result",
+                                    "action": action,
+                                    "notes": [parsed] if parsed else [],
+                                    "persisted_ids": [note_id] if note_id else [],
+                                }
+
+                    final_response = event.get("final_response")
+                    if final_response:
+                        for char in final_response:
+                            token_buffer += char
+                            if len(token_buffer) >= STREAM_TOKEN_BATCH_SIZE:
+                                yield {"type": "token", "content": token_buffer}
+                                token_buffer = ""
+                        if token_buffer:
+                            yield {"type": "token", "content": token_buffer}
+                            token_buffer = ""
+                        answer = final_response
+
+            phase_timings: Dict[str, int] = {}
+            invoke_time_ms = int((time.time() - start_time) * 1000)
+            phase_timings["total_ms"] = invoke_time_ms
+            if final_state:
+                phase_timings.update(final_state.get("timing") or {})
+
+            try:
+                if final_state:
+                    redis_tool.save_graph_state(
+                        thread_id=thread_id,
+                        state={
+                            "schema_version": final_state.get("schema_version", 1),
+                            "messages": final_state.get("messages") or [],
+                        },
+                    )
+            except Exception:
+                pass
+
+            stats = form.SELECTED_MODEL.get_overall_exec_stats()
+            worker_results_list = []
+            if final_state:
+                wr = final_state.get("worker_results") or []
+                worker_results_list = [r.to_dict() for r in wr]
+
+            yield {
+                "type": "final",
+                "result": {
+                    "answer": answer,
+                    "stats": stats,
+                    "timing": phase_timings,
+                    "worker_results": worker_results_list,
+                    "iterations": final_state.get("iteration_count", 0) if final_state else 0,
+                    "decision": decision,
+                },
+                "run_id": run_id,
+            }
+
+    except WorkflowError:
+        raise
+    except Exception as e:
+        log_error(f"Note confirmation resume failed: {e}")
         yield {"type": "error", "error": str(e), "run_id": run_id}

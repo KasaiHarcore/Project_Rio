@@ -60,7 +60,20 @@ class RetrievalService:
 
 			if not docs:
 				log_warning("No documents found for query")
-				return "No relevant documents found in the knowledge base."
+				# Distinguish empty knowledge base from no matches
+				try:
+					from infrastructure.tools.qdrant_tool import get_vector_db_tool
+					tool = get_vector_db_tool()
+					info = tool.get_collection_info()
+					total = info.get("points_count", 0) if info else 0
+					if total == 0:
+						return (
+							"The knowledge base is empty — no documents have been ingested yet. "
+							"Please ingest documents first using the upload feature."
+						)
+				except Exception:
+					pass
+				return "No relevant documents found matching your query in the knowledge base."
 
 			parts: List[str] = []
 			for idx, d in enumerate(docs, 1):

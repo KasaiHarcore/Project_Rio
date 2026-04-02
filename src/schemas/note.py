@@ -41,7 +41,7 @@ class NoteAudioSchema(BaseModel):
 class NoteCreate(BaseModel):
     """Schema for creating a new note."""
     title: Optional[str] = Field("", max_length=500, description="Note title")
-    content: str = Field("", max_length=5000, description="Note text (legacy plain text)")
+    content: str = Field("", max_length=100000, description="Note text (legacy plain text)")
     todos: List[NoteTodoSchema] = Field(default_factory=list, description="Optional TODO checklist")
     blocks: List[NoteBlockSchema] = Field(default_factory=list, description="Block-based content")
     source: NoteSource = Field(NoteSource.USER, description="Creation source")
@@ -54,7 +54,7 @@ class NoteCreate(BaseModel):
 class NoteUpdate(BaseModel):
     """Schema for partial note update."""
     title: Optional[str] = Field(None, max_length=500)
-    content: Optional[str] = Field(None, max_length=5000)
+    content: Optional[str] = Field(None, max_length=100000)
     todos: Optional[List[NoteTodoSchema]] = None
     blocks: Optional[List[NoteBlockSchema]] = None
     pinned: Optional[bool] = None

@@ -17,7 +17,7 @@ from models.message import MessageRole
 class MessageBase(BaseModel):
     """Base message schema."""
     
-    content: str = Field(..., min_length=1, description="Message content")
+    content: str = Field(..., min_length=1, max_length=50000, description="Message content")
     role: MessageRole = Field(..., description="Message role")
 
 

@@ -14,7 +14,6 @@ from utils.log import log_info, log_error
 router = APIRouter(prefix="/emotional", tags=["emotional"])
 
 
-# ── Request/Response Models ──────────────────────────────────────────────
 
 
 class ResponseContext(BaseModel):
@@ -51,7 +50,6 @@ class GeneratedResponse(BaseModel):
     suggested_actions: Optional[List[str]] = Field(None, description="Suggested action buttons")
 
 
-# ── Persona Definitions ──────────────────────────────────────────────────
 
 
 PERSONA_DEFINITIONS = {
@@ -83,7 +81,6 @@ PERSONA_DEFINITIONS = {
 }
 
 
-# ── Situation-Specific Instructions ──────────────────────────────────────
 
 
 SITUATION_INSTRUCTIONS = {
@@ -138,7 +135,6 @@ SITUATION_INSTRUCTIONS = {
 }
 
 
-# ── Mood Modifiers ───────────────────────────────────────────────────────
 
 
 MOOD_MODIFIERS = {
@@ -151,7 +147,6 @@ MOOD_MODIFIERS = {
 }
 
 
-# ── LLM Response Generation ──────────────────────────────────────────────
 
 
 def generate_response_with_llm(context: ResponseContext) -> GeneratedResponse:
@@ -267,7 +262,6 @@ Response should be ONLY the message Rio would say, nothing else. No meta-comment
     )
 
 
-# ── API Endpoint ─────────────────────────────────────────────────────────
 
 
 @router.post("/generate-response", response_model=GeneratedResponse)

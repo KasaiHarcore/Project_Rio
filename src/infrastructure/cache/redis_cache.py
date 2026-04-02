@@ -45,10 +45,13 @@ class RedisTool:
 			"password": cfg.password,
 			"socket_timeout": cfg.socket_timeout_seconds,
 			"socket_connect_timeout": cfg.socket_connect_timeout_seconds,
-			"health_check_interval": cfg.health_check_interval_seconds,
 			"retry_on_timeout": True,
 			"decode_responses": False,
 		}
+		# Only enable pool-level health checks if explicitly configured (> 0).
+		# Default 0 = disabled; connectivity is verified once at startup via ping().
+		if cfg.health_check_interval_seconds > 0:
+			kwargs["health_check_interval"] = cfg.health_check_interval_seconds
 		if cfg.ssl:
 			kwargs["connection_class"] = redis.SSLConnection
 		try:
@@ -114,13 +117,11 @@ class RedisTool:
 		except Exception as e:
 			log_warning(f"Failed to enable Redis LLM cache: {e}")
 
-	# ── Key helpers ─────────────────────────────────────────────────────────
 
 	def _key(self, kind: str, id_: str) -> str:
 		prefix = (self._config.key_prefix or "ai-agent").strip(":")
 		return f"{prefix}:{kind}:{id_}"
 
-	# ── Generic JSON cache (auth blacklist, entity caching, etc.) ──────────
 
 	def cache_set_json(
 		self,
@@ -167,7 +168,6 @@ class RedisTool:
 		except Exception:
 			return False
 
-	# ── Graph state (write-only: executor saves, clear_thread_cache deletes)
 
 	def save_graph_state(
 		self,

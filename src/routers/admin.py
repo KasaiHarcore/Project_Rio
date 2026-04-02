@@ -38,7 +38,6 @@ from utils.log import log_info
 router = APIRouter(prefix="/admin", tags=["admin"])
 
 
-# -- System stats ------------------------------------------------------------
 
 @router.get("/stats", response_model=AdminSystemStats)
 async def system_stats(
@@ -84,7 +83,6 @@ async def system_stats(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# -- User management ---------------------------------------------------------
 
 @router.get("/users", response_model=AdminUserList)
 async def list_users(
@@ -99,40 +97,56 @@ async def list_users(
         total = db.query(func.count(User.id)).scalar() or 0
         offset = (page - 1) * page_size
 
-        users = (
-            db.query(User)
+        # Single aggregated query instead of N+1 per-user loop
+        thread_stats_sq = (
+            db.query(
+                Thread.user_id,
+                func.count(Thread.id).label("thread_count"),
+                func.count(Thread.id).filter(Thread.status == ThreadStatus.ACTIVE).label("active_count"),
+            )
+            .group_by(Thread.user_id)
+            .subquery()
+        )
+
+        msg_stats_sq = (
+            db.query(
+                Thread.user_id,
+                func.count(Message.id).label("message_count"),
+            )
+            .join(Message, Message.thread_id == Thread.id)
+            .group_by(Thread.user_id)
+            .subquery()
+        )
+
+        rows = (
+            db.query(
+                User,
+                func.coalesce(thread_stats_sq.c.thread_count, 0).label("thread_count"),
+                func.coalesce(thread_stats_sq.c.active_count, 0).label("active_count"),
+                func.coalesce(msg_stats_sq.c.message_count, 0).label("message_count"),
+            )
+            .outerjoin(thread_stats_sq, User.id == thread_stats_sq.c.user_id)
+            .outerjoin(msg_stats_sq, User.id == msg_stats_sq.c.user_id)
             .order_by(User.created_at.desc())
             .offset(offset)
             .limit(page_size)
             .all()
         )
 
-        views = []
-        for u in users:
-            thread_count = db.query(func.count(Thread.id)).filter(Thread.user_id == u.id).scalar() or 0
-            active_thread_count = (
-                db.query(func.count(Thread.id))
-                .filter(Thread.user_id == u.id, Thread.status == ThreadStatus.ACTIVE)
-                .scalar()
-            ) or 0
-            thread_ids = db.query(Thread.id).filter(Thread.user_id == u.id).subquery()
-            message_count = (
-                db.query(func.count(Message.id))
-                .filter(Message.thread_id.in_(db.query(thread_ids.c.id)))
-                .scalar()
-            ) or 0
-
-            views.append(AdminUserView(
+        views = [
+            AdminUserView(
                 id=u.id,
                 username=u.username,
                 email=u.email,
                 role=u.role,
                 created_at=u.created_at,
                 updated_at=u.updated_at,
-                thread_count=thread_count,
-                message_count=message_count,
-                active_thread_count=active_thread_count,
-            ))
+                thread_count=tc,
+                message_count=mc,
+                active_thread_count=ac,
+            )
+            for u, tc, ac, mc in rows
+        ]
 
         return AdminUserList(
             users=views,
@@ -183,7 +197,6 @@ async def update_user_role(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# -- Audit logs ---------------------------------------------------------------
 
 @router.get("/audit-logs", response_model=AdminAuditLogList)
 async def list_audit_logs(
@@ -232,7 +245,6 @@ async def list_audit_logs(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# -- System reset -------------------------------------------------------------
 
 @router.post("/reset-database", status_code=status.HTTP_200_OK)
 async def reset_database(

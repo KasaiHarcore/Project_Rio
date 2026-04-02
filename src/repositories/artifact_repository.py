@@ -42,9 +42,10 @@ class ArtifactRepository(BaseRepository):
         self.db.flush()
         return artifact
 
-    def delete_by_id(self, artifact_id: UUID, user_id: UUID) -> int:
-        return (
+    def delete_by_id(self, artifact_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(Artifact)
             .filter(Artifact.id == artifact_id, Artifact.user_id == user_id)
             .delete()
         )
+        return count > 0

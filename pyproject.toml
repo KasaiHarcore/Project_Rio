@@ -47,6 +47,11 @@ dependencies = [
   "passlib",
   "fastembed",
   "langgraph-checkpoint-postgres",
+  "croniter>=2.0",
+  "edge-tts>=6.0",
+  "mcp>=1.0",
+  "qwen-tts>=0.1",
+  "soundfile>=0.12",
 ]
 
 [dependency-groups]

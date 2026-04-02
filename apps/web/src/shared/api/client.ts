@@ -46,6 +46,12 @@ interface ApiOptions extends RequestInit {
   noAuth?: boolean;
 }
 
+/**
+ * In-flight GET request deduplication.
+ * Concurrent identical GETs share a single fetch promise.
+ */
+const _inflight = new Map<string, Promise<unknown>>();
+
 export async function apiFetch<T = unknown>(
   path: string,
   options: ApiOptions = {},
@@ -64,22 +70,37 @@ export async function apiFetch<T = unknown>(
     }
   }
 
-  const res = await fetch(`${API_BASE}/api/v1${path}`, {
-    headers,
-    ...rest,
-  });
+  const method = (rest.method ?? "GET").toUpperCase();
+  const url = `${API_BASE}/api/v1${path}`;
 
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? res.statusText, body);
+  // Deduplicate concurrent GET requests to the same URL
+  if (method === "GET") {
+    const existing = _inflight.get(url);
+    if (existing) return existing as Promise<T>;
   }
 
-  // 204 No Content (and other bodyless responses) — return undefined
-  if (res.status === 204 || res.headers.get("content-length") === "0") {
-    return undefined as T;
+  const promise = (async () => {
+    const res = await fetch(url, { headers, ...rest });
+
+    if (!res.ok) {
+      const body = await res.json().catch(() => ({}));
+      throw new ApiError(res.status, body.detail ?? res.statusText, body);
+    }
+
+    // 204 No Content (and other bodyless responses) — return undefined
+    if (res.status === 204 || res.headers.get("content-length") === "0") {
+      return undefined as T;
+    }
+
+    return res.json() as Promise<T>;
+  })();
+
+  if (method === "GET") {
+    _inflight.set(url, promise);
+    promise.finally(() => _inflight.delete(url));
   }
 
-  return res.json() as Promise<T>;
+  return promise;
 }
 
 export class ApiError extends Error {

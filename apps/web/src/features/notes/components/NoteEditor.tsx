@@ -273,7 +273,7 @@ export function NoteEditor() {
                     />
                 ) : (
                     <div className="p-6 overflow-y-auto h-full custom-scrollbar">
-                        <article className="prose prose-invert prose-rose max-w-none prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10 prose-img:rounded-xl prose-img:border prose-img:border-white/10">
+                        <article className="prose prose-invert prose-rose max-w-none prose-pre:bg-black/50 prose-pre:border prose-pre:border-white/10 prose-pre:overflow-x-auto prose-img:rounded-xl prose-img:border prose-img:border-white/10">
                             {activeNote.content ? (
                                 <ReactMarkdown
                                     remarkPlugins={[remarkGfm, remarkMath]}

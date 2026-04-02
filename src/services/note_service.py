@@ -21,9 +21,9 @@ from schemas.note import (
     NoteInDB,
 )
 from repositories.note_repository import NoteRepository
+from repositories.collection_repository import CollectionRepository
+from core.concurrency import concurrency_manager
 from utils.log import log_info, log_warning
-
-import threading
 
 
 class NoteService:
@@ -33,20 +33,28 @@ class NoteService:
         self,
         note_repo: NoteRepository,
         note_link_service: Optional[object] = None,
+        collection_repo: Optional[CollectionRepository] = None,
     ) -> None:
         self._repo = note_repo
         self._link_service = note_link_service
+        self._collection_repo = collection_repo
+        # Cache storage dir at init to avoid repeated config lookups
+        self._notes_dir: Optional[str] = None
+
+    def _get_notes_dir(self) -> str:
+        """Lazily resolve and cache the notes storage directory."""
+        if self._notes_dir is None:
+            import os
+            from core.settings import get_app_config
+            config = get_app_config()
+            self._notes_dir = os.path.join(config.storage_dir, "notes")
+            os.makedirs(self._notes_dir, exist_ok=True)
+        return self._notes_dir
 
     def _save_note_to_disk(self, note: Note) -> None:
         try:
-            from core.settings import get_app_config
             import os
-
-            config = get_app_config()
-            notes_dir = os.path.join(config.storage_dir, "notes")
-            os.makedirs(notes_dir, exist_ok=True)
-
-            filepath = os.path.join(notes_dir, f"{note.id}.md")
+            filepath = os.path.join(self._get_notes_dir(), f"{note.id}.md")
             with open(filepath, "w", encoding="utf-8") as f:
                 f.write(note.content or "")
         except Exception as e:
@@ -54,60 +62,66 @@ class NoteService:
 
     def _delete_note_from_disk(self, note_id: UUID) -> None:
         try:
-            from core.settings import get_app_config
             import os
-
-            config = get_app_config()
-            notes_dir = os.path.join(config.storage_dir, "notes")
-            filepath = os.path.join(notes_dir, f"{note_id}.md")
+            filepath = os.path.join(self._get_notes_dir(), f"{note_id}.md")
             if os.path.exists(filepath):
                 os.remove(filepath)
         except Exception as e:
             log_warning(f"Failed to delete note from disk: {e}")
 
     def _set_note_collections(self, note_id: UUID, user_id: UUID, collection_ids: List[str]) -> None:
-        """Replace all collection memberships for a note."""
-        self._repo.db.query(NoteCollectionMembership).filter(
-            NoteCollectionMembership.note_id == note_id
-        ).delete()
+        """Replace all collection memberships for a note via repository."""
+        valid_ids: List[UUID] = []
         for cid in collection_ids:
             try:
-                membership = NoteCollectionMembership(
-                    note_id=note_id,
-                    collection_id=UUID(cid),
-                )
-                self._repo.db.add(membership)
+                valid_ids.append(UUID(cid))
             except (ValueError, Exception) as e:
                 log_warning(f"Invalid collection_id '{cid}': {e}")
-        self._repo.db.flush()
+
+        if self._collection_repo:
+            self._collection_repo.set_note_collections(note_id, valid_ids)
+        else:
+            # Fallback: use note repo's session directly
+            from models.note_collection_membership import NoteCollectionMembership
+            self._repo.db.query(NoteCollectionMembership).filter(
+                NoteCollectionMembership.note_id == note_id
+            ).delete()
+            for cid in valid_ids:
+                self._repo.db.add(NoteCollectionMembership(note_id=note_id, collection_id=cid))
+            self._repo.db.flush()
 
     def _embed_note_async(self, note: Note) -> None:
-        """Upsert note embedding into Qdrant in a background thread (non-blocking)."""
+        """Upsert note embedding into Qdrant via shared thread pool (non-blocking)."""
+        # Capture values before submitting — note ORM may be detached later
+        note_id = str(note.id)
+        user_id = str(note.user_id)
+        title = note.title or ""
+        content = note.content or ""
+        collection_ids = [str(c.id) for c in note.collections]
+        source = note.source.value if note.source else "user"
+
         def _run():
             try:
                 from infrastructure.tools.note_vector_tool import get_note_vector_tool
-                collection_ids = [str(c.id) for c in note.collections]
                 get_note_vector_tool().upsert_note(
-                    note_id=str(note.id),
-                    user_id=str(note.user_id),
-                    title=note.title or "",
-                    content=note.content or "",
-                    collection_ids=collection_ids,
-                    source=note.source.value if note.source else "user",
+                    note_id=note_id, user_id=user_id,
+                    title=title, content=content,
+                    collection_ids=collection_ids, source=source,
                 )
             except Exception as e:
-                log_warning(f"Note embedding upsert failed for {note.id}: {e}")
-        threading.Thread(target=_run, daemon=True).start()
+                log_warning(f"Note embedding upsert failed for {note_id}: {e}")
+        concurrency_manager.submit_fire_and_forget(_run)
 
     def _delete_note_embedding_async(self, note_id: UUID) -> None:
-        """Remove note embedding from Qdrant in a background thread."""
+        """Remove note embedding from Qdrant via shared thread pool."""
+        nid = str(note_id)
         def _run():
             try:
                 from infrastructure.tools.note_vector_tool import get_note_vector_tool
-                get_note_vector_tool().delete_note(str(note_id))
+                get_note_vector_tool().delete_note(nid)
             except Exception as e:
-                log_warning(f"Note embedding delete failed for {note_id}: {e}")
-        threading.Thread(target=_run, daemon=True).start()
+                log_warning(f"Note embedding delete failed for {nid}: {e}")
+        concurrency_manager.submit_fire_and_forget(_run)
 
     def _note_to_schema(self, note: Note) -> NoteInDB:
         """Convert Note ORM to NoteInDB schema, including collection_ids."""
@@ -115,7 +129,6 @@ class NoteService:
         data.collection_ids = [c.id for c in note.collections]
         return data
 
-    # -- Read --
 
     def list_notes(
         self,
@@ -140,7 +153,6 @@ class NoteService:
         row = self._repo.find_by_id(note_id=note_id, user_id=user_id)
         return self._note_to_schema(row) if row else None
 
-    # -- Create --
 
     def create_note(self, user_id: UUID, data: NoteCreate) -> NoteInDB:
         """Create a new note."""
@@ -207,7 +219,6 @@ class NoteService:
             log_info(f"Agent-created note {note.id}: {content[:80]}")
         return created
 
-    # -- Update --
 
     def update_note(self, user_id: UUID, note_id: UUID, data: NoteUpdate) -> Optional[NoteInDB]:
         """Partially update a note."""
@@ -254,7 +265,6 @@ class NoteService:
         self._repo.flush()
         return self._note_to_schema(note)
 
-    # -- Delete --
 
     def _sync_links(self, user_id: UUID, note_id: UUID, content: str) -> None:
         """Auto-sync note links from content if link service is available."""
@@ -268,7 +278,7 @@ class NoteService:
     def delete_note(self, user_id: UUID, note_id: UUID) -> bool:
         """Delete a note. Returns True if deleted."""
         deleted = self._repo.delete_by_id(note_id=note_id, user_id=user_id)
-        if deleted > 0:
+        if deleted:
             self._delete_note_from_disk(note_id)
             self._delete_note_embedding_async(note_id)
-        return deleted > 0
+        return deleted

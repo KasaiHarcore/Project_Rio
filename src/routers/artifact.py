@@ -35,7 +35,6 @@ _MIME_MAP = {
 }
 
 
-# -- List --
 
 @router.get("", response_model=List[ArtifactInDB])
 async def list_artifacts(
@@ -57,7 +56,6 @@ async def list_artifacts(
     )
 
 
-# -- Create --
 
 @router.post("", response_model=ArtifactInDB, status_code=status.HTTP_201_CREATED)
 async def create_artifact(
@@ -69,7 +67,6 @@ async def create_artifact(
     return await concurrency_manager.run_in_thread(svc.create_artifact, user.id, body)
 
 
-# -- Get --
 
 @router.get("/{artifact_id}", response_model=ArtifactInDB)
 async def get_artifact(
@@ -84,7 +81,6 @@ async def get_artifact(
     return a
 
 
-# -- Update --
 
 @router.patch("/{artifact_id}", response_model=ArtifactInDB)
 async def update_artifact(
@@ -100,7 +96,6 @@ async def update_artifact(
     return a
 
 
-# -- Delete --
 
 @router.delete("/{artifact_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_artifact(
@@ -114,7 +109,6 @@ async def delete_artifact(
         raise NotFoundError("Artifact not found")
 
 
-# -- Download --
 
 @router.get("/{artifact_id}/download")
 async def download_artifact(

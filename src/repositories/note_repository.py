@@ -55,9 +55,10 @@ class NoteRepository(BaseRepository):
         self.db.flush()
         return note
 
-    def delete_by_id(self, note_id: UUID, user_id: UUID) -> int:
-        return (
+    def delete_by_id(self, note_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(Note)
             .filter(Note.id == note_id, Note.user_id == user_id)
             .delete()
         )
+        return count > 0

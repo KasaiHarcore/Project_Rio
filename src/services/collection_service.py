@@ -25,7 +25,6 @@ class CollectionService:
     def __init__(self, collection_repo: CollectionRepository) -> None:
         self._repo = collection_repo
 
-    # -- Read --
 
     def list_collections(
         self,
@@ -55,7 +54,6 @@ class CollectionService:
         data.note_count = count
         return data
 
-    # -- Create --
 
     def create_collection(self, user_id: UUID, data: CollectionCreate) -> CollectionInDB:
         """Create a new collection."""
@@ -69,7 +67,6 @@ class CollectionService:
         result.note_count = 0
         return result
 
-    # -- Update --
 
     def update_collection(
         self,
@@ -93,7 +90,6 @@ class CollectionService:
         result.note_count = count
         return result
 
-    # -- Delete --
 
     def delete_collection(self, user_id: UUID, collection_id: UUID) -> bool:
         """Delete a collection. Notes in it get collection_id set to NULL (via FK SET NULL)."""

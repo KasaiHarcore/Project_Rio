@@ -11,6 +11,7 @@ Layer 5: Max results cap     → per-run configurable   — max results per sear
 """
 
 import os
+import re
 import time
 import threading
 from typing import Optional, List, Dict, Any, Literal
@@ -18,6 +19,8 @@ from datetime import datetime
 from langchain_tavily import TavilySearch
 from utils.log import log_success, log_error, log_info, log_warning
 from infrastructure.cache import cache_service
+
+_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 class WebSearchTool:
     DEFAULT_MAX_RESULTS = 5
@@ -27,7 +30,7 @@ class WebSearchTool:
     
     VALID_TOPICS = {"general", "news"}
     VALID_TIME_RANGES = {"day", "week", "month", "year"}
-    VALID_SEARCH_DEPTHS = {"basic", "advanced"}
+    VALID_SEARCH_DEPTHS = {"basic", "advanced", "fast", "ultra-fast"}
     
     def __init__(
         self,
@@ -190,26 +193,36 @@ class WebSearchTool:
         query: str,
         max_results: int,
         topic: str,
-        time_range: Optional[str]
-    ) -> tuple[str, int, str, Optional[str]]:
-        """Validate and sanitize search parameters"""
+        time_range: Optional[str],
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+    ) -> tuple[str, int, str, Optional[str], Optional[str], Optional[str]]:
+        """Validate and sanitize search parameters."""
         if not query or not query.strip():
             raise ValueError("Query cannot be empty")
         query = query.strip()
-        
+
         if max_results < 1 or max_results > 20:
             log_warning(f"max_results {max_results} out of range, clamping to [1, 20]")
             max_results = max(1, min(20, max_results))
-        
+
         if topic not in self.VALID_TOPICS:
             log_warning(f"Invalid topic '{topic}', defaulting to 'general'")
             topic = "general"
-        
+
         if time_range and time_range not in self.VALID_TIME_RANGES:
             log_warning(f"Invalid time_range '{time_range}', ignoring")
             time_range = None
-        
-        return query, max_results, topic, time_range
+
+        if start_date and not _DATE_RE.match(start_date):
+            log_warning(f"Invalid start_date '{start_date}' (expected YYYY-MM-DD), ignoring")
+            start_date = None
+
+        if end_date and not _DATE_RE.match(end_date):
+            log_warning(f"Invalid end_date '{end_date}' (expected YYYY-MM-DD), ignoring")
+            end_date = None
+
+        return query, max_results, topic, time_range, start_date, end_date
     
     def search(
         self,
@@ -217,10 +230,13 @@ class WebSearchTool:
         max_results: Optional[int] = None,
         topic: str = DEFAULT_TOPIC,
         time_range: Optional[str] = None,
-        search_depth: Optional[Literal["basic", "advanced"]] = None,
+        search_depth: Optional[Literal["basic", "advanced", "fast", "ultra-fast"]] = None,
         include_answer: bool = True,
         include_domains: Optional[List[str]] = None,
-        exclude_domains: Optional[List[str]] = None
+        exclude_domains: Optional[List[str]] = None,
+        start_date: Optional[str] = None,
+        end_date: Optional[str] = None,
+        include_raw_content: bool = False,
     ) -> Dict[str, Any]:
         """
         Perform web search with comprehensive options
@@ -232,8 +248,8 @@ class WebSearchTool:
         effective_search_depth = search_depth or self.search_depth
         
         # Validate parameters
-        query, max_results, topic, time_range = self._validate_params(
-            query, max_results, topic, time_range
+        query, max_results, topic, time_range, start_date, end_date = self._validate_params(
+            query, max_results, topic, time_range, start_date, end_date
         )
 
         cache_params = {
@@ -243,6 +259,8 @@ class WebSearchTool:
             "search_depth": effective_search_depth,
             "include_domains": include_domains or [],
             "exclude_domains": exclude_domains or [],
+            "start_date": start_date,
+            "end_date": end_date,
         }
         try:
             cached = cache_service.get_web_cache(query=query, params=cache_params)
@@ -304,7 +322,16 @@ class WebSearchTool:
             
             if exclude_domains:
                 search_kwargs["exclude_domains"] = exclude_domains
-            
+
+            if start_date:
+                search_kwargs["start_date"] = start_date
+
+            if end_date:
+                search_kwargs["end_date"] = end_date
+
+            if include_raw_content:
+                search_kwargs["include_raw_content"] = True
+
             # Perform search (compat with TavilySearch tool variants)
             wrapper = self.search_wrapper
             if hasattr(wrapper, "results"):
@@ -374,7 +401,10 @@ class WebSearchTool:
                     # Optional fields
                     if "published_date" in result:
                         formatted_result["published_date"] = result["published_date"]
-                    
+
+                    if "raw_content" in result and result["raw_content"]:
+                        formatted_result["raw_content"] = result["raw_content"]
+
                     formatted["results"].append(formatted_result)
         
         elif isinstance(raw_results, list):

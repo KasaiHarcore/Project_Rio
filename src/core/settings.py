@@ -60,6 +60,9 @@ class AgentConfig:
 	model_backoff_max: float = 4.0
 	history_max_items: int = 50
 	enable_planner: bool = True
+	max_tool_rounds: int = 10
+	circuit_breaker_window: int = 4
+	max_context_messages: int = 12
 	enable_reflection: bool = True  # Note: Reflection is now integrated into supervisor routing
 	enable_input_guardrail: bool = False
 	enable_output_guardrail: bool = False
@@ -69,6 +72,9 @@ class AgentConfig:
 	web_search_max_calls: int = 6
 	web_search_max_results: int = 5
 	web_search_dedupe: bool = True
+	web_extract_max_calls: int = 4
+	web_extract_max_urls: int = 5
+	web_extract_dedupe: bool = True
 	retrieval_strategy: Literal["standard", "hyde", "rewrite"] = "standard"
 
 	def __post_init__(self):
@@ -116,6 +122,12 @@ class AgentConfig:
 
 		if self.web_search_max_results < 1 or self.web_search_max_results > 20:
 			raise ValueError("web_search_max_results must be in [1, 20]")
+
+		if self.web_extract_max_calls < 0:
+			raise ValueError("web_extract_max_calls must be >= 0")
+
+		if self.web_extract_max_urls < 1 or self.web_extract_max_urls > 20:
+			raise ValueError("web_extract_max_urls must be in [1, 20]")
 
 		if self.retrieval_strategy not in {"standard", "hyde", "rewrite"}:
 			raise ValueError(
@@ -175,7 +187,7 @@ class RedisConfig:
 
 	socket_timeout_seconds: float = 2.0
 	socket_connect_timeout_seconds: float = 2.0
-	health_check_interval_seconds: int = 30
+	health_check_interval_seconds: int = 0  # disabled; startup ping is sufficient
 
 	key_prefix: str = "ai-agent"
 	graph_state_ttl_seconds: int = 3600
@@ -193,6 +205,7 @@ class RedisConfig:
 	tool_dedup_ttl_seconds: int = 600
 	retrieval_cache_ttl_seconds: int = 1800
 	web_cache_ttl_seconds: int = 900
+	extract_cache_ttl_seconds: int = 1800
 
 	enable_llm_cache: bool = True
 	llm_cache_ttl_seconds: int = 86400
@@ -220,6 +233,8 @@ class RedisConfig:
 			raise ValueError("redis retrieval_cache_ttl_seconds must be > 0")
 		if self.web_cache_ttl_seconds <= 0:
 			raise ValueError("redis web_cache_ttl_seconds must be > 0")
+		if self.extract_cache_ttl_seconds <= 0:
+			raise ValueError("redis extract_cache_ttl_seconds must be > 0")
 		if self.llm_cache_ttl_seconds <= 0:
 			raise ValueError("redis llm_cache_ttl_seconds must be > 0")
   
@@ -249,6 +264,7 @@ class RedisConfig:
 			tool_dedup_ttl_seconds=_env_int("REDIS_TOOL_DEDUP_TTL", "600"),
 			retrieval_cache_ttl_seconds=_env_int("REDIS_RETRIEVAL_CACHE_TTL", "1800"),
 			web_cache_ttl_seconds=_env_int("REDIS_WEB_CACHE_TTL", "900"),
+			extract_cache_ttl_seconds=_env_int("REDIS_EXTRACT_CACHE_TTL", "1800"),
 			enable_llm_cache=_env_bool("REDIS_ENABLE_LLM_CACHE", "True"),
 			llm_cache_ttl_seconds=_env_int("REDIS_LLM_CACHE_TTL", "86400"),
 		)
@@ -260,9 +276,16 @@ class Neo4jConfig:
 
 	uri: str = "bolt://localhost:7687"
 	username: str = "neo4j"
-	password: str = "password"
+	password: str = ""
 	database: str = "neo4j"
 	enabled: bool = False  # opt-in, no breaking change
+
+	def __post_init__(self) -> None:
+		if self.enabled and not self.password:
+			raise ValueError(
+				"NEO4J_PASSWORD is required when NEO4J_ENABLED=true. "
+				"Set the NEO4J_PASSWORD environment variable."
+			)
 
 	@classmethod
 	def from_env(cls) -> "Neo4jConfig":
@@ -270,7 +293,7 @@ class Neo4jConfig:
 		return cls(
 			uri=_env_str("NEO4J_URI", "bolt://localhost:7687"),
 			username=_env_str("NEO4J_USERNAME", "neo4j"),
-			password=_env_str("NEO4J_PASSWORD", "password"),
+			password=_env_str("NEO4J_PASSWORD", ""),
 			database=_env_str("NEO4J_DATABASE", "neo4j"),
 			enabled=_env_bool("NEO4J_ENABLED", "False"),
 		)
@@ -570,3 +593,38 @@ def get_concurrency_config() -> ConcurrencyConfig:
 		_ensure_dotenv()
 		_concurrency_config = ConcurrencyConfig.from_env()
 	return _concurrency_config
+
+
+@dataclass
+class TTSConfig:
+	"""Text-to-Speech configuration for Qwen3-TTS voice cloning."""
+
+	engine: str = "qwen3"
+	model_name: str = "Qwen/Qwen3-TTS-12Hz-0.6B-Base"
+	ref_audio_path: str = "storage/voice/rio_reference.ogg"
+	ref_text_path: str = "storage/voice/rio_reference.txt"
+	device: str = "cuda:0"
+	language: str = "English"
+
+	@classmethod
+	def from_env(cls) -> "TTSConfig":
+		return cls(
+			engine=_env_str("TTS_ENGINE", "qwen3"),
+			model_name=_env_str("TTS_MODEL", "Qwen/Qwen3-TTS-12Hz-0.6B-Base"),
+			ref_audio_path=_env_str("TTS_REF_AUDIO", "storage/voice/rio_reference.ogg"),
+			ref_text_path=_env_str("TTS_REF_TEXT", "storage/voice/rio_reference.txt"),
+			device=_env_str("TTS_DEVICE", "cuda:0"),
+			language=_env_str("TTS_LANGUAGE", "English"),
+		)
+
+
+_tts_config: Optional[TTSConfig] = None
+
+
+def get_tts_config() -> TTSConfig:
+	"""Get or create TTS configuration."""
+	global _tts_config
+	if _tts_config is None:
+		_ensure_dotenv()
+		_tts_config = TTSConfig.from_env()
+	return _tts_config

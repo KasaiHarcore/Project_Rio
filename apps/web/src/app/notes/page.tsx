@@ -6,7 +6,7 @@ import { PageTransition } from "@/components/layout/page-transition"
 import { cn } from '@/shared/lib/utils'
 import { useNoteStore, noteUid, blockUid } from '@/features/notes/store'
 import { apiListNotes, apiCreateNote, apiDeleteNote, apiListCollections } from '@/features/notes/api'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 
 import { NoteList } from '@/features/notes/components/NoteList'
@@ -16,7 +16,7 @@ import { NoteSidePanel } from '@/features/notes/components/NoteSidePanel'
 
 /* ═══════════════════════════════════════════════════════════════════ */
 
-function NotesPageContent() {
+export function NotesPageContent({ initialNoteId }: { initialNoteId?: string } = {}) {
     const viewMode = useNoteStore((s) => s.viewMode)
     const activeNoteId = useNoteStore((s) => s.activeNoteId)
     const setActiveNoteId = useNoteStore((s) => s.setActiveNoteId)
@@ -25,6 +25,7 @@ function NotesPageContent() {
     const setCollections = useNoteStore((s) => s.setCollections)
     const setLoading = useNoteStore((s) => s.setLoading)
     const loading = useNoteStore((s) => s.loading)
+    const router = useRouter()
 
     const searchParams = useSearchParams()
 
@@ -72,13 +73,28 @@ function NotesPageContent() {
         return () => { cancelled = true }
     }, [setNotes, setCollections, setLoading])
 
-    // Deep-link: ?note=<id>
+    // Deep-link: path-based /notes/<id> or legacy ?note=<id>
     useEffect(() => {
-        const noteParam = searchParams.get('note')
-        if (noteParam) {
-            setActiveNoteId(noteParam)
+        if (initialNoteId) {
+            setActiveNoteId(initialNoteId)
+        } else {
+            const noteParam = searchParams.get('note')
+            if (noteParam) {
+                setActiveNoteId(noteParam)
+                router.replace(`/notes/${noteParam}`)
+            }
         }
-    }, [searchParams, setActiveNoteId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [])
+
+    // Sync URL when active note changes
+    useEffect(() => {
+        if (activeNoteId && !activeNoteId.startsWith('note-')) {
+            router.replace(`/notes/${activeNoteId}`)
+        } else if (!activeNoteId) {
+            router.replace('/notes')
+        }
+    }, [activeNoteId, router])
 
     const updateNote = useNoteStore((s) => s.updateNote)
 
@@ -163,7 +179,7 @@ function NotesPageContent() {
     )
 }
 
-export default function NotesPage() {
+export default function NotesPage({ initialNoteId }: { initialNoteId?: string } = {}) {
     return (
         <Suspense fallback={
             <DashboardLayout>
@@ -172,7 +188,7 @@ export default function NotesPage() {
                 </div>
             </DashboardLayout>
         }>
-            <NotesPageContent />
+            <NotesPageContent initialNoteId={initialNoteId} />
         </Suspense>
     )
 }

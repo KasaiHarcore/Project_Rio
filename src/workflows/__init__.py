@@ -1,44 +1,40 @@
 """
-Multi-agent Supervisor-Worker Workflow Architecture.
+ReAct Supervisor + Sub-Agent Workflow Architecture.
 
-This module implements a hierarchical agent system where:
-- Supervisor: High-level control, routing, and decision-making
-- Workers: Specialized single-task agents (Planning, Retrieval, Web Search, SQL, Memory, Note, Mission)
-
-Key Features:
-- Durable Execution with PostgreSQL checkpointing
-- Human-in-the-loop support at any point
-- Streaming support for real-time responses
-- State persistence across sessions
-- Long-term memory with semantic search
+This module implements a ReAct supervisor agent that delegates to
+specialized sub-agents for domain operations (missions, notes, SQL, OS).
 
 Architecture:
     User Question
-         │
-         ▼
-    ┌─────────────┐
-    │  Supervisor  │ ◄─── Main control loop
-    └──────┬──────┘
-           │
-    ┌──────┴──────┐
-    │   Router    │ ◄─── Decides which worker(s) to invoke
-    └──────┬──────┘
-           │
-    ┌──────┴──────────────────────────────────┐
-    │              Workers                     │
-    ├─────────┬──────────┬────────┬───────────┤
-    │Planning │Retrieval │  Web   │ SQL  │Mem │Note│Mission│
-    │ Worker  │ Worker   │ Search │Worker│    │    │       │
-    └─────────┴──────────┴────────┴──────┴────┴────┴───────┘
-           │
-           ▼
+         |
+         v
+    +-----------------+
+    | Input Guardrail | <-- deterministic checks
+    +-----------------+
+         |
+         v
+    +--------------------+
+    | ReAct Supervisor   | <-- thinks, plans, delegates
+    |  direct tools:     |     memory, search
+    |  delegation tools: |     mission, note, sql, os sub-agents
+    +--------------------+
+         |
+         v
+    +-----------------+
+    |  Post-Process   | <-- background: memory, emotional engine
+    +-----------------+
+         |
+         v
+    +-----------------+
+    | Output Guardrail| <-- PII + system leak regex
+    +-----------------+
+         |
+         v
     Final Response
 """
 
 from workflows.state import (
     AgentState,
-    WorkerResult,
-    SupervisorDecision,
     HumanInterruptType,
     reset_execution_state,
 )
@@ -55,16 +51,7 @@ from workflows.memory_store import (
     format_memories_for_prompt,
     MemoryNamespace,
 )
-from workflows.workers import (
-    PlanningWorker,
-    RetrievalWorker,
-    WebSearchWorker,
-    SQLWorker,
-    MemoryWorker,
-    create_note_node,
-)
-from workflows.supervisor import SupervisorAgent
-from workflows.graph import build_workflow_graph
+from workflows.react_graph import build_react_graph
 from workflows.executor import (
     run_workflow,
     stream_workflow,
@@ -76,8 +63,6 @@ from workflows.executor import (
 
 __all__ = [
     "AgentState",
-    "WorkerResult",
-    "SupervisorDecision",
     "HumanInterruptType",
     "reset_execution_state",
     "checkpoint_context",
@@ -89,14 +74,7 @@ __all__ = [
     "search_memories",
     "format_memories_for_prompt",
     "MemoryNamespace",
-    "PlanningWorker",
-    "RetrievalWorker",
-    "WebSearchWorker",
-    "SQLWorker",
-    "MemoryWorker",
-    "create_note_node",
-    "SupervisorAgent",
-    "build_workflow_graph",
+    "build_react_graph",
     "run_workflow",
     "stream_workflow",
     "resume_sql_approval",

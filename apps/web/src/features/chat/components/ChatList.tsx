@@ -6,7 +6,9 @@ import { AgentAvatar, AgentMessageAvatar } from '@/components/ui/agent-avatar'
 import { agentConfig, userConfig } from '@/shared/lib/agent-config'
 import { SmartDataCard } from './SmartDataCard'
 import { SQLApprovalCard } from './SQLApprovalCard'
+import { NoteConfirmationCard } from './NoteConfirmationCard'
 import { useSQLApprovalStore } from '@/shared/store/sql-approval-store'
+import { useNoteConfirmationStore } from '@/shared/store/note-confirmation-store'
 import { CHARACTERS, type CharacterId } from '@/types/character'
 import { TypingIndicator } from '@/components/ui/typing-indicator'
 import { useEmotionalStore, type Mood } from '@/features/emotional/store'
@@ -96,7 +98,7 @@ export function ChatList({ messages, isLoading, status }: ChatListProps) {
               onClick={() => {
                 const lastThreadId = localStorage.getItem('last-thread-id')
                 if (lastThreadId) {
-                  router.push(`/operation?thread=${lastThreadId}`)
+                  router.push(`/operation/${lastThreadId}`)
                 } else {
                   router.push('/operation')
                 }
@@ -138,7 +140,7 @@ export function ChatList({ messages, isLoading, status }: ChatListProps) {
   }
 
   return (
-    <section ref={scrollRef} role="log" aria-label="Chat messages" className="flex-1 overflow-y-auto p-4 lg:p-8 space-y-6 scroll-smooth custom-scrollbar">
+    <section ref={scrollRef} role="log" aria-label="Chat messages" className="flex-1 overflow-y-auto overflow-x-hidden p-4 lg:p-8 space-y-6 scroll-smooth custom-scrollbar">
       {messages.map((m, idx) => {
         const isAssistant = m.role === 'assistant';
         const msgCharacterId = (m as any).character_id as CharacterId | undefined;
@@ -186,6 +188,9 @@ export function ChatList({ messages, isLoading, status }: ChatListProps) {
       {/* SQL Approval Card — shown when an interrupt is pending */}
       <SQLApprovalCardWrapper />
 
+      {/* Note Confirmation Card — shown when a note delete/rewrite needs approval */}
+      <NoteConfirmationCardWrapper />
+
       {/* Typing indicator — shown when waiting for first token (submitted state) */}
       {status === 'submitted' && <TypingIndicator />}
 
@@ -217,6 +222,17 @@ function SQLApprovalCardWrapper() {
   return (
     <div className="py-3">
       <SQLApprovalCard />
+    </div>
+  )
+}
+
+/** Renders the NoteConfirmationCard only when there is a pending confirmation. */
+function NoteConfirmationCardWrapper() {
+  const pending = useNoteConfirmationStore((s) => s.pending)
+  if (!pending) return null
+  return (
+    <div className="py-3">
+      <NoteConfirmationCard />
     </div>
   )
 }

@@ -73,8 +73,8 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
 
   const effectiveThreadId = threadId && threadId !== '__new__' ? threadId : resolvedThreadId
 
-  // Reset sidebar when starting a new chat
-  useStreamSidebarReset(isNewChat)
+  // Reset sidebar when starting a new chat or switching threads
+  useStreamSidebarReset(isNewChat, threadId)
 
   // ── Refs for latest values (closures in transport body resolver) ──
   const effectiveThreadIdRef = useRef(effectiveThreadId)
@@ -196,27 +196,6 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolvedThreadId excluded intentionally (see comment above)
   }, [threadId, setMessages])
 
-  // Load persisted notes when opening an existing thread
-  useEffect(() => {
-    if (!threadId || threadId === '__new__') return
-    let cancelled = false
-    fetch(`/api/notes?thread_id=${threadId}`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((notes: Array<{ id: string; content: string; todos?: { text: string; done: boolean }[]; pinned: boolean; source: string }>) => {
-        if (cancelled || !notes?.length) return
-        const store = useSidebarStore.getState()
-        for (const n of notes) {
-          store.addStickyNote({
-            content: n.content,
-            todos: n.todos,
-            author: n.source === 'agent' ? 'agent' : 'user',
-            dbId: n.id,
-          })
-        }
-      })
-      .catch(() => { })
-    return () => { cancelled = true }
-  }, [threadId])
 
   // Map AI status to HUD status types
   const hudStatus = status === 'ready' ? 'ready' : status === 'error' ? 'error' : status === 'streaming' ? 'streaming' : 'submitted'
@@ -242,9 +221,9 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     : 'NEW_OPERATION'
 
   return (
-    <div className="flex flex-1 overflow-hidden h-full relative">
+    <div className="flex flex-1 min-w-0 overflow-hidden h-full relative">
       {/* Main Chat Content */}
-      <div className="flex-1 flex flex-col relative z-10 w-full max-w-full backdrop-blur-sm bg-[var(--mission-ctrl-bg)]">
+      <div className="flex-1 min-w-0 flex flex-col relative z-10 backdrop-blur-sm bg-[var(--mission-ctrl-bg)]">
 
         {/* Superior Operational HUD */}
         <OperationalHUD

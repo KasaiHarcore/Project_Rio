@@ -54,7 +54,7 @@ class Note(Base, TimestampMixin):
 
     thread_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("thread.id", ondelete="CASCADE"),
+        ForeignKey("thread.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -111,7 +111,6 @@ class Note(Base, TimestampMixin):
         default=None,
     )
 
-    # -- Relationships --
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
     collections: Mapped[list["NoteCollection"]] = relationship(
@@ -120,7 +119,6 @@ class Note(Base, TimestampMixin):
         back_populates="notes",
     )
 
-    # -- Composite indexes --
     __table_args__ = (
         Index("ix_note_user_thread", "user_id", "thread_id"),
     )

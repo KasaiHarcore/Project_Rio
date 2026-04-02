@@ -183,7 +183,7 @@ function ModelSelector({
           className="w-full bg-[var(--settings-input-bg)] border border-[var(--settings-input-border)] rounded-xl px-4 py-2.5 text-sm font-bold outline-none focus:border-[var(--settings-input-focus-border)] text-[var(--settings-input-text)] transition-colors cursor-pointer"
         >
           {availableModels.map((model) => (
-            <option key={model.id} value={model.id}>
+            <option className="bg-[#0d1117] text-[#e6edf3]" key={model.id} value={model.id}>
               {model.name} ({model.provider})
             </option>
           ))}

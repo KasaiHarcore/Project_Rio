@@ -28,7 +28,6 @@ from schemas.note_collection import (
 router = APIRouter(prefix="/collections", tags=["collections"])
 
 
-# -- List --
 
 @router.get("", response_model=List[CollectionInDB])
 async def list_collections(
@@ -43,7 +42,6 @@ async def list_collections(
     )
 
 
-# -- Create --
 
 @router.post("", response_model=CollectionInDB, status_code=status.HTTP_201_CREATED)
 async def create_collection(
@@ -55,7 +53,6 @@ async def create_collection(
     return await concurrency_manager.run_in_thread(svc.create_collection, user.id, body)
 
 
-# -- Update --
 
 @router.patch("/{collection_id}", response_model=CollectionInDB)
 async def update_collection(
@@ -73,7 +70,6 @@ async def update_collection(
     return c
 
 
-# -- Delete --
 
 @router.delete("/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_collection(

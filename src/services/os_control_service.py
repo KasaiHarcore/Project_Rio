@@ -45,7 +45,6 @@ class OSControlService:
         self._browser: Optional[BrowserController] = None
         self._gui: Optional[GUIController] = None
 
-    # ── Shell Operations ────────────────────────────────────────────────
 
     def execute_shell(
         self,
@@ -104,7 +103,6 @@ class OSControlService:
         """Close a user's PTY session."""
         pty_manager.close_session(user_id)
 
-    # ── Browser Operations ──────────────────────────────────────────────
 
     @property
     def browser(self) -> BrowserController:
@@ -130,7 +128,6 @@ class OSControlService:
 
         return result
 
-    # ── GUI Operations ──────────────────────────────────────────────────
 
     @property
     def gui(self) -> GUIController:
@@ -156,7 +153,6 @@ class OSControlService:
 
         return result
 
-    # ── Approval Gate ───────────────────────────────────────────────────
 
     def create_approval_request(
         self,
@@ -185,7 +181,6 @@ class OSControlService:
             timeout_seconds=gate.auto_reject_timeout_seconds,
         )
 
-    # ── Lifecycle ───────────────────────────────────────────────────────
 
     def shutdown(self) -> None:
         """Clean up all resources."""

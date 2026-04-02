@@ -47,9 +47,10 @@ class DocumentRepository(BaseRepository):
         self.db.flush()
         return document
 
-    def delete_by_id(self, doc_id: UUID, user_id: UUID) -> int:
-        return (
+    def delete_by_id(self, doc_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(Document)
             .filter(Document.id == doc_id, Document.user_id == user_id)
             .delete()
         )
+        return count > 0

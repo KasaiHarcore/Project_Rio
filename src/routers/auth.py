@@ -28,12 +28,10 @@ from infrastructure.security.rate_limiter import RedisRateLimiter
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-# ── Rate limiter (Redis sliding window, fails open) ─────────────────────────
 
 _rate_limiter = RedisRateLimiter(max_requests=10, window_seconds=60)
 
 
-# ── Request / Response schemas ──────────────────────────────────────────────
 
 class LoginRequest(BaseModel):
     username: str = Field(..., min_length=1, description="Username or email")
@@ -71,7 +69,6 @@ class MeResponse(BaseModel):
     user: UserInDB
 
 
-# ── Endpoints ───────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=AuthResponse)
 async def login(

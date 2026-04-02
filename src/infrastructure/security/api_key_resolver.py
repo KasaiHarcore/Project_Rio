@@ -135,20 +135,32 @@ class ApiKeyResolver:
         return None
 
     def has_openai_key(self) -> bool:
-        """Check if OpenAI key is available from any source."""
-        return self.get_openai_key() is not None
+        """Check if OpenAI key is available (without decrypting)."""
+        return bool(
+            (self.user_settings and self.user_settings.encrypted_openai_key)
+            or os.getenv("OPENAI_API_KEY")
+        )
 
     def has_openrouter_key(self) -> bool:
-        """Check if OpenRouter key is available from any source."""
-        return self.get_openrouter_key() is not None
+        """Check if OpenRouter key is available (without decrypting)."""
+        return bool(
+            (self.user_settings and self.user_settings.encrypted_openrouter_key)
+            or os.getenv("OPENROUTER_API_KEY")
+        )
 
     def has_tavily_key(self) -> bool:
-        """Check if Tavily key is available from any source."""
-        return self.get_tavily_key() is not None
+        """Check if Tavily key is available (without decrypting)."""
+        return bool(
+            (self.user_settings and self.user_settings.encrypted_tavily_key)
+            or os.getenv("TAVILY_API_KEY")
+        )
 
     def has_cohere_key(self) -> bool:
-        """Check if Cohere key is available from any source."""
-        return self.get_cohere_key() is not None
+        """Check if Cohere key is available (without decrypting)."""
+        return bool(
+            (self.user_settings and self.user_settings.encrypted_cohere_key)
+            or os.getenv("COHERE_API_KEY")
+        )
 
 
 def get_api_key_for_provider(provider: str, user_settings: Optional[object] = None) -> Optional[str]:

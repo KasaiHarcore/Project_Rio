@@ -37,7 +37,6 @@ from utils.log import log_info, log_error, log_success
 router = APIRouter(prefix="/knowledge", tags=["knowledge"])
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────
 
 _ALLOWED_EXTENSIONS = {".txt", ".md", ".pdf", ".json", ".csv", ".html", ".htm", ".docx"}
 
@@ -55,7 +54,6 @@ def _doc_to_response(doc: Document) -> DocumentResponse:
     )
 
 
-# ── Upload ──────────────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=DocumentUploadResponse, status_code=status.HTTP_201_CREATED)
 async def upload_document(
@@ -171,7 +169,6 @@ async def upload_document(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# ── List documents ──────────────────────────────────────────────────────────
 
 @router.get("", response_model=DocumentListResponse)
 async def list_documents(
@@ -187,7 +184,6 @@ async def list_documents(
     return await concurrency_manager.run_in_thread(_query)
 
 
-# ── Delete document ─────────────────────────────────────────────────────────
 
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_document(

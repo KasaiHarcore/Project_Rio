@@ -154,7 +154,7 @@ export function ChatSidebar({ messages, status, threadId }: ChatSidebarProps) {
         </div>
 
         {/* ───── Tab content ───── */}
-        <div className="flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
           {activeTab === 'agents' && <AgentsTab />}
           {activeTab === 'workspace' && <WorkspaceTab />}
           {activeTab === 'memory' && <MemoryTab threadId={threadId} />}

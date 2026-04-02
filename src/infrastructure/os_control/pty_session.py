@@ -26,6 +26,9 @@ from utils.log import log_debug, log_error, log_info, log_warning
 # Maximum output size to prevent memory issues (1MB)
 MAX_OUTPUT_SIZE = 1_048_576
 
+# Maximum command length to prevent abuse
+MAX_COMMAND_LENGTH = 4096
+
 _DEFAULT_SHELL = "/bin/bash" if platform.system() != "Windows" else "cmd.exe"
 
 
@@ -80,6 +83,30 @@ class PTYSession:
         start_time = time.time()
         self._command_count += 1
 
+        # Input sanitization: reject null bytes and limit length
+        if "\x00" in cmd.command:
+            return ShellResult(
+                command=cmd.command,
+                exit_code=-1,
+                stdout="",
+                stderr="Command rejected: contains null bytes",
+                execution_time_ms=0,
+                timed_out=False,
+                working_directory=self.working_directory,
+                risk_tier=RiskTier.DESTRUCTIVE,
+            )
+        if len(cmd.command) > MAX_COMMAND_LENGTH:
+            return ShellResult(
+                command=cmd.command[:120] + "...",
+                exit_code=-1,
+                stdout="",
+                stderr=f"Command rejected: exceeds {MAX_COMMAND_LENGTH} character limit",
+                execution_time_ms=0,
+                timed_out=False,
+                working_directory=self.working_directory,
+                risk_tier=RiskTier.DESTRUCTIVE,
+            )
+
         # Auto-classify risk tier
         effective_tier = classify_shell_command_risk(cmd.command)
         if cmd.risk_tier.value < effective_tier.value:
@@ -94,7 +121,7 @@ class PTYSession:
         cwd = cmd.working_directory or self.working_directory
 
         log_info(
-            f"[PTY:{self.session_id}] Executing (tier {effective_tier}): "
+            f"[PTY:{self.session_id}] Executing (tier {effective_tier.name}/{effective_tier.value}): "
             f"{cmd.command[:120]}{'...' if len(cmd.command) > 120 else ''}"
         )
 

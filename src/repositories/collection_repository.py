@@ -65,9 +65,30 @@ class CollectionRepository(BaseRepository):
         self.db.flush()
         return collection
 
-    def delete_by_id(self, collection_id: UUID, user_id: UUID) -> int:
-        return (
+    def set_note_collections(self, note_id: UUID, collection_ids: List[UUID]) -> None:
+        """Replace all collection memberships for a note."""
+        from models.note_collection_membership import NoteCollectionMembership
+
+        self.db.query(NoteCollectionMembership).filter(
+            NoteCollectionMembership.note_id == note_id
+        ).delete()
+        for cid in collection_ids:
+            self.db.add(NoteCollectionMembership(note_id=note_id, collection_id=cid))
+        self.db.flush()
+
+    def clear_note_collections(self, note_id: UUID) -> None:
+        """Remove all collection memberships for a note."""
+        from models.note_collection_membership import NoteCollectionMembership
+
+        self.db.query(NoteCollectionMembership).filter(
+            NoteCollectionMembership.note_id == note_id
+        ).delete()
+        self.db.flush()
+
+    def delete_by_id(self, collection_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(NoteCollection)
             .filter(NoteCollection.id == collection_id, NoteCollection.user_id == user_id)
             .delete()
         )
+        return count > 0

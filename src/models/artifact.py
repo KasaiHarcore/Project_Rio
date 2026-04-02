@@ -81,12 +81,10 @@ class Artifact(Base, TimestampMixin):
         nullable=True,
     )
 
-    # -- Relationships --
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     thread: Mapped[Optional["Thread"]] = relationship("Thread", foreign_keys=[thread_id])
     parent: Mapped[Optional["Artifact"]] = relationship("Artifact", remote_side=[id], foreign_keys=[parent_id])
 
-    # -- Composite indexes --
     __table_args__ = (
         Index("ix_artifact_user_thread", "user_id", "thread_id"),
     )

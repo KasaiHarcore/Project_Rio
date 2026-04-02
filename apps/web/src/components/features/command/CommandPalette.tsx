@@ -216,10 +216,10 @@ export function CommandPalette() {
 
   // ─── Searchable Content ────────────────────────────────────
   const searchableContent: SearchResult[] = useMemo(() => [
-    { id: "s-conv-1", title: "Binary Search Implementation", preview: "Can you help me implement a binary search algorithm in Python?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 5", action: () => { close(); router.push("/operation?new=true") } },
-    { id: "s-conv-2", title: "Machine Learning Study Plan", preview: "I need a 30-day study plan for machine learning fundamentals...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 4", action: () => { close(); router.push("/operation?new=true") } },
-    { id: "s-conv-3", title: "Neural Network Architecture", preview: "Explain the architecture of a convolutional neural network...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 3", action: () => { close(); router.push("/operation?new=true") } },
-    { id: "s-conv-4", title: "API Design Best Practices", preview: "What are the best practices for designing RESTful APIs?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 2", action: () => { close(); router.push("/operation?new=true") } },
+    { id: "s-conv-1", title: "Binary Search Implementation", preview: "Can you help me implement a binary search algorithm in Python?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 5", action: () => { close(); router.push("/operation") } },
+    { id: "s-conv-2", title: "Machine Learning Study Plan", preview: "I need a 30-day study plan for machine learning fundamentals...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 4", action: () => { close(); router.push("/operation") } },
+    { id: "s-conv-3", title: "Neural Network Architecture", preview: "Explain the architecture of a convolutional neural network...", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 3", action: () => { close(); router.push("/operation") } },
+    { id: "s-conv-4", title: "API Design Best Practices", preview: "What are the best practices for designing RESTful APIs?", type: "conversation", icon: <MessageSquare size={16} />, date: "Feb 2", action: () => { close(); router.push("/operation") } },
     // Documents
     { id: "s-doc-1", title: "Machine Learning Fundamentals.pdf", preview: "Comprehensive guide covering supervised and unsupervised learning", type: "document", icon: <FileText size={16} />, date: "Feb 4", action: () => { close(); router.push("/knowledge") } },
     { id: "s-doc-2", title: "Neural Networks Guide.pdf", preview: "Deep dive into neural network architectures and training", type: "document", icon: <FileText size={16} />, date: "Feb 3", action: () => { close(); router.push("/knowledge") } },

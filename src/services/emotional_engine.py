@@ -33,7 +33,6 @@ from repositories.emotional_state_repository import EmotionalStateRepository
 from utils.log import log_info, log_debug
 
 
-# -- Constants --
 
 MAX_MOOD_HISTORY = 20
 MAX_AFFINITY = 1000
@@ -96,7 +95,6 @@ class EmotionalEngine:
     def __init__(self, emotional_repo: EmotionalStateRepository) -> None:
         self._repo = emotional_repo
 
-    # -- State Access --
 
     def get_or_create_state(
         self,
@@ -107,7 +105,6 @@ class EmotionalEngine:
         state = self._repo.get_or_create(user_id, character_id)
         return state
 
-    # -- Mood Transitions --
 
     def update_mood(
         self,
@@ -174,7 +171,6 @@ class EmotionalEngine:
         self._repo.flush()
         return state, mood_changed
 
-    # -- Affinity Management --
 
     def update_affinity(
         self,
@@ -203,7 +199,6 @@ class EmotionalEngine:
         self._repo.flush()
         return state
 
-    # -- Energy Management --
 
     def decay_energy(
         self,
@@ -233,7 +228,6 @@ class EmotionalEngine:
         self._repo.flush()
         return state
 
-    # -- Relationship Tiers --
 
     def get_relationship_tier(self, affinity: int) -> str:
         """Map affinity score to a named tier."""
@@ -242,7 +236,6 @@ class EmotionalEngine:
                 return tier_name
         return "bonded" if affinity >= 800 else "stranger"
 
-    # -- Time-Based Context --
 
     def get_time_of_day(self) -> str:
         """Get current time-of-day period."""
@@ -270,7 +263,6 @@ class EmotionalEngine:
         }
         return modifiers.get(time_period, 0.0)
 
-    # -- Headpat (Special Interaction) --
 
     def record_headpat(
         self,
@@ -317,7 +309,6 @@ class EmotionalEngine:
 
         return state, affinity_delta, mood_changed
 
-    # -- Long Absence Detection --
 
     def check_absence(
         self,
@@ -359,7 +350,6 @@ class EmotionalEngine:
 
         return state, False
 
-    # -- Streak Management --
 
     def update_streak(
         self,
@@ -397,7 +387,6 @@ class EmotionalEngine:
         self._repo.flush()
         return state
 
-    # -- Main Entry Point --
 
     def record_interaction(
         self,
@@ -412,26 +401,100 @@ class EmotionalEngine:
         Handles: absence check, streak update, mood transition, energy
         restoration, interaction counting.
 
+        Optimized: fetches state once and passes it through all sub-operations
+        to avoid repeated DB lookups.
+
         Returns:
             (updated_state, mood_changed)
         """
-        self.check_absence(user_id, character_id)
+        state = self.get_or_create_state(user_id, character_id)
 
-        self.update_streak(user_id, character_id)
+        # --- absence check (inline) ---
+        if state.last_interaction_at:
+            hours_since = (
+                datetime.now(timezone.utc) - state.last_interaction_at
+            ).total_seconds() / 3600
+            if hours_since >= LONG_ABSENCE_HOURS:
+                old_mood = state.mood
+                state.mood = Mood.SAD
+                state.affinity = max(MIN_AFFINITY, state.affinity - 5)
+                state.streak_days = 0
+                self._repo.create_relationship_event(RelationshipEvent(
+                    user_id=user_id, character_id=character_id,
+                    event_type=RelationshipEventType.LONG_ABSENCE,
+                    affinity_delta=-5,
+                    mood_before=old_mood.value, mood_after=Mood.SAD.value,
+                    context=f"No interaction for {int(hours_since)} hours",
+                ))
 
-        self.restore_energy(user_id, character_id)
+        # --- streak update (inline) ---
+        now = datetime.now(timezone.utc)
+        if state.last_interaction_at:
+            days_since = (now - state.last_interaction_at).days
+            if days_since == 1:
+                state.streak_days += 1
+                if state.streak_days % 7 == 0:
+                    milestone_bonus = min(10, state.streak_days // 7 * 2)
+                    state.affinity = min(MAX_AFFINITY, state.affinity + milestone_bonus)
+                    self._repo.create_relationship_event(RelationshipEvent(
+                        user_id=user_id, character_id=character_id,
+                        event_type=RelationshipEventType.STREAK_MILESTONE,
+                        affinity_delta=milestone_bonus,
+                        mood_before=state.mood.value, mood_after=state.mood.value,
+                        context=f"Streak milestone: {state.streak_days} days!",
+                    ))
+            elif days_since > 1:
+                state.streak_days = 1
+        else:
+            state.streak_days = 1
 
+        # --- energy restore (inline) ---
+        state.energy = min(1.0, state.energy + ENERGY_RECOVERY_RATE)
+
+        # --- mood transition ---
         if task_success is True:
             sentiment = "grateful" if sentiment == "positive" else "positive"
         elif task_success is False:
             sentiment = "negative" if sentiment == "neutral" else sentiment
 
-        state, mood_changed = self.update_mood(
-            user_id, character_id, sentiment, context
-        )
+        old_mood = state.mood
+        key = (old_mood.value, sentiment)
+        if key in MOOD_TRANSITIONS:
+            new_mood, affinity_delta = MOOD_TRANSITIONS[key]
+        else:
+            new_mood, affinity_delta = old_mood, 0
 
+        if state.energy < 0.2 and new_mood != Mood.TIRED:
+            new_mood = Mood.TIRED
+
+        mood_changed = new_mood != old_mood
+        state.mood = new_mood
+        state.affinity = max(MIN_AFFINITY, min(MAX_AFFINITY, state.affinity + affinity_delta))
+
+        if mood_changed:
+            history = list(state.mood_history or [])
+            history.append({
+                "mood_from": old_mood.value, "mood_to": new_mood.value,
+                "trigger": sentiment, "timestamp": now.isoformat(),
+            })
+            state.mood_history = history[-MAX_MOOD_HISTORY:]
+
+        if affinity_delta != 0:
+            evt_type = (
+                RelationshipEventType.POSITIVE_INTERACTION
+                if affinity_delta > 0
+                else RelationshipEventType.NEGATIVE_INTERACTION
+            )
+            self._repo.create_relationship_event(RelationshipEvent(
+                user_id=user_id, character_id=character_id,
+                event_type=evt_type, affinity_delta=affinity_delta,
+                mood_before=old_mood.value, mood_after=new_mood.value,
+                context=context[:500] if context else None,
+            ))
+
+        # --- finalize ---
         state.interaction_count += 1
-        state.last_interaction_at = datetime.now(timezone.utc)
+        state.last_interaction_at = now
 
         self._repo.flush()
         log_debug(
@@ -441,7 +504,6 @@ class EmotionalEngine:
         )
         return state, mood_changed
 
-    # -- Context for Prompt Injection --
 
     def compute_emotional_context(
         self,
@@ -510,7 +572,6 @@ class EmotionalEngine:
             "time_period": time_period,
         }
 
-    # -- Relationship History --
 
     def get_relationship_history(
         self,
@@ -525,7 +586,6 @@ class EmotionalEngine:
             limit=limit,
         )
 
-    # -- Sentiment Analysis (LLM-powered) --
 
     def analyze_sentiment(self, message: str) -> str:
         """Classify user message sentiment using the active LLM.

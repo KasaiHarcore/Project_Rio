@@ -10,6 +10,7 @@ import Image from 'next/image'
 // Music player moved to Rio's panel
 import { apiGetBriefing, apiGetDashboardStats, DashboardBriefing, DashboardStats, ThreadStat } from '@/features/dashboard/api'
 import { useMissionStore, Mission } from '@/features/mission/store'
+import { parseDeadline } from '@/types/mission'
 import { useEmotionalStore } from '@/features/emotional/store'
 import { useActivityMonitor } from '@/shared/hooks/use-activity-monitor'
 
@@ -22,14 +23,18 @@ export function MissionBoard() {
   const [briefing, setBriefing] = React.useState<DashboardBriefing | null>(null)
   const [loading, setLoading] = React.useState(true)
   const { mood, affinity, relationshipTier, streakDays, fetchState } = useEmotionalStore()
+  const fetchMissions = useMissionStore((s) => s.fetchMissions)
   const activityData = useActivityMonitor()
 
   const fetchData = React.useCallback(async () => {
     try {
       setLoading(true)
+      // Fetch all data in parallel — stats, briefing, emotional state, and missions
       const [statsData, briefingData] = await Promise.all([
         apiGetDashboardStats(),
         apiGetBriefing(),
+        fetchState('rio'),
+        fetchMissions(),
       ])
       setStats(statsData)
       setBriefing(briefingData)
@@ -38,12 +43,11 @@ export function MissionBoard() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchState, fetchMissions])
 
   React.useEffect(() => {
     fetchData()
-    fetchState('rio')
-  }, [fetchData, fetchState])
+  }, [fetchData])
 
   const recentThreads = stats?.recent_threads ?? []
 
@@ -53,10 +57,10 @@ export function MissionBoard() {
         router.push('/mission')
         break
       case 'resume_chat':
-        router.push(`/operation?thread=${target}`)
+        router.push(`/operation/${target}`)
         break
       case 'new_chat':
-        router.push('/operation?new=true')
+        router.push('/operation')
         break
       case 'new_mission':
         router.push('/mission?new=true')
@@ -86,7 +90,7 @@ export function MissionBoard() {
               </div>
               <div className="flex items-center gap-3 mt-4 md:mt-0">
                 <button
-                  onClick={() => router.push('/operation?new=true')}
+                  onClick={() => router.push('/operation')}
                   className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-sm font-bold transition-colors shadow-lg shadow-rose-500/30"
                 >
                   Start New Operation
@@ -287,7 +291,7 @@ export function MissionBoard() {
                       <Sparkles className="w-8 h-8 text-white/20 mx-auto mb-3" />
                       <p className="text-sm font-bold text-white/50">No chats yet</p>
                       <button
-                        onClick={() => router.push('/operation?new=true')}
+                        onClick={() => router.push('/operation')}
                         className="mt-4 inline-flex items-center gap-2 text-xs font-bold px-4 py-2 rounded-xl bg-primary text-primary-foreground hover:opacity-90 transition-opacity"
                       >
                         <Plus size={14} /> New Chat
@@ -463,7 +467,7 @@ function ConversationRow({ thread, index }: { thread: ThreadStat; index: number 
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: index * 0.05 }}
       whileHover={{ x: 4 }}
-      onClick={() => router.push(`/operation?thread=${thread.id}`)}
+      onClick={() => router.push(`/operation/${thread.id}`)}
       className={cn(
         "group flex items-center gap-4 px-5 py-4 rounded-xl border cursor-pointer transition-all hover:shadow-md",
         isActive
@@ -545,15 +549,13 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 function UpcomingDeadlines() {
   const router = useRouter()
-  const { missions, loading: missionsLoading, fetchMissions } = useMissionStore()
-
-  React.useEffect(() => { fetchMissions() }, [fetchMissions])
+  const { missions, loading: missionsLoading } = useMissionStore()
 
   // Filter to active missions with deadlines, sorted soonest-first, limit 6
   const deadlineMissions = React.useMemo(() => {
     return missions
       .filter((m) => m.status === 'active' && m.deadline)
-      .sort((a, b) => new Date(a.deadline!).getTime() - new Date(b.deadline!).getTime())
+      .sort((a, b) => parseDeadline(a.deadline!).getTime() - parseDeadline(b.deadline!).getTime())
       .slice(0, 6)
   }, [missions])
 
@@ -585,7 +587,8 @@ function UpcomingDeadlines() {
     <div className="flex flex-col flex-1">
       <div className="space-y-3 flex-1 overflow-y-auto pr-2 custom-scrollbar max-h-[400px]">
         {deadlineMissions.map((mission, index) => {
-          const deadline = new Date(mission.deadline!)
+          const deadline = parseDeadline(mission.deadline!)
+          const dateLabel = deadline.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
           return (
             <motion.div
               key={mission.id}
@@ -639,6 +642,7 @@ function UpcomingDeadlines() {
                     {formatTimeRemaining(deadline)}
                   </span>
                 </div>
+                <span className="text-[10px] text-white/40 font-medium">{dateLabel}</span>
               </div>
             </motion.div>
           )

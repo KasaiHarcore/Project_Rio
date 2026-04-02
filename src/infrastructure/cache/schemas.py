@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any, Dict, Literal, Optional
+from typing import Any, Dict, List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -27,6 +27,13 @@ class WarmConversationSummary(BaseModel):
 
 class CachedWebResult(BaseModel):
 	query: str
+	params: Dict[str, Any] = Field(default_factory=dict)
+	result: Dict[str, Any]
+	cached_at: datetime = Field(default_factory=utc_now)
+
+
+class CachedExtractResult(BaseModel):
+	urls: List[str]
 	params: Dict[str, Any] = Field(default_factory=dict)
 	result: Dict[str, Any]
 	cached_at: datetime = Field(default_factory=utc_now)

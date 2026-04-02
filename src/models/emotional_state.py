@@ -127,10 +127,8 @@ class EmotionalState(Base, TimestampMixin):
         doc="Confirmed user preferences: {coding_language: python, ...}",
     )
 
-    # ── Relationships ──────────────────────────────────────────────
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
 
-    # ── Constraints & Indexes ──────────────────────────────────────
     __table_args__ = (
         UniqueConstraint("user_id", "character_id", name="uq_emotional_state_user_character"),
         Index("ix_emotional_state_user_character", "user_id", "character_id"),

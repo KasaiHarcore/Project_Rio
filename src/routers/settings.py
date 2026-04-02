@@ -18,7 +18,6 @@ from schemas.user_settings import (
 router = APIRouter(prefix="/settings", tags=["settings"])
 
 
-# ── Request / Response schemas ──────────────────────────────────────────────
 
 
 class UserInfoUpdate(BaseModel):
@@ -43,7 +42,6 @@ class UpdateResponse(BaseModel):
     message: str = "Updated successfully"
 
 
-# ── Endpoints ───────────────────────────────────────────────────────────────
 
 
 @router.get("", response_model=SettingsResponse)

@@ -16,7 +16,6 @@ from services.settings_service import SettingsService
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
 
 
-# ── Request / Response schemas ──────────────────────────────────────────────
 
 class OnboardingRequest(BaseModel):
     user_name: Optional[str] = Field(None, max_length=255, description="Director's name")
@@ -32,7 +31,6 @@ class OnboardingResponse(BaseModel):
     onboarding_completed: bool = True
 
 
-# ── Endpoint ────────────────────────────────────────────────────────────────
 
 @router.post("", response_model=OnboardingResponse)
 async def save_onboarding(

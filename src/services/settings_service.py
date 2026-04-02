@@ -123,23 +123,31 @@ class SettingsService:
         Returns:
             UserSettingsInDB with API key status (never actual keys)
         """
-        openai_key = decrypt_api_key(settings.encrypted_openai_key) if settings.encrypted_openai_key else None
-        openrouter_key = decrypt_api_key(settings.encrypted_openrouter_key) if settings.encrypted_openrouter_key else None
-        tavily_key = decrypt_api_key(settings.encrypted_tavily_key) if settings.encrypted_tavily_key else None
-        cohere_key = decrypt_api_key(settings.encrypted_cohere_key) if settings.encrypted_cohere_key else None
-        langsmith_key = decrypt_api_key(settings.encrypted_langsmith_key) if settings.encrypted_langsmith_key else None
+        # Check existence without decrypting for _configured flags.
+        # Only decrypt keys that exist for the _masked display.
+        def _decrypt_and_mask(encrypted: str | None) -> tuple[bool, str | None]:
+            if not encrypted:
+                return False, None
+            key = decrypt_api_key(encrypted)
+            return key is not None, mask_api_key(key) if key else None
+
+        oa_ok, oa_mask = _decrypt_and_mask(settings.encrypted_openai_key)
+        or_ok, or_mask = _decrypt_and_mask(settings.encrypted_openrouter_key)
+        tv_ok, tv_mask = _decrypt_and_mask(settings.encrypted_tavily_key)
+        co_ok, co_mask = _decrypt_and_mask(settings.encrypted_cohere_key)
+        ls_ok, ls_mask = _decrypt_and_mask(settings.encrypted_langsmith_key)
 
         api_status = UserSettingsAPIStatus(
-            openai_configured=openai_key is not None,
-            openrouter_configured=openrouter_key is not None,
-            tavily_configured=tavily_key is not None,
-            cohere_configured=cohere_key is not None,
-            langsmith_configured=langsmith_key is not None,
-            openai_masked=mask_api_key(openai_key) if openai_key else None,
-            openrouter_masked=mask_api_key(openrouter_key) if openrouter_key else None,
-            tavily_masked=mask_api_key(tavily_key) if tavily_key else None,
-            cohere_masked=mask_api_key(cohere_key) if cohere_key else None,
-            langsmith_masked=mask_api_key(langsmith_key) if langsmith_key else None,
+            openai_configured=oa_ok,
+            openrouter_configured=or_ok,
+            tavily_configured=tv_ok,
+            cohere_configured=co_ok,
+            langsmith_configured=ls_ok,
+            openai_masked=oa_mask,
+            openrouter_masked=or_mask,
+            tavily_masked=tv_mask,
+            cohere_masked=co_mask,
+            langsmith_masked=ls_mask,
         )
 
         settings_dict = {

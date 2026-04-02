@@ -89,7 +89,6 @@ class NoteLinkInDB(BaseModel):
     updated_at: datetime
 
 
-# -- Graph visualization schemas --
 
 class NoteGraphNode(BaseModel):
     """A node in the note graph."""
@@ -113,6 +112,9 @@ class NoteGraphStats(BaseModel):
     total_edges: int = 0
     total_notes: int = 0
     total_links: int = 0
+    returned_nodes: int = 0
+    returned_edges: int = 0
+    truncated: bool = False
 
 
 class NoteGraphResponse(BaseModel):

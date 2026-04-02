@@ -107,7 +107,6 @@ class NoteLink(Base, TimestampMixin):
         nullable=True,
     )
 
-    # -- Relationships --
     user: Mapped["User"] = relationship("User", foreign_keys=[user_id])
     note: Mapped["Note"] = relationship(
         "Note", foreign_keys=[note_id], backref="links",
@@ -122,7 +121,6 @@ class NoteLink(Base, TimestampMixin):
         "Artifact", foreign_keys=[target_artifact_id],
     )
 
-    # -- Composite indexes --
     __table_args__ = (
         Index("ix_note_link_note_target_type", "note_id", "target_type"),
         Index("ix_note_link_target_note_id", "target_note_id"),

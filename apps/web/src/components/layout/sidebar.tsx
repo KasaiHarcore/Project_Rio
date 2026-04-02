@@ -16,6 +16,9 @@ import {
     Terminal,
     Share2,
     MonitorSmartphone,
+    Layers,
+    Headphones,
+    Zap,
 } from "lucide-react"
 import { cn } from "@/shared/lib/utils"
 import { SettingsModal } from "./settings-modal"
@@ -64,11 +67,14 @@ export function Sidebar({ className, ...props }: SidebarProps) {
                 { href: '/notes', label: 'Notes', icon: <StickyNote size={20} />, active: pathname.startsWith('/notes') },
                 { href: '/artifacts', label: 'Artifacts', icon: <FileText size={20} />, active: pathname.startsWith('/artifacts') },
                 { href: '/graph', label: 'Note Graph', icon: <Share2 size={20} />, active: pathname.startsWith('/graph') },
+                { href: '/flashcards', label: 'Flashcards', icon: <Layers size={20} />, active: pathname.startsWith('/flashcards') },
+                { href: '/audio', label: 'Audio', icon: <Headphones size={20} />, active: pathname.startsWith('/audio') },
             ]
         },
         {
             title: "SYSTEM",
             items: [
+                { href: '/automations', label: 'Automations', icon: <Zap size={20} />, active: pathname.startsWith('/automations') },
                 { id: 'manual', href: '/docs', label: 'Manual', icon: <Book size={20} />, active: pathname.startsWith('/docs') },
                 { href: '/logs', label: 'Logs', icon: <Terminal size={20} />, active: pathname.startsWith('/logs') },
                 ...(userRole === 'admin' ? [{ href: '/terminal', label: 'OS Control', icon: <MonitorSmartphone size={20} />, active: pathname.startsWith('/terminal') }] : []),

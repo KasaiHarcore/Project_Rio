@@ -31,7 +31,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session, sessionmaker
 
 from core.settings import get_app_config
-from utils.log import log_debug, log_error, log_info, log_success
+from utils.log import log_error, log_info, log_success
 
 # Global engine and session factory
 _engine = None
@@ -64,15 +64,6 @@ def get_engine():
             pool_use_lifo=True,
             connect_args=connect_args,
         )
-        
-        # Add connection event listeners for logging
-        @event.listens_for(_engine, "connect")
-        def receive_connect(dbapi_conn, connection_record):
-            log_debug("Database connection established")
-        
-        @event.listens_for(_engine, "close")
-        def receive_close(dbapi_conn, connection_record):
-            log_debug("Database connection closed")
         
         log_success("Database engine created successfully")
 
@@ -109,7 +100,6 @@ def get_session_factory() -> sessionmaker:
             bind=engine,
             expire_on_commit=False,
         )
-        log_debug("Session factory created")
     return _SessionLocal
 
 
@@ -122,26 +112,23 @@ def get_db() -> Generator[Session, None, None]:
     SessionLocal = get_session_factory()
     db = SessionLocal()
     try:
-        log_debug("Database session created")
         yield db
         db.commit()
-        log_debug("Database session committed")
     except SQLAlchemyError as e:
         log_error(f"Database session error: {str(e)}")
         db.rollback()
         raise
     finally:
         db.close()
-        log_debug("Database session closed")
 
 
 @contextmanager
 def get_db_context() -> Generator[Session, None, None]:
     """Context manager for database session.
-    
+
     Yields:
         Session: Database session instance
-        
+
     Example:
         ```python
         with get_db_context() as db:
@@ -151,17 +138,14 @@ def get_db_context() -> Generator[Session, None, None]:
     SessionLocal = get_session_factory()
     db = SessionLocal()
     try:
-        log_debug("Database context session created")
         yield db
         db.commit()
-        log_debug("Database context session committed")
     except SQLAlchemyError as e:
         log_error(f"Database context session error: {str(e)}")
         db.rollback()
         raise
     finally:
         db.close()
-        log_debug("Database context session closed")
 
 
 @contextmanager
@@ -174,17 +158,14 @@ def get_session() -> Generator[Session, None, None]:
     SessionLocal = get_session_factory()
     db = SessionLocal()
     try:
-        log_debug("Database session created")
         yield db
         db.commit()
-        log_debug("Database session committed")
     except SQLAlchemyError as e:
         log_error(f"Database session error: {str(e)}")
         db.rollback()
         raise
     finally:
         db.close()
-        log_debug("Database session closed")
 
 
 def init_db() -> None:

@@ -93,7 +93,8 @@ class User(Base, TimestampMixin):
     threads: Mapped[List["Thread"]] = relationship(
         "Thread",
         back_populates="user",
-        cascade="all, delete-orphan"
+        cascade="all, delete-orphan",
+        lazy="select",
     )
     
     audit_logs: Mapped[List["AuditLog"]] = relationship(

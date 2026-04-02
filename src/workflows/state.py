@@ -14,7 +14,6 @@ Key Design Principles:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import datetime
 from enum import Enum
 from typing import Any, Dict, List, Literal, Optional, Sequence, TypedDict, Annotated
 
@@ -28,26 +27,66 @@ from langchain_core.messages import (
 from langgraph.graph.message import add_messages
 
 from core.settings import DEFAULT_MAX_ITERATIONS
-from utils.timezone import utc_now
 
-class WorkerType(str, Enum):
-    """Types of specialized workers available."""
-    PLANNING = "planning"
-    RETRIEVAL = "retrieval"
-    WEB_SEARCH = "web_search"
-    SQL = "sql"
-    MEMORY = "memory"
-    NOTE = "note"
-    MISSION = "mission"
-    OS_CONTROL = "os_control"
+class UserStage(str, Enum):
+    """What stage the user is in within their work lifecycle."""
+    EXPLORE = "explore"
+    UNDERSTAND = "understand"
+    PLAN = "plan"
+    EXECUTE = "execute"
+    REVIEW = "review"
+    RETAIN = "retain"
 
 
-class SupervisorAction(str, Enum):
-    """Actions the supervisor can take."""
-    DELEGATE = "delegate"           # Delegate to a worker
-    RESPOND = "respond"             # Generate final response
-    CLARIFY = "clarify"             # Ask user for clarification
-    WAIT_HUMAN = "wait_human"       # Wait for human input
+class InterventionType(str, Enum):
+    """What kind of help Rio should provide right now."""
+    TEACH = "teach"
+    CLARIFY = "clarify"
+    CHALLENGE = "challenge"
+    BREAK_DOWN = "break_down"
+    PLAN = "plan"
+    RETRIEVE_EVIDENCE = "retrieve_evidence"
+    DRAFT_STRUCTURE = "draft_structure"
+    COMMIT_STRUCTURE = "commit_structure"
+    REVIEW_PROGRESS = "review_progress"
+    SUMMARIZE_LEARNING = "summarize_learning"
+    RECOMMEND_NEXT_STEP = "recommend_next_step"
+
+
+@dataclass
+class SupportState:
+    """Support-layer state for AI-first orchestration.
+
+    Captures what Rio understands about the user's current situation,
+    what intervention is needed, and what to recommend next.
+    """
+    primary_goal: Optional[str] = None
+    current_stage: Optional[UserStage] = None
+    current_friction: Optional[str] = None
+    recommended_next_step: Optional[str] = None
+    current_intervention: Optional[InterventionType] = None
+    intervention_reasoning: Optional[str] = None
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "primary_goal": self.primary_goal,
+            "current_stage": self.current_stage.value if self.current_stage else None,
+            "current_friction": self.current_friction,
+            "recommended_next_step": self.recommended_next_step,
+            "current_intervention": self.current_intervention.value if self.current_intervention else None,
+            "intervention_reasoning": self.intervention_reasoning,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SupportState":
+        return cls(
+            primary_goal=data.get("primary_goal"),
+            current_stage=UserStage(data["current_stage"]) if data.get("current_stage") else None,
+            current_friction=data.get("current_friction"),
+            recommended_next_step=data.get("recommended_next_step"),
+            current_intervention=InterventionType(data["current_intervention"]) if data.get("current_intervention") else None,
+            intervention_reasoning=data.get("intervention_reasoning"),
+        )
 
 
 class HumanInterruptType(str, Enum):
@@ -65,75 +104,6 @@ class ExecutionStatus(str, Enum):
     WAITING_HUMAN = "waiting_human"
     COMPLETED = "completed"
     FAILED = "failed"
-
-
-@dataclass
-class WorkerResult:
-    """Result from a worker agent execution."""
-    worker_type: WorkerType
-    success: bool
-    content: str
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    error: Optional[str] = None
-    execution_time_ms: int = 0
-    timestamp: datetime = field(default_factory=utc_now)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "worker_type": self.worker_type.value,
-            "success": self.success,
-            "content": self.content,
-            "metadata": self.metadata,
-            "error": self.error,
-            "execution_time_ms": self.execution_time_ms,
-            "timestamp": self.timestamp.isoformat(),
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "WorkerResult":
-        """Create from dictionary."""
-        return cls(
-            worker_type=WorkerType(data["worker_type"]),
-            success=data["success"],
-            content=data["content"],
-            metadata=data.get("metadata", {}),
-            error=data.get("error"),
-            execution_time_ms=data.get("execution_time_ms", 0),
-            timestamp=datetime.fromisoformat(data["timestamp"]) if data.get("timestamp") else utc_now(),
-        )
-
-
-@dataclass
-class SupervisorDecision:
-    """Decision made by the supervisor."""
-    action: SupervisorAction
-    next_worker: Optional[WorkerType] = None
-    reasoning: str = ""
-    confidence: float = 1.0
-    metadata: Dict[str, Any] = field(default_factory=dict)
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "action": self.action.value,
-            "next_worker": self.next_worker.value if self.next_worker else None,
-            "reasoning": self.reasoning,
-            "confidence": self.confidence,
-            "metadata": self.metadata,
-        }
-
-    @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "SupervisorDecision":
-        """Create from dictionary."""
-        next_worker = WorkerType(data["next_worker"]) if data.get("next_worker") else None
-        return cls(
-            action=SupervisorAction(data["action"]),
-            next_worker=next_worker,
-            reasoning=data.get("reasoning", ""),
-            confidence=data.get("confidence", 1.0),
-            metadata=data.get("metadata", {}),
-        )
 
 
 @dataclass
@@ -156,23 +126,6 @@ class HumanInterrupt:
         }
 
 
-@dataclass
-class ExecutionPlan:
-    """Execution plan created by the planning worker."""
-    steps: List[Dict[str, Any]] = field(default_factory=list)
-    reasoning: str = ""
-    estimated_workers: List[WorkerType] = field(default_factory=list)
-    complexity: Literal["simple", "moderate", "complex"] = "simple"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "steps": self.steps,
-            "reasoning": self.reasoning,
-            "estimated_workers": [w.value for w in self.estimated_workers],
-            "complexity": self.complexity,
-        }
-
 class AgentState(TypedDict, total=False):
     """
     Shared state for the multi-agent workflow.
@@ -185,99 +138,77 @@ class AgentState(TypedDict, total=False):
         schema_version: Version of the state schema for migrations
         messages: Conversation messages (append-only)
         
-        # User Context
         original_question: The user's original question
         thread_id: Unique thread identifier
         user_id: User identifier (optional)
         mode: Execution mode (rag, web, chat, sql)
         
-        # Execution State
         status: Current execution status
         current_worker: Currently executing worker (if any)
         iteration_count: Number of supervisor iterations
         max_iterations: Maximum allowed iterations
         
-        # Planning
         execution_plan: The current execution plan
         plan_completed_steps: Steps that have been completed
         
-        # Worker Results
         worker_results: Results from all worker executions
         gathered_context: Aggregated context from workers
         
-        # Supervisor State
         supervisor_decisions: History of supervisor decisions
         final_response: The final response to the user
         
-        # Human-in-the-loop
         pending_human_interrupt: Current pending human interrupt
         human_responses: History of human responses
         
-        # Error Handling
         error: Current error (if any)
         retry_count: Number of retries attempted
         
-        # Metadata
         metadata: Additional execution metadata
         timing: Timing information for phases
     """
     
-    # Schema versioning for state migrations
     schema_version: int
     
-    # Core message history - uses add_messages for proper append semantics
     messages: Annotated[Sequence[BaseMessage], add_messages]
     
-    # User Context
     original_question: str
     thread_id: str
     user_id: Optional[str]
     mode: Literal["rag", "web", "chat", "sql"]
     
-    # Execution State
     status: ExecutionStatus
-    current_worker: Optional[WorkerType]
+    current_worker: Optional[str]
     iteration_count: int
     max_iterations: int
     
-    # Planning
-    execution_plan: Optional[ExecutionPlan]
+    execution_plan: Optional[Dict[str, Any]]
     plan_completed_steps: List[int]
     
-    # Worker Results
-    worker_results: List[WorkerResult]
+    worker_results: List[Dict[str, Any]]
     gathered_context: str
 
-    # Structured record of what each worker actually accomplished this turn.
-    # Each entry: {worker, action, success, fingerprint, summary}
-    # Used for data-driven loop detection and supervisor context injection.
     completed_actions: List[Dict[str, Any]]
     
-    # Supervisor State
-    supervisor_decisions: List[SupervisorDecision]
+    supervisor_decisions: List[Dict[str, Any]]
     final_response: Optional[str]
     
-    # Human-in-the-loop
     pending_human_interrupt: Optional[HumanInterrupt]
     human_responses: List[Dict[str, Any]]
     
-    # SQL Approval Workflow (HITL for SQL operations)
     pending_sql_approval: Optional[Dict[str, Any]]  # Serialized PendingSQLApproval
     sql_approval_history: List[Dict[str, Any]]  # Serialized SQLApprovalHistory list
     sql_schema_context: Optional[str]  # Cached schema context for LLM
     
-    # Error Handling
     error: Optional[str]
     retry_count: int
     
-    # Metadata
     metadata: Dict[str, Any]
     timing: Dict[str, int]
 
-    # Emotional State (Living AI)
     emotional_context: Optional[Dict[str, Any]]
 
-    # Guardrail State
+    support_state: Optional[SupportState]
+
     guardrail_passed: Optional[bool]
     guardrail_rejection: Optional[str]
     guardrail_output_passed: Optional[bool]
@@ -311,11 +242,9 @@ def create_initial_state(
     """
     messages: List[BaseMessage] = []
     
-    # Add history if provided
     if history:
         messages.extend(history)
     
-    # Add the current question
     messages.append(HumanMessage(content=question))
     
     return AgentState(
@@ -341,13 +270,11 @@ def create_initial_state(
         retry_count=0,
         metadata=metadata or {},
         timing={},
-        # SQL Approval fields
         pending_sql_approval=None,
         sql_approval_history=[],
         sql_schema_context=None,
-        # Emotional state
         emotional_context=None,
-        # Guardrail state
+        support_state=None,
         guardrail_passed=None,
         guardrail_rejection=None,
         guardrail_output_passed=None,
@@ -380,7 +307,6 @@ def reset_execution_state(
     Returns:
         Reset AgentState ready for new execution
     """
-    # Preserve message history, add new question
     messages = list(state.get("messages") or [])
     messages.append(HumanMessage(content=new_question))
     
@@ -391,7 +317,6 @@ def reset_execution_state(
         thread_id=state.get("thread_id", ""),
         user_id=state.get("user_id"),
         mode=mode,
-        # Reset all execution state
         status=ExecutionStatus.PENDING,
         current_worker=None,
         iteration_count=0,
@@ -408,13 +333,11 @@ def reset_execution_state(
         retry_count=0,
         metadata=metadata or {},
         timing={},
-        # SQL Approval fields - preserve history but clear pending
         pending_sql_approval=None,
         sql_approval_history=state.get("sql_approval_history", []),
         sql_schema_context=state.get("sql_schema_context"),  # Keep cached schema
-        # Emotional state - reset per execution (recomputed fresh each turn)
         emotional_context=None,
-        # Guardrail state - reset per execution
+        support_state=None,
         guardrail_passed=None,
         guardrail_rejection=None,
         guardrail_output_passed=None,
@@ -480,37 +403,3 @@ def extract_answer_from_state(state: AgentState) -> str:
     return ""
 
 
-def get_gathered_context(state: AgentState) -> str:
-    """
-    Get all gathered context from worker results.
-    
-    Returns:
-        Combined context string from all successful worker results
-    """
-    context_parts: List[str] = []
-    
-    for result in state.get("worker_results") or []:
-        if result.success and result.content:
-            header = f"=== {result.worker_type.value.upper()} RESULT ==="
-            context_parts.append(f"{header}\n{result.content}")
-    
-    return "\n\n".join(context_parts)
-
-
-def should_interrupt_for_human(state: AgentState) -> bool:
-    """Check if we should interrupt for human input."""
-    interrupt = state.get("pending_human_interrupt")
-    return interrupt is not None and interrupt.required
-
-
-def is_execution_complete(state: AgentState) -> bool:
-    """Check if the workflow execution is complete."""
-    status = state.get("status")
-    return status in (ExecutionStatus.COMPLETED, ExecutionStatus.FAILED)
-
-
-def has_exceeded_iterations(state: AgentState) -> bool:
-    """Check if we've exceeded the maximum iterations."""
-    current = state.get("iteration_count", 0)
-    maximum = state.get("max_iterations", DEFAULT_MAX_ITERATIONS)
-    return current >= maximum

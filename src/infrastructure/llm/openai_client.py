@@ -91,8 +91,6 @@ class OpenAIModel(Model):
 		if not api_key:
 			raise RuntimeError("API key cannot be empty")
 
-		# Set for current process
-		os.environ["OPENAI_API_KEY"] = api_key
 		log_success("OpenAI API key provided manually")
 		return api_key
 

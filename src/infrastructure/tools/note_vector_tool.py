@@ -51,6 +51,20 @@ class NoteVectorTool:
     def _init_client(self) -> None:
         if self._client is not None:
             return
+
+        # Reuse the Qdrant client from VectorDBTool to avoid local storage
+        # lock conflicts. Local Qdrant only allows one client per storage dir.
+        try:
+            from infrastructure.tools.qdrant_tool import get_vector_db_tool
+            vdb = get_vector_db_tool()
+            vdb._ensure_initialized()
+            if vdb._client is not None:
+                self._client = vdb._client
+                log_info("NoteVectorTool: reusing shared Qdrant client from VectorDBTool")
+                return
+        except Exception:
+            pass  # Fall through to standalone init
+
         try:
             qdrant_url = os.getenv("QDRANT_URL")
             qdrant_api_key = os.getenv("QDRANT_API_KEY")
@@ -72,6 +86,20 @@ class NoteVectorTool:
     def _init_embeddings(self) -> None:
         if self._embeddings is not None:
             return
+
+        # Try to reuse the embedding model from the primary VectorDBTool
+        # to avoid loading the same HuggingFace model twice (~500MB)
+        try:
+            from infrastructure.tools.qdrant_tool import get_vector_db_tool
+            vdb = get_vector_db_tool()
+            if vdb._embeddings is not None and vdb._embedding_dim:
+                self._embeddings = vdb._embeddings
+                self._embedding_dim = vdb._embedding_dim
+                log_info(f"NoteVectorTool: reusing shared embeddings (dim={self._embedding_dim})")
+                return
+        except Exception:
+            pass  # Fall through to standalone init
+
         config = get_vectordb_config()
         model_name = os.getenv("EMBEDDING_MODEL", config.embedding_model)
         device = os.getenv("EMBEDDING_DEVICE")

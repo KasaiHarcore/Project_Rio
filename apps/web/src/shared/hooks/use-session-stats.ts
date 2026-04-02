@@ -35,7 +35,7 @@ export function useSessionStats() {
       const now = Date.now()
       const durationMs = now - sessionStart
       setSessionDuration(Math.floor(durationMs / 1000))
-    }, 1000)
+    }, 10_000)
 
     return () => clearInterval(interval)
   }, [])

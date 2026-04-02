@@ -197,7 +197,7 @@ function ArtifactsContent() {
                             </span>
                             {artifact.thread_id && (
                               <a
-                                href={`/operation?thread=${artifact.thread_id}`}
+                                href={`/operation/${artifact.thread_id}`}
                                 onClick={(e) => e.stopPropagation()}
                                 className="flex items-center gap-1 hover:text-blue-400 transition-colors"
                               >
@@ -285,7 +285,7 @@ function ArtifactsContent() {
                 </button>
                 {selectedArtifact.thread_id && (
                   <a
-                    href={`/operation?thread=${selectedArtifact.thread_id}`}
+                    href={`/operation/${selectedArtifact.thread_id}`}
                     className={cn("flex items-center gap-2 rounded-lg px-4 py-2 text-xs font-bold transition-colors", "bg-blue-900/30 text-blue-400 hover:bg-blue-900/50")}
                   >
                     <Link2 className="h-3.5 w-3.5" />

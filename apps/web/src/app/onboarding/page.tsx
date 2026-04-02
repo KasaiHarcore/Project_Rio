@@ -411,9 +411,9 @@ export default function OnboardingPage() {
                       onChange={(e) => setFormData({...formData, tone: e.target.value})}
                       className="w-full border-b-2 px-5 py-3 font-bold outline-none appearance-none cursor-pointer rounded-t-lg bg-[#0d1117]/60 border-rose-900/30 text-white focus:border-rose-400 focus:bg-[#0d1117]"
                     >
-                      <option>Analytical</option>
-                      <option>Warm</option>
-                      <option>Professional</option>
+                      <option className="bg-[#0d1117] text-white">Analytical</option>
+                      <option className="bg-[#0d1117] text-white">Warm</option>
+                      <option className="bg-[#0d1117] text-white">Professional</option>
                     </select>
                   </div>
                 </div>

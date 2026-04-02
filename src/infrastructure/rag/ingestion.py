@@ -451,8 +451,11 @@ class IngestionService:
 					chunking_strategy=chunking_strategy,
 				)
 
-			total_chunks = 0
 			splitter = self.get_chunking_strategy(chunking_strategy)
+
+			# Accumulate all chunks for batch insert (avoids N round-trips)
+			all_chunks: list[str] = []
+			all_metadatas: list[dict] = []
 
 			for (page_num, text), metadata in zip(pages, metadatas):
 				page_markdown = MarkdownFormatter.wrap_pages([(page_num, text)], source_name=path.name)
@@ -463,8 +466,12 @@ class IngestionService:
 				)
 				if chunks:
 					page_metadatas = [{**metadata, "chunk": i} for i in range(len(chunks))]
-					self._vectorstore.add_texts(chunks, metadatas=page_metadatas)
-					total_chunks += len(chunks)
+					all_chunks.extend(chunks)
+					all_metadatas.extend(page_metadatas)
+
+			total_chunks = len(all_chunks)
+			if all_chunks:
+				self._vectorstore.add_texts(all_chunks, metadatas=all_metadatas)
 
 			log_success(f"Indexed {total_chunks} chunks from PDF: {path.name}")
 			return f"Successfully indexed {total_chunks} chunks from {path.name}"

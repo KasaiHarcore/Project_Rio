@@ -3,6 +3,7 @@
 from typing import List, Optional
 from uuid import UUID
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session, joinedload
 
 from models.note_link import NoteLink, NoteLinkTargetType
@@ -67,12 +68,13 @@ class NoteLinkRepository(BaseRepository):
         self.db.flush()
         return links
 
-    def delete_by_id(self, link_id: UUID, user_id: UUID) -> int:
-        return (
+    def delete_by_id(self, link_id: UUID, user_id: UUID) -> bool:
+        count = (
             self.db.query(NoteLink)
             .filter(NoteLink.id == link_id, NoteLink.user_id == user_id)
             .delete()
         )
+        return count > 0
 
     def delete_by_note(self, note_id: UUID, user_id: UUID) -> int:
         """Delete all links FROM a given note."""
@@ -93,6 +95,50 @@ class NoteLinkRepository(BaseRepository):
                 joinedload(NoteLink.target_artifact),
             )
             .filter(NoteLink.user_id == user_id)
+            .all()
+        )
+
+    def get_graph_data_limited(
+        self, user_id: UUID, limit: int = 1000,
+    ) -> List[NoteLink]:
+        """Load links for a user with eager-loaded relationships, capped at limit.
+
+        Ordered by created_at DESC so the most recently active parts of the
+        graph are prioritised when the limit truncates.
+        """
+        return (
+            self.db.query(NoteLink)
+            .options(
+                joinedload(NoteLink.note),
+                joinedload(NoteLink.target_note),
+                joinedload(NoteLink.target_document),
+                joinedload(NoteLink.target_artifact),
+            )
+            .filter(NoteLink.user_id == user_id)
+            .order_by(NoteLink.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+
+    def get_subgraph_data(
+        self, user_id: UUID, center_note_id: UUID,
+    ) -> List[NoteLink]:
+        """Load 1-hop subgraph: all links FROM or TO center_note_id."""
+        return (
+            self.db.query(NoteLink)
+            .options(
+                joinedload(NoteLink.note),
+                joinedload(NoteLink.target_note),
+                joinedload(NoteLink.target_document),
+                joinedload(NoteLink.target_artifact),
+            )
+            .filter(
+                NoteLink.user_id == user_id,
+                or_(
+                    NoteLink.note_id == center_note_id,
+                    NoteLink.target_note_id == center_note_id,
+                ),
+            )
             .all()
         )
 

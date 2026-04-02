@@ -24,7 +24,7 @@ export function NotePopup() {
 
     const handleOpenInNotes = () => {
         setPopupNoteId(null)
-        router.push(`/notes?note=${popupNote.id}`)
+        router.push(`/notes/${popupNote.id}`)
     }
 
     const handleContentChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
