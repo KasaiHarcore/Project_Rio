@@ -16,8 +16,10 @@ const nextConfig: NextConfig = {
   // Disable source maps in production to reduce memory and bundle size
   productionBrowserSourceMaps: false,
 
+  // Turbopack is the default bundler in Next.js 16
+  turbopack: {},
+
   experimental: {
-    // Tree-shake heavy packages — only import what's actually used
     optimizePackageImports: [
       "framer-motion",
       "lucide-react",
@@ -33,18 +35,6 @@ const nextConfig: NextConfig = {
       "remark-math",
     ],
   },
-
-  // Reduce dev memory pressure by limiting concurrent compilations
-  ...(isProd ? {} : {
-    webpack: (config: any) => {
-      config.optimization = {
-        ...config.optimization,
-        // Reduce parallelism to lower memory usage in dev
-        realContentHash: false,
-      };
-      return config;
-    },
-  }),
 };
 
 export default nextConfig;
