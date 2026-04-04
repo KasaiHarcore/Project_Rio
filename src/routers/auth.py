@@ -1,4 +1,19 @@
-"""Authentication endpoints: login, register, me, refresh, reset-password, logout.
+"""Authentication, OAuth, and JWKS endpoints.
+
+Auth provides:
+    POST /auth/login          - authenticate and return JWT token pair
+    POST /auth/register       - create a new user account
+    GET  /auth/me             - return current user profile
+    POST /auth/refresh        - exchange refresh token for new access token
+    POST /auth/reset-password - reset authenticated user's password
+    POST /auth/logout         - revoke tokens and log out
+
+OAuth provides:
+    GET  /auth/oauth/{provider}           - redirect to consent page
+    GET  /auth/oauth/{provider}/callback  - exchange code, return JWT
+
+JWKS provides:
+    GET  /.well-known/jwks.json - public key distribution
 
 Security measures:
 - Rate limiting on public endpoints (login, register) via Redis sliding window
@@ -6,31 +21,51 @@ Security measures:
 - Logout revokes tokens server-side via Redis blacklist
 """
 
-from fastapi import APIRouter, Depends, Request, status
+from __future__ import annotations
+
+import base64
+import hashlib
+import secrets
+from typing import Any, Dict, List, Optional
+
+from fastapi import APIRouter, Depends, Query, Request, status
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, EmailStr, Field
 
 from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_auth_service, get_cache_service
+from core.exceptions import (
+    AuthenticationError,
+    DuplicateError,
+    ExternalServiceError,
+    OAuthError,
+    ValidationError,
+)
+from core.settings import get_oauth_config
 from infrastructure.cache.service import CacheService
-from services.auth_service import AuthService
-from core.exceptions import AuthenticationError, DuplicateError, ValidationError
-from models.user import User
-from schemas.user import UserInDB
 from infrastructure.security.auth import (
     TokenPair,
     create_token_pair,
     refresh_access_token,
     revoke_token,
+    ACCESS_TOKEN_EXPIRE_MINUTES,
 )
+from infrastructure.security.jwt_config import JWT_ALGORITHM, JWT_VERIFY_KEY
+from infrastructure.security.oauth import get_oauth_provider, OAuthUserInfo
 from infrastructure.security.rate_limiter import RedisRateLimiter
+from models.user import AuthProvider, User
+from schemas.user import UserInDB, OAuthLoginResponse, TokenPairSchema
+from services.auth_service import AuthService
+from utils.log import log_error
 
+
+# ---------------------------------------------------------------------------
+# Auth router
+# ---------------------------------------------------------------------------
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
-
-
 _rate_limiter = RedisRateLimiter(max_requests=10, window_seconds=60)
-
 
 
 class LoginRequest(BaseModel):
@@ -67,7 +102,6 @@ class AuthResponse(BaseModel):
 class MeResponse(BaseModel):
     success: bool = True
     user: UserInDB
-
 
 
 @router.post("/login", response_model=AuthResponse)
@@ -145,7 +179,7 @@ async def reset_password(
 ):
     """Reset the authenticated user's password.
 
-    Requires a valid access token — the user resets their **own** password.
+    Requires a valid access token -- the user resets their **own** password.
     """
     success, error = await concurrency_manager.run_in_thread(
         svc.reset_password, user.username, body.new_password
@@ -179,3 +213,145 @@ async def logout(
 
     await concurrency_manager.run_in_thread(svc.logout, user.id)
     return None
+
+
+# ---------------------------------------------------------------------------
+# OAuth router  (was oauth.py)
+# ---------------------------------------------------------------------------
+
+oauth_router = APIRouter(prefix="/auth/oauth", tags=["auth"])
+
+
+class OAuthCallbackResponse(BaseModel):
+    """Response returned by the callback endpoint."""
+    success: bool = True
+    user: UserInDB
+    tokens: TokenPairSchema
+    is_new_user: bool = False
+
+
+@oauth_router.get("/{provider}")
+async def oauth_redirect(provider: str):
+    """Redirect the user to the OAuth provider's consent page.
+
+    Supported providers: ``google``, ``github``.
+    """
+    config = get_oauth_config()
+
+    if provider == "google" and not config.google_enabled:
+        raise ValidationError("Google OAuth is not configured")
+    if provider == "github" and not config.github_enabled:
+        raise ValidationError("GitHub OAuth is not configured")
+
+    try:
+        oauth = get_oauth_provider(provider)
+    except ValueError:
+        raise ValidationError(f"Unknown provider: {provider}")
+
+    state = secrets.token_urlsafe(32)
+    url = oauth.get_authorization_url(state=state)
+    return RedirectResponse(url=url, status_code=status.HTTP_307_TEMPORARY_REDIRECT)
+
+
+@oauth_router.get("/{provider}/callback", response_model=OAuthCallbackResponse)
+async def oauth_callback(
+    provider: str,
+    code: str = Query(..., description="Authorization code from provider"),
+    state: Optional[str] = Query(None, description="CSRF state token"),
+    auth_svc: AuthService = Depends(get_auth_service),
+):
+    """Exchange the authorization code for user info and return JWT tokens.
+
+    If the email is already registered:
+    - If same provider: log in as that user
+    - If different provider (e.g. local): link accounts by updating auth_provider
+
+    If the email is new: create a new user account.
+    """
+    try:
+        oauth = get_oauth_provider(provider)
+    except ValueError:
+        raise ValidationError(f"Unknown provider: {provider}")
+
+    # Exchange code for user info from the provider
+    try:
+        user_info: OAuthUserInfo = await oauth.exchange_code(code)
+    except OAuthError:
+        raise
+    except Exception as exc:
+        log_error(f"OAuth exchange error: {exc}")
+        raise ExternalServiceError("OAuth provider error")
+
+    # Resolve user via AuthService
+    auth_provider_enum = AuthProvider(user_info.provider.value)
+    user, is_new_user = auth_svc.get_or_create_oauth_user(
+        oauth_id=user_info.oauth_id,
+        provider=auth_provider_enum,
+        email=user_info.email,
+        name=user_info.name,
+        avatar_url=user_info.avatar_url,
+    )
+
+    # Generate JWT tokens
+    token_pair = create_token_pair(str(user.id), user.role.value)
+
+    user_data = UserInDB.model_validate(user)
+    return OAuthCallbackResponse(
+        user=user_data,
+        tokens=TokenPairSchema(
+            access_token=token_pair.access_token,
+            refresh_token=token_pair.refresh_token,
+            token_type=token_pair.token_type,
+            expires_in=ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        ),
+        is_new_user=is_new_user,
+    )
+
+
+# ---------------------------------------------------------------------------
+# JWKS router  (was jwks.py)
+# ---------------------------------------------------------------------------
+
+jwks_router = APIRouter(tags=["jwks"])
+
+
+def _int_to_base64url(n: int) -> str:
+    """Encode an arbitrary-size integer as Base64url (no padding)."""
+    byte_length = (n.bit_length() + 7) // 8
+    raw = n.to_bytes(byte_length, byteorder="big")
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _build_jwk() -> Dict[str, Any]:
+    """Build a JWK dict from the current RSA public key."""
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+
+    pub_numbers = JWT_VERIFY_KEY.public_numbers()
+
+    # kid = SHA-256 of the DER-encoded public key
+    der_bytes = JWT_VERIFY_KEY.public_bytes(Encoding.DER, PublicFormat.SubjectPublicKeyInfo)
+    kid = hashlib.sha256(der_bytes).hexdigest()
+
+    return {
+        "kty": "RSA",
+        "use": "sig",
+        "alg": "RS256",
+        "kid": kid,
+        "n": _int_to_base64url(pub_numbers.n),
+        "e": _int_to_base64url(pub_numbers.e),
+    }
+
+
+_CACHED_JWKS: Dict[str, List[Dict[str, Any]]] | None = None
+
+
+@jwks_router.get("/.well-known/jwks.json")
+async def jwks_endpoint() -> Dict[str, List[Dict[str, Any]]]:
+    """Return the JSON Web Key Set for public key verification."""
+    global _CACHED_JWKS
+    if _CACHED_JWKS is None:
+        if JWT_ALGORITHM == "RS256":
+            _CACHED_JWKS = {"keys": [_build_jwk()]}
+        else:
+            _CACHED_JWKS = {"keys": []}
+    return _CACHED_JWKS

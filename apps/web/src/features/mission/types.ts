@@ -31,6 +31,7 @@ export interface Mission {
   estimated_minutes: number | null
   category: string | null
   notes: string | null
+  meet_url: string | null
   created_at: string
   updated_at: string
 }

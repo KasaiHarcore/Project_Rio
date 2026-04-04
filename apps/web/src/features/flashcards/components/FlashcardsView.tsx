@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { motion, AnimatePresence } from 'framer-motion'
@@ -701,22 +701,26 @@ function StudyView() {
   }, [session?.currentIndex])
 
   // Keyboard shortcuts: Space = flip, 1/2/3 = rate
+  // Inline rate logic to avoid stale closure over currentCard
   useEffect(() => {
+    if (!session) return
     const handleKey = (e: KeyboardEvent) => {
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
       if (e.key === ' ' || e.code === 'Space') {
         e.preventDefault()
         if (!showAnswer) setShowAnswer(true)
       } else if (showAnswer) {
-        if (e.key === '1') handleRate(1)
-        else if (e.key === '2') handleRate(3)
-        else if (e.key === '3') handleRate(5)
+        const card = session.currentIndex < session.cards.length ? session.cards[session.currentIndex] : null
+        if (!card) return
+        const rateAndNext = (q: number) => { store.submitReview(card.id, q).then(() => store.nextCard()) }
+        if (e.key === '1') rateAndNext(1)
+        else if (e.key === '2') rateAndNext(3)
+        else if (e.key === '3') rateAndNext(5)
       }
     }
     window.addEventListener('keydown', handleKey)
     return () => window.removeEventListener('keydown', handleKey)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [showAnswer, session?.currentIndex])
+  }, [showAnswer, session, store])
 
   if (!session) return null
 
