@@ -2,7 +2,7 @@
 
 import React from 'react'
 import { cn } from '@/shared/lib/utils'
-import { CHARACTERS, CharacterId } from '@/types/character'
+import { CHARACTERS, CharacterId } from '@/features/rio/types'
 import Image from 'next/image'
 
 /** Icon paths matching the actual files in /public/images/ */

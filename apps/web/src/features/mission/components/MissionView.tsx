@@ -23,8 +23,11 @@ import {
     X,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
-import { useMissionStore, type Mission, type MissionStatus, type MissionPriority } from '@/features/mission/store'
+import { useMissionStore } from '@/features/mission/store'
 import {
+    type Mission,
+    type MissionStatus,
+    type MissionPriority,
     PRIORITY_CONFIG,
     STATUS_CONFIG,
     isOverdue,
@@ -33,7 +36,7 @@ import {
     deadlineToInputValue,
     parseDeadline,
     getCategoryColor,
-} from '@/types/mission'
+} from '@/features/mission/types'
 import { toast } from '@/shared/hooks/use-toast'
 import { useAffinityTracker } from '@/features/emotional/hooks/use-affinity-tracker'
 

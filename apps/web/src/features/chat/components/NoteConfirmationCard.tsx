@@ -25,7 +25,7 @@ import {
 import {
   useNoteConfirmationStore,
   type NoteConfirmationRequest,
-} from '@/shared/store/note-confirmation-store'
+} from '@/features/chat/stores/note-confirmation-store'
 import { useSidebarStore } from '@/features/chat/store'
 import { useNoteStore } from '@/features/notes/store'
 

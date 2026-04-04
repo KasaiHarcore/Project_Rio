@@ -27,7 +27,7 @@ import {
   ChevronDown,
   ChevronUp,
 } from 'lucide-react'
-import { useSQLApprovalStore, type SQLApprovalRequest } from '@/shared/store/sql-approval-store'
+import { useSQLApprovalStore, type SQLApprovalRequest } from '@/features/chat/stores/sql-approval-store'
 import { useSidebarStore } from '@/features/chat/store'
 
 /* ═══════════════════════════════════════════════════════════════════

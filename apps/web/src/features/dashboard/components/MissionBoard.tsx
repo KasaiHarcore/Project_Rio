@@ -9,8 +9,8 @@ import Image from 'next/image'
 
 // Music player moved to Rio's panel
 import { apiGetBriefing, apiGetDashboardStats, DashboardBriefing, DashboardStats, ThreadStat } from '@/features/dashboard/api'
-import { useMissionStore, Mission } from '@/features/mission/store'
-import { parseDeadline } from '@/types/mission'
+import { useMissionStore } from '@/features/mission/store'
+import { type Mission, parseDeadline } from '@/features/mission/types'
 import { useEmotionalStore } from '@/features/emotional/store'
 import { useActivityMonitor } from '@/shared/hooks/use-activity-monitor'
 

@@ -9,8 +9,8 @@ import {
     Clock,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
-import { useMissionStore, type Mission } from '@/features/mission/store'
-import { PRIORITY_CONFIG, STATUS_CONFIG, formatDuration, parseDeadline } from '@/types/mission'
+import { useMissionStore } from '@/features/mission/store'
+import { type Mission, PRIORITY_CONFIG, STATUS_CONFIG, formatDuration, parseDeadline } from '@/features/mission/types'
 import { ExternalLink } from 'lucide-react'
 
 /**

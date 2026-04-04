@@ -1,8 +1,8 @@
 import { DefaultChatTransport } from 'ai'
 import { useMissionStore } from '@/features/mission/store'
 import { useSidebarStore } from '@/features/chat/store'
-import { useSQLApprovalStore } from '@/shared/store/sql-approval-store'
-import { useNoteConfirmationStore } from '@/shared/store/note-confirmation-store'
+import { useSQLApprovalStore } from '@/features/chat/stores/sql-approval-store'
+import { useNoteConfirmationStore } from '@/features/chat/stores/note-confirmation-store'
 import { useEmotionalStore } from '@/features/emotional/store'
 import { useNoteStore } from '@/features/notes/store'
 

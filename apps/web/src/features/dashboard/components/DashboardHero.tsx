@@ -3,7 +3,7 @@ import { motion } from 'framer-motion'
 import { Play, Sparkles, Activity, ShieldAlert, Cpu } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useEmotionalStore, Mood, RelationshipTier } from '@/features/emotional/store'
-import { CHARACTERS } from '@/types/character'
+import { CHARACTERS } from '@/features/rio/types'
 import { useRouter } from 'next/navigation'
 import Image from 'next/image'
 

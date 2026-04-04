@@ -15,7 +15,7 @@ const sourceCodePro = Source_Code_Pro({
 
 import { SmoothScroll } from "@/components/layout/smooth-scroll";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { CommandPalette } from "@/components/features/command/CommandPalette";
+import { CommandPalette } from "@/features/command/components/CommandPalette";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {

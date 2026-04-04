@@ -7,49 +7,13 @@ import {
   apiDeleteMission,
   apiToggleStep,
 } from './api'
+import type { Mission, MissionPriority, MissionSource, MissionStats, MissionStatus, MissionStep } from './types'
 
-/* ─── Types ──────────────────────────────────────────────────────── */
+export type { Mission, MissionPriority, MissionSource, MissionStats, MissionStatus, MissionStep }
 
-export type MissionStatus = 'draft' | 'active' | 'completed' | 'archived'
-export type MissionPriority = 'low' | 'normal' | 'critical'
-export type MissionSource = 'agent' | 'user'
+/* ─── Store Types ────────────────────────────────────────────────── */
 
-export interface MissionStep {
-  text: string
-  done: boolean
-}
-
-export interface Mission {
-  id: string
-  title: string
-  description: string | null
-  status: MissionStatus
-  priority: MissionPriority
-  source: MissionSource
-  progress: number
-  tags: string[]
-  steps: MissionStep[]
-  sort_order: number
-  thread_id: string | null
-  /* Notion-style scheduling */
-  deadline: string | null
-  scheduled_start: string | null
-  estimated_minutes: number | null
-  category: string | null
-  notes: string | null
-  meet_url: string | null
-  /* Timestamps */
-  created_at: string
-  updated_at: string
-}
-
-export interface MissionStats {
-  total: number
-  active: number
-  completed: number
-  overdue: number
-  categories: string[]
-}
+export type MissionView = 'board' | 'table' | 'calendar'
 
 /* ─── Store ──────────────────────────────────────────────────────── */
 

@@ -4,7 +4,7 @@ import React, { useMemo } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { useSidebarStore, type SidebarTab } from '@/features/chat/store'
 import { useUIStore } from '@/shared/store/ui-store'
-import { CHARACTERS } from '@/types/character'
+import { CHARACTERS } from '@/features/rio/types'
 import {
   Bot, FolderKanban, BrainCircuit,
   Download, Hash, Zap, Clock,

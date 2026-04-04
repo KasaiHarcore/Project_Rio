@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { CharacterId } from '@/types/character'
+import { CharacterId } from '@/features/rio/types'
 
 type ViewType = 'chat' | 'knowledge' | 'artifacts'
 type ViewMode = 'dashboard' | 'operation'
