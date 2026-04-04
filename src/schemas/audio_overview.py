@@ -8,7 +8,7 @@ from pydantic import BaseModel, Field, ConfigDict
 
 
 class AudioGenerateRequest(BaseModel):
-    source_ids: List[str] = Field(..., min_length=1, max_length=10)
+    source_ids: List[str] = Field(..., min_length=1, max_length=200)
     source_type: str = Field("notes", description="notes | documents | flashcards")
     format: str = Field("summary", description="summary | dialogue | lecture")
     title: Optional[str] = Field(None, max_length=500)

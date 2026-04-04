@@ -109,9 +109,49 @@ class FlashcardRepository(BaseRepository):
             q = q.filter(Flashcard.deck_id == deck_id)
         return q.scalar() or 0
 
+    def count_by_user(self, user_id: UUID) -> int:
+        return (
+            self.db.query(func.count(Flashcard.id))
+            .filter(Flashcard.user_id == user_id)
+            .scalar() or 0
+        )
+
     def count_by_deck(self, deck_id: UUID) -> int:
         return (
             self.db.query(func.count(Flashcard.id))
             .filter(Flashcard.deck_id == deck_id)
             .scalar() or 0
         )
+
+    def count_reviewed_today(self, user_id: UUID) -> int:
+        """Count cards reviewed today using last_reviewed_at (SQL-level, no Python iteration)."""
+        from datetime import datetime, timezone
+
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        return (
+            self.db.query(func.count(Flashcard.id))
+            .filter(
+                Flashcard.user_id == user_id,
+                Flashcard.last_reviewed_at >= today_start,
+            )
+            .scalar() or 0
+        )
+
+    def get_accuracy_stats(self, user_id: UUID):
+        """Return (total_reviews_sum, correct_count_sum, max_streak) in one query."""
+        row = (
+            self.db.query(
+                func.sum(Flashcard.total_reviews),
+                func.sum(Flashcard.correct_count),
+                func.max(Flashcard.streak),
+            )
+            .filter(Flashcard.user_id == user_id)
+            .first()
+        )
+        return (int(row[0] or 0), int(row[1] or 0), int(row[2] or 0))
+
+    def update_card(self, card: Flashcard) -> Flashcard:
+        """Flush pending changes to a card (already mutated by caller)."""
+        self.flush()
+        return card

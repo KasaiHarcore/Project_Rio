@@ -60,6 +60,8 @@ class OpenRouterModel(Model):
         self._user_top_p = top_p
         self._user_frequency_penalty = frequency_penalty
         self._user_presence_penalty = presence_penalty
+        # Invalidate existing client so setup() re-creates it with new config
+        self.llm = None
         log_info(f"User configuration set for {self.model_name}")
 
     def check_api_key(self) -> str:
@@ -100,28 +102,23 @@ class OpenRouterModel(Model):
         # Use user parameters if set, otherwise use defaults
         temperature = self._user_temperature if self._user_temperature is not None else MODEL_TEMP
 
-        # Build kwargs for ChatOpenAI
-        llm_kwargs = {
+        llm_kwargs: dict = {
             "model": self.model_name,
             "temperature": temperature,
             "base_url": "https://openrouter.ai/api/v1",
-            "api_key": api_key,  # Explicitly pass API key
-            "request_timeout": 60.0,
+            "api_key": api_key,
+            "timeout": 60.0,
             "max_retries": 2,
         }
 
-        # Add optional parameters if user configured them
         if self._user_max_tokens is not None:
             llm_kwargs["max_tokens"] = self._user_max_tokens
         if self._user_top_p is not None:
-            llm_kwargs["model_kwargs"] = llm_kwargs.get("model_kwargs", {})
-            llm_kwargs["model_kwargs"]["top_p"] = self._user_top_p
+            llm_kwargs["top_p"] = self._user_top_p
         if self._user_frequency_penalty is not None:
-            llm_kwargs["model_kwargs"] = llm_kwargs.get("model_kwargs", {})
-            llm_kwargs["model_kwargs"]["frequency_penalty"] = self._user_frequency_penalty
+            llm_kwargs["frequency_penalty"] = self._user_frequency_penalty
         if self._user_presence_penalty is not None:
-            llm_kwargs["model_kwargs"] = llm_kwargs.get("model_kwargs", {})
-            llm_kwargs["model_kwargs"]["presence_penalty"] = self._user_presence_penalty
+            llm_kwargs["presence_penalty"] = self._user_presence_penalty
 
         self.llm = ChatOpenAI(**llm_kwargs)
 

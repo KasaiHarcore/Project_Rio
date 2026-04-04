@@ -69,8 +69,14 @@ export const useInterventionStore = create<InterventionStore>()(
       },
 
       triggerIntervention: (message) => {
-        const { preferences, currentIntervention, canTrigger } = get()
+        const { currentIntervention, interventionQueue, canTrigger } = get()
         if (!canTrigger(message.type, message.triggerReason)) return
+
+        const hasDuplicatePending =
+          currentIntervention?.triggerReason === message.triggerReason ||
+          interventionQueue.some((queued) => queued.triggerReason === message.triggerReason)
+
+        if (hasDuplicatePending) return
 
         const intervention: InterventionMessage = {
           ...message,

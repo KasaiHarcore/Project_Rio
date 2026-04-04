@@ -69,6 +69,7 @@ class FlashcardInDB(BaseModel):
     total_reviews: int
     correct_count: int
     streak: int
+    last_reviewed_at: Optional[datetime] = None
     created_at: datetime
     updated_at: datetime
 

@@ -452,12 +452,21 @@ def stream_workflow(
                     config_payload.setdefault("configurable", {}).update(rio_cfg)
 
                 start_time = time.time()
-                token_buffer = ""
                 answer = ""
 
                 event_count = 0
                 answer_streamed = False
                 seen_tool_call_ids: set = set()
+
+                # ── Per-message buffering ──
+                # Buffer AI content per message ID so we can suppress text
+                # that accompanies tool calls (e.g. "I'll delegate this…").
+                # Content is only flushed to the client when we confirm the
+                # message has no tool calls (new message starts, ToolMessage
+                # arrives, or stream ends).
+                _cur_msg_id: Optional[str] = None
+                _msg_buffer = ""
+                _msg_has_tools = False
 
                 log_info("Starting graph.stream() with stream_mode='messages'...")
 
@@ -479,67 +488,108 @@ def stream_workflow(
                     #   (namespace_tuple, (message_chunk, metadata))
                     # Without subgraphs it yields:
                     #   (message_chunk, metadata)
+                    chunk = None
+                    meta = {}
                     if isinstance(stream_event, tuple) and len(stream_event) == 2:
                         first, second = stream_event
                         if isinstance(first, tuple):
                             # subgraphs=True: (namespace, (chunk, meta))
-                            chunk = second[0] if isinstance(second, tuple) else second
+                            if isinstance(second, tuple) and len(second) == 2:
+                                chunk, meta = second[0], second[1] if isinstance(second[1], dict) else {}
+                            else:
+                                chunk = second
                         elif isinstance(second, dict):
                             # (chunk, metadata)
-                            chunk = first
+                            chunk, meta = first, second
                         else:
                             chunk = first
-                    else:
+                    if chunk is None:
+                        continue
+
+                    # Only stream chunks from agent and tools nodes;
+                    # skip planner, guardrails, post_process, etc.
+                    node_name = meta.get("langgraph_node", "") if isinstance(meta, dict) else ""
+                    if node_name and node_name not in ("agent", "tools"):
                         continue
 
                     # ── AIMessageChunk: streaming tokens or tool calls ──
                     if isinstance(chunk, (AIMessage, AIMessageChunk)):
+                        msg_id = getattr(chunk, "id", None)
                         content = getattr(chunk, "content", "") or ""
                         tool_calls = getattr(chunk, "tool_calls", None) or []
                         tool_call_chunks = getattr(chunk, "tool_call_chunks", None) or []
 
-                        # Emit Logic events for tool calls (delegation / direct)
-                        for tc in tool_calls:
-                            tc_id = tc.get("id", "")
-                            if tc_id and tc_id not in seen_tool_call_ids:
-                                seen_tool_call_ids.add(tc_id)
-                                tool_name = tc.get("name", "unknown")
-                                if tool_name.startswith("delegate_"):
-                                    domain = tool_name.replace("delegate_", "").replace("_task", "")
-                                    yield {
-                                        "type": "supervisor",
-                                        "decision": {
-                                            "action": "delegate",
-                                            "worker": domain,
-                                            "reasoning": str(tc.get("args", {}).get("instruction", ""))[:80],
-                                            "confidence": None,
-                                        },
-                                        "iteration": event_count,
-                                    }
-                                else:
-                                    yield {
-                                        "type": "supervisor",
-                                        "decision": {
-                                            "action": "delegate",
-                                            "worker": tool_name,
-                                            "reasoning": f"Calling {tool_name}",
-                                            "confidence": None,
-                                        },
-                                        "iteration": event_count,
-                                    }
+                        # ── New AI message started — flush the previous one ──
+                        if msg_id and msg_id != _cur_msg_id:
+                            # Flush previous message buffer (only if it was clean)
+                            if _msg_buffer and not _msg_has_tools:
+                                if not answer_streamed:
+                                    answer_streamed = True
+                                answer += _msg_buffer
+                                yield {"type": "token", "content": _msg_buffer}
+                            _cur_msg_id = msg_id
+                            _msg_buffer = ""
+                            _msg_has_tools = False
 
-                        # Stream text tokens in real-time (skip tool-call-only chunks)
-                        if content and not tool_calls and not tool_call_chunks:
-                            if not answer_streamed:
-                                answer_streamed = True
-                            answer += content
-                            token_buffer += content
-                            if len(token_buffer) >= STREAM_TOKEN_BATCH_SIZE:
-                                yield {"type": "token", "content": token_buffer}
-                                token_buffer = ""
+                        # ── Tool calls detected — suppress content for this message ──
+                        if tool_calls or tool_call_chunks:
+                            _msg_has_tools = True
+                            _msg_buffer = ""  # discard any buffered content
+
+                            # Emit Logic events for tool calls (delegation / direct)
+                            for tc in tool_calls:
+                                tc_id = tc.get("id", "")
+                                if tc_id and tc_id not in seen_tool_call_ids:
+                                    seen_tool_call_ids.add(tc_id)
+                                    tool_name = tc.get("name", "unknown")
+                                    if tool_name.startswith("delegate_"):
+                                        domain = tool_name.replace("delegate_", "").replace("_task", "")
+                                        yield {
+                                            "type": "supervisor",
+                                            "decision": {
+                                                "action": "delegate",
+                                                "worker": domain,
+                                                "reasoning": str(tc.get("args", {}).get("instruction", ""))[:80],
+                                                "confidence": None,
+                                            },
+                                            "iteration": event_count,
+                                        }
+                                    else:
+                                        yield {
+                                            "type": "supervisor",
+                                            "decision": {
+                                                "action": "delegate",
+                                                "worker": tool_name,
+                                                "reasoning": f"Calling {tool_name}",
+                                                "confidence": None,
+                                            },
+                                            "iteration": event_count,
+                                        }
+
+                        # ── Buffer content (only for messages without tool calls) ──
+                        if content and not _msg_has_tools:
+                            _msg_buffer += content
+                            # Progressive flush for large responses
+                            if len(_msg_buffer) >= STREAM_TOKEN_BATCH_SIZE:
+                                if not answer_streamed:
+                                    answer_streamed = True
+                                answer += _msg_buffer
+                                yield {"type": "token", "content": _msg_buffer}
+                                _msg_buffer = ""
 
                     # ── ToolMessage: tool result → Logic worker-result ──
                     elif isinstance(chunk, ToolMessage):
+                        # Flush any pending AI message buffer before processing
+                        # (it should already be marked as has_tools, but be safe)
+                        if _msg_buffer and not _msg_has_tools:
+                            if not answer_streamed:
+                                answer_streamed = True
+                            answer += _msg_buffer
+                            yield {"type": "token", "content": _msg_buffer}
+                        _msg_buffer = ""
+                        _msg_has_tools = False
+                        _cur_msg_id = None
+
                         raw_name = getattr(chunk, "name", "tool")
                         # Clean up tool name for display
                         display_name = raw_name
@@ -553,10 +603,13 @@ def stream_workflow(
                             "content_preview": content[:TOOL_PREVIEW_LENGTH] if content else "",
                         }
 
-                # Flush remaining token buffer
-                if token_buffer:
-                    yield {"type": "token", "content": token_buffer}
-                    token_buffer = ""
+                # Flush remaining message buffer
+                if _msg_buffer and not _msg_has_tools:
+                    if not answer_streamed:
+                        answer_streamed = True
+                    answer += _msg_buffer
+                    yield {"type": "token", "content": _msg_buffer}
+                    _msg_buffer = ""
 
                 # Collect full answer from the final graph state
                 if not answer:

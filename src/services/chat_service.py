@@ -136,12 +136,21 @@ class ChatService:
         user_api_key = None
         all_user_api_keys = None
         if user_settings and api_resolver:
+            from infrastructure.llm import form
+            from infrastructure.llm.openrouter_client import OpenRouterModel
+
+            # Resolve the model so we can check its actual type
             model_name = config.model_name or user_settings.model_name
             if model_name:
-                if "gpt" in model_name.lower() and "openrouter" not in model_name.lower():
-                    user_api_key = api_resolver.get_openai_key()
-                elif "openrouter" in model_name.lower() or "oss" in model_name.lower():
-                    user_api_key = api_resolver.get_openrouter_key()
+                try:
+                    form.set_model(model_name)
+                except ValueError:
+                    pass
+
+            if isinstance(form.SELECTED_MODEL, OpenRouterModel):
+                user_api_key = api_resolver.get_openrouter_key()
+            elif form.SELECTED_MODEL is not None:
+                user_api_key = api_resolver.get_openai_key()
 
             all_user_api_keys = {
                 "tavily": api_resolver.get_tavily_key(),

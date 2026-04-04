@@ -6,7 +6,6 @@ Replaces the prebuilt ``create_react_agent`` with a custom graph that adds:
 - **Circuit breaker**: detects repeated identical tool failures
 - **Max tool rounds**: configurable limit on tool execution loops
 - **Tool error fallback**: graceful handling of tool execution failures
-- **Default skills**: prompt-only routing for gestures/out_of_scope/abusive
 
 Preserved from the original architecture:
 - Deterministic input/output guardrails
@@ -25,7 +24,7 @@ from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
-from langchain_core.runnables import RunnableLambda
+from langchain_core.runnables import RunnableConfig, RunnableLambda
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from langgraph.prebuilt import ToolNode
@@ -35,7 +34,6 @@ from core.settings import AgentConfig
 from infrastructure.llm import form
 from utils.log import log_debug, log_info, log_warning
 
-from workflows.default_skills import SKILL_NAMES
 from workflows.planner import planner_node
 from workflows.react_prompt import build_system_prompt, build_dynamic_prompt_section
 from workflows.react_state import ReactAgentState
@@ -252,7 +250,7 @@ def _build_agent_node(
 ):
     """Factory: create the main agent node function with captured dependencies."""
 
-    def agent_node(state: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
+    def agent_node(state: Dict[str, Any], config: RunnableConfig) -> Dict[str, Any]:
         """Main ReAct agent — calls the LLM with planner-selected tool guides."""
         messages = state.get("messages") or []
         if not messages:
@@ -272,20 +270,15 @@ def _build_agent_node(
         system_parts = [static_prompt]
 
         if enable_planner and actions:
-            # Planner is active: inject only selected tool guides
-            is_skill_only = all(a in SKILL_NAMES for a in actions)
-
-            if not is_skill_only:
-                guides_block = build_selected_guides(actions, registry)
-                if guides_block:
-                    system_parts.append(guides_block)
+            guides_block = build_selected_guides(actions, registry)
+            if guides_block:
+                system_parts.append(guides_block)
 
             if instruction:
                 system_parts.append(f"## INSTRUCTION\n{instruction}")
 
             system_parts.append(_EXECUTION_GUIDANCE)
         else:
-            # Planner disabled or no actions: inject legacy TOOL_INSTRUCTIONS
             system_parts.append(build_dynamic_prompt_section(
                 instruction=instruction,
                 actions=actions,
@@ -296,13 +289,8 @@ def _build_agent_node(
         system_content = "\n\n---\n\n".join(system_parts)
         system_message = SystemMessage(content=system_content)
 
-        # ── Decide whether to bind tools ──
-        is_skill_only = enable_planner and actions and all(a in SKILL_NAMES for a in actions)
-
-        if is_skill_only:
-            # Prompt-only skill: invoke WITHOUT tools
-            response = llm.invoke([system_message] + list(trimmed))
-        elif tools:
+        # ── Invoke LLM with tools bound ──
+        if tools:
             model_with_tools = llm.bind_tools(tools)
             response = model_with_tools.invoke([system_message] + list(trimmed))
         else:
@@ -316,21 +304,17 @@ def _build_agent_node(
 _EXECUTION_GUIDANCE = dedent("""\
     ## EXECUTION FLOW
 
-    1. **Route by action type:**
-       - If actions are `out_of_scope` / `gestures` / `abusive`
-         -> No tool calls. Generate a direct response based on the instruction.
-       - If actions include tool names -> proceed to step 2.
-
-    2. **Call tools based on instruction:**
+    1. **Call tools based on instruction:**
        - Use the strategy hint (parallel / sequential / iterative).
        - When no hint: parallel if independent, sequential if one feeds another.
+       - If no tools are needed, respond directly based on the instruction.
 
-    3. **After tool results — EVALUATE before responding:**
+    2. **After tool results — EVALUATE before responding:**
        - Sufficient? -> Synthesize and respond.
        - New targets found? -> Call additional tools (ANY available, not just selected).
        - Tool error? -> Try alternative tool. Do NOT retry same tool with same args.
 
-    4. **Response rules:**
+    3. **Response rules:**
        - ALWAYS cite specific names, paths, sources from tool output.
        - When combining multiple tool results, explicitly connect them.
        - Respond in the same language as the user's message.

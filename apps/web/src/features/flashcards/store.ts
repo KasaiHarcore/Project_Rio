@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import {
   apiListDecks, apiCreateDeck, apiDeleteDeck,
-  apiListCards, apiCreateCard, apiDeleteCard,
+  apiListCards, apiCreateCard, apiUpdateCard, apiDeleteCard,
   apiGetDueCards, apiSubmitReview,
   apiGenerateFromNote, apiGetStats, apiGetAdaptiveSession,
 } from './api'
@@ -32,8 +32,9 @@ interface FlashcardState {
   deleteDeck: (id: string) => Promise<boolean>
   fetchCards: (deckId?: string) => Promise<void>
   createCard: (data: { deck_id: string; front: string; back: string; tags?: string[] }) => Promise<Flashcard | null>
+  updateCard: (id: string, data: { front?: string; back?: string; tags?: string[]; is_suspended?: boolean }) => Promise<Flashcard | null>
   deleteCard: (id: string) => Promise<boolean>
-  startStudySession: (deckId?: string) => Promise<void>
+  startStudySession: (deckId?: string) => Promise<boolean>
   submitReview: (cardId: string, quality: number) => Promise<ReviewResult | null>
   nextCard: () => void
   endSession: () => void
@@ -100,6 +101,14 @@ export const useFlashcardStore = create<FlashcardState>((set, get) => ({
     } catch { return null }
   },
 
+  updateCard: async (id, data) => {
+    try {
+      const card = await apiUpdateCard(id, data)
+      set((s) => ({ cards: s.cards.map((c) => c.id === id ? card : c) }))
+      return card
+    } catch { return null }
+  },
+
   deleteCard: async (id) => {
     try {
       await apiDeleteCard(id)
@@ -113,8 +122,7 @@ export const useFlashcardStore = create<FlashcardState>((set, get) => ({
     try {
       const session = await apiGetAdaptiveSession(deckId)
       if (session.cards.length === 0) {
-        set({ loading: false })
-        return
+        return false
       }
       set({
         reviewSession: {
@@ -126,7 +134,8 @@ export const useFlashcardStore = create<FlashcardState>((set, get) => ({
         },
         view: 'study',
       })
-    } catch { /* ignore */ } finally {
+      return true
+    } catch { return false } finally {
       set({ loading: false })
     }
   },

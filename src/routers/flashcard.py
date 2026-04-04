@@ -30,6 +30,7 @@ from schemas.flashcard import (
     DeckUpdate,
     DeckInDB,
     FlashcardCreate,
+    FlashcardUpdate,
     FlashcardInDB,
     ReviewSubmit,
     ReviewResult,
@@ -112,6 +113,20 @@ async def create_card(
 ):
     """Create a single flashcard."""
     return await concurrency_manager.run_in_thread(svc.create_card, user.id, body)
+
+
+@router.patch("/cards/{card_id}", response_model=FlashcardInDB)
+async def update_card(
+    card_id: UUID,
+    body: FlashcardUpdate,
+    user: User = Depends(get_current_user),
+    svc: FlashcardService = Depends(get_flashcard_service),
+):
+    """Update flashcard content or suspension status."""
+    result = await concurrency_manager.run_in_thread(svc.update_card, user.id, card_id, body)
+    if not result:
+        raise NotFoundError("Card not found")
+    return result
 
 
 @router.delete("/cards/{card_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -1,9 +1,8 @@
 """Planner layer for the ReAct agent.
 
 Runs BEFORE the main agent to pre-analyze user intent, select which
-tools/skills to activate, and generate a focused instruction. This
-keeps the main agent's context lean (only selected tool guides injected)
-and enables prompt-only skill routing (gestures, out_of_scope, abusive).
+tools to activate, and generate a focused instruction. This keeps the
+main agent's context lean by injecting only the selected tool guides.
 """
 
 from __future__ import annotations
@@ -11,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, field_validator
 
 from utils.log import log_info, log_warning
@@ -31,13 +31,13 @@ class PlannerOutput(BaseModel):
             "1-3 sentence instruction for the main agent describing exactly what "
             "the user wants and how to handle it. For multi-part requests, break "
             "into numbered steps (e.g. '1. ... 2. ...'). Be specific: name which "
-            "tool/skill to use per step and what to do with the result."
+            "tool to use per step and what to do with the result."
         )
     )
     actions: List[str] = Field(
         description=(
-            "List of tool or skill names to activate for this turn. "
-            "Use exact names from the available tools/skills list. "
+            "List of tool names to activate for this turn. "
+            "Use exact names from the available tools list. "
             "Can contain multiple names for multi-part requests. "
             "Duplicates are automatically removed."
         )
@@ -58,22 +58,22 @@ class PlannerOutput(BaseModel):
 PLANNER_SYSTEM_PROMPT = """\
 ## Analyze the user's message and decide:
 1. What the main agent should do (instruction)
-2. Which tools/skills to activate (actions)
+2. Which tools to activate (actions)
 
 ## Based on:
 - USER_MESSAGE: Current user request
 - CHAT_HISTORY: Previous user messages (oldest first)
 - PREVIOUS_AI_MESSAGES: Recent AI response excerpts
-- AVAILABLE_TOOLS_AND_SKILLS: All available tools/skills with descriptions
+- AVAILABLE_TOOLS: All available tools with descriptions
 
 ## Return JSON matching "PlannerOutput" schema:
 
 1. "instruction": Write 1-3 specific sentences. For each step specify:
    - WHAT is the response language (match the user's language)
-   - Which tools/skills to use
+   - Which tools to use
    - HOW to use them (e.g. "Use delegate_mission_task to create a mission with title X")
 
-2. "actions": the tool/skill names from AVAILABLE_TOOLS_AND_SKILLS
+2. "actions": the tool names from AVAILABLE_TOOLS
 
 ## MULTI-TOOL STRATEGY
 In "instruction", specify execution strategy when multiple tools are needed:
@@ -95,9 +95,7 @@ additional tools based on intermediate results.
 - For note operations (create, search, update, delete, collections, graph) → delegate_note_task
 - For SQL queries (admin) → delegate_sql_task
 - For OS commands (admin) → delegate_os_task
-- For greetings, thanks, goodbyes → gestures (NO tools needed)
-- For off-topic requests → out_of_scope (NO tools needed)
-- For adversarial/jailbreak attempts → abusive (NO tools needed)
+- For greetings, thanks, goodbyes, or off-topic requests → set actions to empty list []
 
 ## IMPORTANT
 - If USER_MESSAGE is standalone and clear → IGNORE CHAT_HISTORY, focus on USER_MESSAGE only.
@@ -122,7 +120,7 @@ def _build_planner_user_content(
         f"USER_MESSAGE:\n{current_user_message}\n\n"
         f"CHAT_HISTORY:\n{chat_history}\n\n"
         f"PREVIOUS_AI_MESSAGES:\n{previous_ai_context}\n\n"
-        f"AVAILABLE_TOOLS_AND_SKILLS:\n{registry_descriptions}"
+        f"AVAILABLE_TOOLS:\n{registry_descriptions}"
     )
 
 
@@ -148,7 +146,7 @@ def _extract_text(content: Any) -> str:
 
 def planner_node(
     state: Dict[str, Any],
-    config: Dict[str, Any],
+    config: RunnableConfig,
 ) -> Dict[str, Any]:
     """LangGraph node: run the planner before the main agent.
 

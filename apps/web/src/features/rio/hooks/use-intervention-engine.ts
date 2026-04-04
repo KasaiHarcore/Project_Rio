@@ -12,7 +12,7 @@
 
 import { useEffect, useRef } from 'react'
 import { useActivityMonitor } from '@/shared/hooks/use-activity-monitor'
-import { useInterventionStore, InterventionType } from '@/features/rio/store'
+import { useInterventionStore } from '@/features/rio/store'
 import { useEmotionalStore } from '@/features/emotional/store'
 import { useMissionStore } from '@/features/mission/store'
 import { generateRioResponse, type ResponseContext } from '@/features/rio/lib/rio-response-generator'
@@ -24,8 +24,7 @@ export function useInterventionEngine() {
   const { missions } = useMissionStore()
 
   const lastBreakReminderRef = useRef(0)
-  const lastIdleCheckRef = useRef(0)
-  const sessionStartRef = useRef(Date.now())
+  const idleMilestonesTriggeredRef = useRef<Set<string>>(new Set())
 
   // Generate LLM-powered intervention message
   const generateMessage = async (situationType: ResponseContext['situationType'], additionalInfo?: any) => {
@@ -98,22 +97,18 @@ export function useInterventionEngine() {
 
   useEffect(() => {
     const { isIdle, idleTime } = activityData
-    const now = Date.now()
+    if (!isIdle) {
+      idleMilestonesTriggeredRef.current.clear()
+      return
+    }
 
-    if (!isIdle) { lastIdleCheckRef.current = 0; return }
-
-    const timeSinceLastCheck = now - lastIdleCheckRef.current
-    if (timeSinceLastCheck < 5 * 60 * 1000) return
-
-    lastIdleCheckRef.current = now
     const idleMinutes = Math.floor(idleTime / (60 * 1000))
+    let cancelled = false
 
-    if (idleMinutes >= 10 && idleMinutes < 15) {
-      generateMessage('idle_check').then((message) => {
-        triggerIntervention({ type: 'toast', message, triggerReason: 'idle_10' })
-      })
-    } else if (idleMinutes >= 30) {
+    if (idleMinutes >= 30 && !idleMilestonesTriggeredRef.current.has('idle_30')) {
+      idleMilestonesTriggeredRef.current.add('idle_30')
       generateMessage('idle_check', { idle_minutes: idleMinutes }).then((message) => {
+        if (cancelled) return
         triggerIntervention({
           type: 'modal', message, triggerReason: 'idle_30',
           actions: [
@@ -122,6 +117,16 @@ export function useInterventionEngine() {
           ],
         })
       })
+    } else if (idleMinutes >= 10 && !idleMilestonesTriggeredRef.current.has('idle_10')) {
+      idleMilestonesTriggeredRef.current.add('idle_10')
+      generateMessage('idle_check').then((message) => {
+        if (cancelled) return
+        triggerIntervention({ type: 'toast', message, triggerReason: 'idle_10' })
+      })
+    }
+
+    return () => {
+      cancelled = true
     }
   }, [activityData.isIdle, activityData.idleTime, triggerIntervention, mood, relationshipTier])
 

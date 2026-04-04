@@ -114,6 +114,16 @@ export function apiCreateCard(data: { deck_id: string; front: string; back: stri
   })
 }
 
+export function apiUpdateCard(
+  id: string,
+  data: { front?: string; back?: string; tags?: string[]; is_suspended?: boolean },
+): Promise<Flashcard> {
+  return fcFetch<Flashcard>(`/api/flashcards/cards/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  })
+}
+
 export async function apiDeleteCard(id: string): Promise<void> {
   await fcFetch<void>(`/api/flashcards/cards/${id}`, { method: 'DELETE' })
 }

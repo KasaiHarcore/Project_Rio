@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 @pytest.fixture
 def sample_registry():
-    """Build a tool/skill registry for a regular user."""
+    """Build a tool registry for a regular user."""
     from workflows.tool_registry import build_tool_registry
 
     return build_tool_registry("user")
@@ -19,7 +19,7 @@ def sample_registry():
 
 @pytest.fixture
 def sample_admin_registry():
-    """Build a tool/skill registry for an admin user."""
+    """Build a tool registry for an admin user."""
     from workflows.tool_registry import build_tool_registry
 
     return build_tool_registry("admin")

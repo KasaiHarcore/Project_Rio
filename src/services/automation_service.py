@@ -8,6 +8,7 @@ from croniter import croniter
 
 from core.exceptions import ValidationError
 from models.automation import Automation, AutomationDelivery
+from models.note import NoteSource
 from repositories.automation_repository import AutomationRepository
 from schemas.automation import AutomationCreate, AutomationUpdate, AutomationInDB
 from utils.log import log_info, log_warning, log_error
@@ -139,6 +140,7 @@ class AutomationService:
             "answer": (result.get("answer", ""))[:2000],
             "thread_id": thread_id,
             "executed_at": now.isoformat(),
+            "delivery": automation.result_delivery.value,
         }
 
         # Check max_runs limit
@@ -147,4 +149,99 @@ class AutomationService:
             log_info(f"[Automation] '{automation.name}' reached max_runs, disabled")
 
         self._repo.flush()
+
+        # Deliver result via configured channel (never raises)
+        delivery_meta = self._deliver_result(automation, result, thread_id)
+
+        # Merge delivery metadata — full reassign required (no MutableDict on JSONB)
+        automation.last_result = {**automation.last_result, **delivery_meta}
+        self._repo.flush()
+
         return result
+
+    # ------------------------------------------------------------------
+    # Result delivery
+    # ------------------------------------------------------------------
+
+    def _deliver_result(
+        self,
+        automation: Automation,
+        result: dict,
+        thread_id: str,
+    ) -> dict:
+        """Dispatch result to the configured delivery channel.
+
+        Returns a metadata dict to merge into ``last_result``.  Never raises.
+        """
+        delivery = automation.result_delivery
+        answer = (result.get("answer", ""))[:5000]
+
+        if delivery == AutomationDelivery.NOTIFICATION:
+            return {}
+
+        if delivery == AutomationDelivery.NOTE:
+            try:
+                return self._deliver_as_note(automation, answer)
+            except Exception as e:
+                log_error(f"[Automation] Note delivery failed for '{automation.name}': {e}")
+                return {"delivery_error": f"Note delivery failed: {e}"[:200]}
+
+        if delivery == AutomationDelivery.CHAT_THREAD:
+            try:
+                return self._deliver_as_chat_thread(automation, answer)
+            except Exception as e:
+                log_error(f"[Automation] Chat delivery failed for '{automation.name}': {e}")
+                return {"delivery_error": f"Chat delivery failed: {e}"[:200]}
+
+        return {}
+
+    def _deliver_as_note(self, automation: Automation, answer: str) -> dict:
+        """Create a note containing the automation result."""
+        from repositories.note_repository import NoteRepository
+        from services.note_service import NoteService
+        from schemas.note import NoteCreate
+
+        db = self._repo.db
+        note_repo = NoteRepository(db)
+        try:
+            from repositories.note_link_repository import NoteLinkRepository
+            from services.note_link_service import NoteLinkService
+            link_svc = NoteLinkService(NoteLinkRepository(db))
+        except Exception:
+            link_svc = None
+
+        note_svc = NoteService(note_repo, note_link_service=link_svc)
+        data = NoteCreate(
+            title=f"Automation: {automation.name}"[:500],
+            content=answer,
+            source=NoteSource.AGENT,
+        )
+        note = note_svc.create_note(automation.user_id, data)
+        log_info(f"[Automation] Delivered note {note.id} for '{automation.name}'")
+        return {"delivered_note_id": str(note.id)}
+
+    def _deliver_as_chat_thread(self, automation: Automation, answer: str) -> dict:
+        """Create a chat thread with the instruction and result."""
+        from services.chat_history_service import chat_history_service
+        from models.message import MessageRole
+
+        title = f"Automation: {automation.name}"[:60]
+        chat_thread_id = chat_history_service.ensure_thread(
+            user_id=automation.user_id,
+            thread_id=None,
+            title=title,
+        )
+        chat_history_service.append_message_async(
+            user_id=automation.user_id,
+            thread_id=chat_thread_id,
+            role=MessageRole.USER,
+            content=automation.agent_instruction,
+        )
+        chat_history_service.append_message_async(
+            user_id=automation.user_id,
+            thread_id=chat_thread_id,
+            role=MessageRole.ASSISTANT,
+            content=answer,
+        )
+        log_info(f"[Automation] Delivered chat thread {chat_thread_id} for '{automation.name}'")
+        return {"delivered_thread_id": chat_thread_id}

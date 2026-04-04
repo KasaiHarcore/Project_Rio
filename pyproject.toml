@@ -20,7 +20,7 @@ dependencies = [
   "openinference-instrumentation-langchain",
   "langchain-tavily",
   "fastapi[standard]",
-  "streamlit",
+
   "langchain-qdrant",
   "qdrant-client",
   "pypdf",

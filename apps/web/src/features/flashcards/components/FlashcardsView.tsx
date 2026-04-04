@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
 import { motion, AnimatePresence } from 'framer-motion'
@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Layers,
   Loader2,
+  Pencil,
   Plus,
   Sparkles,
   Trash2,
@@ -18,22 +19,23 @@ import {
   Flame,
   Target,
   CheckCircle2,
+  PauseCircle,
+  PlayCircle,
 } from 'lucide-react'
 import { cn } from '@/shared/lib/utils'
 import { useFlashcardStore, type FlashcardView } from '@/features/flashcards/store'
 import { toast } from '@/shared/hooks/use-toast'
+import { apiListNotes, type NoteRecord } from '@/features/notes/api'
 
 /* ═══════════════════════════════════════════════════════════════════
  * FlashcardsView
  * ═══════════════════════════════════════════════════════════════════ */
 
-const QUALITY_BUTTONS = [
-  { quality: 0, label: 'Blackout', color: 'bg-red-600' },
-  { quality: 1, label: 'Wrong', color: 'bg-red-500' },
-  { quality: 2, label: 'Hard', color: 'bg-red-400' },
-  { quality: 3, label: 'Difficult', color: 'bg-amber-500' },
-  { quality: 4, label: 'Good', color: 'bg-green-500' },
-  { quality: 5, label: 'Perfect', color: 'bg-green-600' },
+// Simplified 3-button rating — maps to SM-2 quality values
+const RATING_BUTTONS = [
+  { quality: 1, label: 'Again', key: '1', color: 'bg-red-500 hover:bg-red-600' },
+  { quality: 3, label: 'Good', key: '2', color: 'bg-amber-500 hover:bg-amber-600' },
+  { quality: 5, label: 'Easy', key: '3', color: 'bg-green-500 hover:bg-green-600' },
 ] as const
 
 export function FlashcardsView() {
@@ -139,10 +141,8 @@ function DecksView() {
   }, [store])
 
   const handleStudy = useCallback(async (deckId: string) => {
-    await store.startStudySession(deckId)
-    if (!useFlashcardStore.getState().reviewSession) {
-      toast({ title: 'No cards due for review', variant: 'warning' })
-    }
+    const started = await store.startStudySession(deckId)
+    if (!started) toast({ title: 'No cards due for review', variant: 'warning' })
   }, [store])
 
   const handleViewCards = useCallback((deckId: string) => {
@@ -300,8 +300,18 @@ function CardsView() {
   const [front, setFront] = useState('')
   const [back, setBack] = useState('')
   const [tags, setTags] = useState('')
-  const [noteId, setNoteId] = useState('')
   const [maxCards, setMaxCards] = useState(10)
+
+  // Note picker state for generate
+  const [notes, setNotes] = useState<NoteRecord[]>([])
+  const [notesLoading, setNotesLoading] = useState(false)
+  const [selectedNoteId, setSelectedNoteId] = useState('')
+
+  // Card edit state
+  const [editCardId, setEditCardId] = useState<string | null>(null)
+  const [editFront, setEditFront] = useState('')
+  const [editBack, setEditBack] = useState('')
+  const [editTags, setEditTags] = useState('')
 
   const activeDeck = store.decks.find((d) => d.id === store.activeDeckId)
 
@@ -330,18 +340,55 @@ function CardsView() {
     }
   }, [front, back, tags, store])
 
+  // Fetch notes when generate panel opens
+  useEffect(() => {
+    if (!showGenerate) return
+    setNotesLoading(true)
+    apiListNotes().then((data) => setNotes(data)).finally(() => setNotesLoading(false))
+  }, [showGenerate])
+
   const handleGenerate = useCallback(async () => {
-    if (!noteId.trim() || !store.activeDeckId) return
-    const cards = await store.generateFromNote(noteId.trim(), store.activeDeckId, maxCards)
+    if (!selectedNoteId || !store.activeDeckId) return
+    const cards = await store.generateFromNote(selectedNoteId, store.activeDeckId, maxCards)
     if (cards.length > 0) {
       toast({ title: `Generated ${cards.length} cards`, variant: 'success' })
-      setNoteId('')
+      setSelectedNoteId('')
       setMaxCards(10)
       setShowGenerate(false)
     } else {
-      toast({ title: 'No cards generated', variant: 'warning' })
+      toast({ title: 'No cards generated. The note may be empty or the AI could not extract concepts.', variant: 'warning' })
     }
-  }, [noteId, maxCards, store])
+  }, [selectedNoteId, maxCards, store])
+
+  const handleEditStart = useCallback((card: { id: string; front: string; back: string; tags: string[] }) => {
+    setEditCardId(card.id)
+    setEditFront(card.front)
+    setEditBack(card.back)
+    setEditTags(card.tags.join(', '))
+  }, [])
+
+  const handleEditSave = useCallback(async () => {
+    if (!editCardId) return
+    const tagList = editTags.split(',').map((t) => t.trim()).filter(Boolean)
+    const updated = await store.updateCard(editCardId, {
+      front: editFront.trim(),
+      back: editBack.trim(),
+      tags: tagList,
+    })
+    if (updated) {
+      toast({ title: 'Card updated', variant: 'success' })
+      setEditCardId(null)
+    } else {
+      toast({ title: 'Failed to update card', variant: 'error' })
+    }
+  }, [editCardId, editFront, editBack, editTags, store])
+
+  const handleToggleSuspend = useCallback(async (id: string, suspended: boolean) => {
+    const updated = await store.updateCard(id, { is_suspended: !suspended })
+    if (updated) {
+      toast({ title: suspended ? 'Card resumed' : 'Card suspended' })
+    }
+  }, [store])
 
   const handleDeleteCard = useCallback(async (id: string) => {
     const ok = await store.deleteCard(id)
@@ -351,10 +398,8 @@ function CardsView() {
 
   const handleStudyDeck = useCallback(async () => {
     if (!store.activeDeckId) return
-    await store.startStudySession(store.activeDeckId)
-    if (!useFlashcardStore.getState().reviewSession) {
-      toast({ title: 'No cards due for review', variant: 'warning' })
-    }
+    const started = await store.startStudySession(store.activeDeckId)
+    if (!started) toast({ title: 'No cards due for review', variant: 'warning' })
   }, [store])
 
   return (
@@ -469,12 +514,26 @@ function CardsView() {
                 </button>
               </div>
               <div className="flex flex-col sm:flex-row gap-3">
-                <input
-                  value={noteId}
-                  onChange={(e) => setNoteId(e.target.value)}
-                  placeholder="Note ID"
-                  className="bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)] flex-1"
-                />
+                {notesLoading ? (
+                  <div className="flex items-center gap-2 text-sm text-muted-foreground flex-1">
+                    <Loader2 className="h-4 w-4 animate-spin" /> Loading notes…
+                  </div>
+                ) : notes.length === 0 ? (
+                  <p className="text-sm text-muted-foreground flex-1">No notes found. Create a note first.</p>
+                ) : (
+                  <select
+                    value={selectedNoteId}
+                    onChange={(e) => setSelectedNoteId(e.target.value)}
+                    className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)] flex-1 text-foreground"
+                  >
+                    <option value="">Select a note…</option>
+                    {notes.map((n) => (
+                      <option key={n.id} value={n.id}>
+                        {n.title || 'Untitled note'} — {new Date(n.updated_at).toLocaleDateString()}
+                      </option>
+                    ))}
+                  </select>
+                )}
                 <input
                   type="number"
                   value={maxCards}
@@ -486,7 +545,7 @@ function CardsView() {
                 />
                 <button
                   onClick={handleGenerate}
-                  disabled={!noteId.trim() || store.generating}
+                  disabled={!selectedNoteId || store.generating}
                   className="bg-[var(--primary)] text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity flex items-center gap-2"
                 >
                   {store.generating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -513,42 +572,112 @@ function CardsView() {
           {store.cards.map((card) => (
             <div
               key={card.id}
-              className="bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-sm p-4 backdrop-blur-xl"
+              className={cn(
+                "bg-[var(--card-bg)] border border-[var(--card-border)] rounded-2xl shadow-sm p-4 backdrop-blur-xl",
+                card.is_suspended && "opacity-50",
+              )}
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-foreground">
-                    {card.front.length > 100 ? card.front.slice(0, 100) + '...' : card.front}
-                  </p>
-                  <p className="text-sm text-muted-foreground mt-1">
-                    {card.back.length > 100 ? card.back.slice(0, 100) + '...' : card.back}
-                  </p>
-                  <div className="flex items-center gap-2 mt-2">
-                    <span className={cn(
-                      'text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
-                      card.source === 'agent'
-                        ? 'bg-purple-500/20 text-purple-300'
-                        : 'bg-blue-500/20 text-blue-300',
-                    )}>
-                      {card.source}
-                    </span>
-                    {card.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground"
-                      >
-                        {tag}
-                      </span>
-                    ))}
+              {editCardId === card.id ? (
+                /* ── Inline edit form ── */
+                <div className="flex flex-col gap-3">
+                  <textarea
+                    value={editFront}
+                    onChange={(e) => setEditFront(e.target.value)}
+                    rows={2}
+                    className="bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                    placeholder="Front (question)"
+                  />
+                  <textarea
+                    value={editBack}
+                    onChange={(e) => setEditBack(e.target.value)}
+                    rows={2}
+                    className="bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                    placeholder="Back (answer)"
+                  />
+                  <input
+                    value={editTags}
+                    onChange={(e) => setEditTags(e.target.value)}
+                    placeholder="Tags (comma-separated)"
+                    className="bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      onClick={() => setEditCardId(null)}
+                      className="text-muted-foreground hover:text-foreground px-3 py-1.5 text-sm transition-colors"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={handleEditSave}
+                      disabled={!editFront.trim() || !editBack.trim()}
+                      className="bg-[var(--primary)] text-white rounded-lg px-4 py-1.5 text-sm font-medium hover:opacity-90 disabled:opacity-40 transition-opacity"
+                    >
+                      Save
+                    </button>
                   </div>
                 </div>
-                <button
-                  onClick={() => handleDeleteCard(card.id)}
-                  className="text-muted-foreground hover:text-red-400 hover:bg-white/5 rounded-lg p-2 transition-colors shrink-0"
-                >
-                  <Trash2 className="h-4 w-4" />
-                </button>
-              </div>
+              ) : (
+                /* ── Card display ── */
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-foreground">
+                      {card.front.length > 100 ? card.front.slice(0, 100) + '…' : card.front}
+                    </p>
+                    <p className="text-sm text-muted-foreground mt-1">
+                      {card.back.length > 100 ? card.back.slice(0, 100) + '…' : card.back}
+                    </p>
+                    <div className="flex items-center gap-2 mt-2 flex-wrap">
+                      <span className={cn(
+                        'text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full',
+                        card.source === 'agent'
+                          ? 'bg-purple-500/20 text-purple-300'
+                          : 'bg-blue-500/20 text-blue-300',
+                      )}>
+                        {card.source}
+                      </span>
+                      {card.is_suspended && (
+                        <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-slate-500/20 text-slate-400">
+                          suspended
+                        </span>
+                      )}
+                      {card.tags.map((tag) => (
+                        <span
+                          key={tag}
+                          className="text-[10px] px-2 py-0.5 rounded-full bg-white/5 text-muted-foreground"
+                        >
+                          {tag}
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      onClick={() => handleEditStart(card)}
+                      title="Edit card"
+                      className="text-muted-foreground hover:text-foreground hover:bg-white/5 rounded-lg p-2 transition-colors"
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => handleToggleSuspend(card.id, card.is_suspended)}
+                      title={card.is_suspended ? 'Resume card' : 'Suspend card'}
+                      className="text-muted-foreground hover:text-amber-400 hover:bg-white/5 rounded-lg p-2 transition-colors"
+                    >
+                      {card.is_suspended
+                        ? <PlayCircle className="h-4 w-4" />
+                        : <PauseCircle className="h-4 w-4" />
+                      }
+                    </button>
+                    <button
+                      onClick={() => handleDeleteCard(card.id)}
+                      title="Delete card"
+                      className="text-muted-foreground hover:text-red-400 hover:bg-white/5 rounded-lg p-2 transition-colors"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -570,6 +699,24 @@ function StudyView() {
   useEffect(() => {
     setShowAnswer(false)
   }, [session?.currentIndex])
+
+  // Keyboard shortcuts: Space = flip, 1/2/3 = rate
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
+      if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault()
+        if (!showAnswer) setShowAnswer(true)
+      } else if (showAnswer) {
+        if (e.key === '1') handleRate(1)
+        else if (e.key === '2') handleRate(3)
+        else if (e.key === '3') handleRate(5)
+      }
+    }
+    window.addEventListener('keydown', handleKey)
+    return () => window.removeEventListener('keydown', handleKey)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showAnswer, session?.currentIndex])
 
   if (!session) return null
 
@@ -701,19 +848,27 @@ function StudyView() {
                 </button>
               </div>
             ) : (
-              <div className="flex flex-wrap justify-center gap-2">
-                {QUALITY_BUTTONS.map(({ quality, label, color }) => (
-                  <button
-                    key={quality}
-                    onClick={() => handleRate(quality)}
-                    className={cn(
-                      color,
-                      'text-white rounded-lg px-4 py-2.5 text-sm font-medium hover:opacity-90 transition-opacity',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
+              <div className="flex flex-col items-center gap-3">
+                <div className="flex justify-center gap-3">
+                  {RATING_BUTTONS.map(({ quality, label, key, color }) => (
+                    <button
+                      key={quality}
+                      onClick={() => handleRate(quality)}
+                      className={cn(
+                        color,
+                        'text-white rounded-lg px-6 py-2.5 text-sm font-semibold transition-colors min-w-[80px]',
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-[10px] text-muted-foreground">
+                  Keyboard: <kbd className="px-1 py-0.5 bg-white/10 rounded text-[10px]">Space</kbd> flip &nbsp;
+                  <kbd className="px-1 py-0.5 bg-white/10 rounded text-[10px]">1</kbd> again &nbsp;
+                  <kbd className="px-1 py-0.5 bg-white/10 rounded text-[10px]">2</kbd> good &nbsp;
+                  <kbd className="px-1 py-0.5 bg-white/10 rounded text-[10px]">3</kbd> easy
+                </p>
               </div>
             )}
           </div>

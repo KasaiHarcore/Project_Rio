@@ -241,13 +241,16 @@ class AudioService:
             return None
 
     def _synthesize_audio(self, overview_id: str, script: str) -> tuple[Optional[str], int]:
-        """Synthesize audio from script text using Qwen3-TTS voice cloning.
+        """Synthesize audio from script text.
+
+        Tries Qwen3-TTS (voice cloning, requires CUDA) first, then falls back
+        to edge-tts (CPU-based, Microsoft neural voices).
 
         Returns (file_path, duration_seconds) or (None, 0) on failure.
         """
         AUDIO_STORAGE_DIR.mkdir(parents=True, exist_ok=True)
-        output_path = str(AUDIO_STORAGE_DIR / f"{overview_id}.wav")
 
+        # ── Primary: Qwen3-TTS (cloned voice, GPU required) ──────────────────
         try:
             from infrastructure.tts.qwen3_engine import get_qwen3_engine
             from core.settings import get_tts_config
@@ -255,24 +258,45 @@ class AudioService:
             config = get_tts_config()
             engine = get_qwen3_engine()
 
-            if engine is None:
-                log_error("[Audio] Qwen3-TTS engine not available (check TTS_ENGINE config)")
-                return None, 0
+            if engine is not None and engine.is_available:
+                output_path = str(AUDIO_STORAGE_DIR / f"{overview_id}.wav")
+                result = engine.synthesize(script, language=config.language)
+                if result is not None:
+                    wav_data, sample_rate = result
+                    import soundfile as sf
+                    sf.write(output_path, wav_data, sample_rate)
+                    duration = max(1, int(len(wav_data) / sample_rate))
+                    log_info(f"[Audio] Qwen3-TTS: {duration}s audio for {overview_id}")
+                    return output_path, duration
+                log_warning("[Audio] Qwen3-TTS returned no audio, falling back to edge-tts")
+            else:
+                log_warning("[Audio] Qwen3-TTS unavailable, falling back to edge-tts")
+        except Exception as e:
+            log_warning(f"[Audio] Qwen3-TTS error ({e}), falling back to edge-tts")
 
-            result = engine.synthesize(script, language=config.language)
-            if result is None:
-                log_error("[Audio] Qwen3-TTS synthesis returned no audio")
-                return None, 0
+        # ── Fallback: edge-tts (CPU, Microsoft neural voices) ────────────────
+        return self._synthesize_edge_tts(overview_id, script)
 
-            wav_data, sample_rate = result
+    def _synthesize_edge_tts(self, overview_id: str, script: str) -> tuple[Optional[str], int]:
+        """Fallback TTS using edge-tts (Microsoft neural voices, no GPU needed)."""
+        import asyncio
 
-            import soundfile as sf
-            sf.write(output_path, wav_data, sample_rate)
+        output_path = str(AUDIO_STORAGE_DIR / f"{overview_id}.mp3")
 
-            duration = len(wav_data) / sample_rate
-            log_info(f"[Audio] Synthesized {int(duration)}s audio with Qwen3-TTS")
-            return output_path, max(1, int(duration))
+        try:
+            import edge_tts
+
+            async def _generate() -> None:
+                communicate = edge_tts.Communicate(script, voice="en-US-JennyNeural")
+                await communicate.save(output_path)
+
+            asyncio.run(_generate())
+
+            # Estimate duration from word count (~3 words/second for natural TTS)
+            duration = max(1, len(script.split()) // 3)
+            log_info(f"[Audio] edge-tts: ~{duration}s estimated for {overview_id}")
+            return output_path, duration
 
         except Exception as e:
-            log_error(f"[Audio] TTS synthesis failed: {e}")
+            log_error(f"[Audio] edge-tts synthesis failed: {e}")
             return None, 0

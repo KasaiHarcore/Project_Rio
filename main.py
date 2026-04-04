@@ -1,4 +1,4 @@
-"""Application launcher: Streamlit UI + FastAPI REST API."""
+"""Application launcher: FastAPI REST API."""
 
 import argparse
 import sys
@@ -15,36 +15,9 @@ def _bootstrap_src_layout() -> None:
 
 try:
     from utils.log import log_info, log_error, log_warning
-    from core.startup import run_startup_tasks
 except ModuleNotFoundError:
     _bootstrap_src_layout()
     from utils.log import log_info, log_error, log_warning
-    from core.startup import run_startup_tasks
-
-
-def serve() -> None:
-    """Launch Streamlit web interface"""
-    try:
-        import streamlit.web.cli as stcli
-    except ImportError:
-        log_error("Streamlit not installed")
-        print("Install: pip install streamlit")
-        sys.exit(1)
-
-    # Ensure integrations/config are initialized before serving UI.
-    run_startup_tasks()
-    
-    repo_root = Path(__file__).resolve().parent
-    app_path = repo_root / "src" / "interfaces" / "demo" / "chat_main.py"
-    
-    if not app_path.exists():
-        log_error(f"UI not found: {app_path}")
-        sys.exit(1)
-    
-    log_info("Launching Streamlit UI...")
-    log_info(f"Access the web interface at: http://localhost:8501")
-    sys.argv = ["streamlit", "run", str(app_path)]
-    sys.exit(stcli.main())
 
 
 def api(host: str = "0.0.0.0", port: int = 8000, reload: bool = False) -> None:
@@ -73,31 +46,25 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Launch Streamlit web interface
-  python main.py serve
-
   # Launch FastAPI REST API
   python main.py api
   python main.py api --port 8080 --reload
 """
     )
-    
+
     subparsers = parser.add_subparsers(dest="cmd", required=True, help="Available commands")
-    subparsers.add_parser("serve", help="Launch Streamlit web interface")
 
     api_parser = subparsers.add_parser("api", help="Launch FastAPI REST API server")
     api_parser.add_argument("--host", default="0.0.0.0", help="Bind host (default: 0.0.0.0)")
     api_parser.add_argument("--port", type=int, default=8000, help="Bind port (default: 8000)")
     api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload for development")
-    
+
     # Parse arguments
     args = parser.parse_args()
-    
+
     # Execute command
     try:
-        if args.cmd == "serve":
-            serve()
-        elif args.cmd == "api":
+        if args.cmd == "api":
             api(host=args.host, port=args.port, reload=args.reload)
             
     except KeyboardInterrupt:

@@ -1,4 +1,4 @@
-.PHONY: help install dev serve docker-build docker-up docker-down docker-logs \
+.PHONY: help install dev docker-build docker-up docker-down docker-logs \
        migrate-new migrate-up migrate-down migrate-history \
        lint format type-check test test-cov clean ci-local
 
@@ -15,9 +15,6 @@ install: ## Install all dependencies (including dev)
 
 dev: ## Run FastAPI with hot-reload
 	PYTHONPATH=src uvicorn core.app:app --host 0.0.0.0 --port 8000 --reload --reload-dir src
-
-serve: ## Run Streamlit UI
-	PYTHONPATH=src streamlit run src/interfaces/demo/chat_main.py
 
 # ============================================================================
 # Docker

@@ -25,7 +25,15 @@ export interface Automation {
   next_run_at: string | null
   run_count: number
   max_runs: number | null
-  last_result: { answer?: string; thread_id?: string; executed_at?: string } | null
+  last_result: {
+    answer?: string
+    thread_id?: string
+    executed_at?: string
+    delivery?: string
+    delivered_note_id?: string
+    delivered_thread_id?: string
+    delivery_error?: string
+  } | null
   created_at: string
   updated_at: string
 }

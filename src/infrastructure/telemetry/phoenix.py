@@ -29,6 +29,7 @@ from utils.log import log_debug, log_info, log_warning
 # Lock to protect one-time initialisation
 _init_lock = threading.Lock()
 _initialized = False
+_otel_registered = False  # True once register() succeeds — never reset
 
 
 # ─── One-time OTEL bootstrap ───────────────────────────────────────────
@@ -38,8 +39,12 @@ def _ensure_initialized() -> None:
 
 	Called lazily on first ``tracing_enabled()`` check so that imports
 	of this module never have side effects.
+
+	OTEL only allows one TracerProvider per process, so ``register()``
+	is guarded by ``_otel_registered`` which is never reset (unlike
+	``_initialized`` which can be reset to re-read env vars).
 	"""
-	global _initialized
+	global _initialized, _otel_registered
 	if _initialized:
 		return
 
@@ -51,25 +56,27 @@ def _ensure_initialized() -> None:
 			_initialized = True
 			return
 
-		try:
-			from phoenix.otel import register
+		if not _otel_registered:
+			try:
+				from phoenix.otel import register
 
-			endpoint = os.getenv(
-				"PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006"
-			)
-			project = project_name()
+				endpoint = os.getenv(
+					"PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:4317"
+				)
+				project = project_name()
 
-			register(
-				project_name=project,
-				endpoint=endpoint,
-				auto_instrument=True,  # auto-instruments LangChain/LangGraph
-			)
-			log_info(
-				f"Phoenix OTEL tracer registered "
-				f"(endpoint={endpoint}, project={project})"
-			)
-		except Exception as exc:
-			log_warning(f"Failed to initialise Phoenix tracing: {exc}")
+				register(
+					project_name=project,
+					endpoint=endpoint,
+					auto_instrument=True,  # auto-instruments LangChain/LangGraph
+				)
+				_otel_registered = True
+				log_info(
+					f"Phoenix OTEL tracer registered "
+					f"(endpoint={endpoint}, project={project})"
+				)
+			except Exception as exc:
+				log_warning(f"Failed to initialise Phoenix tracing: {exc}")
 
 		_initialized = True
 
@@ -170,7 +177,7 @@ def workflow_trace(
 def log_trace_hint(run_id: str) -> None:
 	"""Print where to find traces (terminal only, no cost)."""
 	if tracing_enabled():
-		endpoint = os.getenv("PHOENIX_COLLECTOR_ENDPOINT", "http://localhost:6006")
-		log_info(f"Phoenix tracing active (run_id={run_id}, project={project_name()}, ui={endpoint})")
+		ui_url = os.getenv("PHOENIX_UI_URL", "http://localhost:6006")
+		log_info(f"Phoenix tracing active (run_id={run_id}, project={project_name()}, ui={ui_url})")
 	else:
 		log_debug("Phoenix tracing disabled — set PHOENIX_ENABLED=true")

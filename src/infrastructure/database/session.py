@@ -150,7 +150,7 @@ def get_db_context() -> Generator[Session, None, None]:
 
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
-    """Context manager for database session (streamlit-friendly alias).
+    """Context manager for database session.
 
     Yields:
         Session: Database session instance

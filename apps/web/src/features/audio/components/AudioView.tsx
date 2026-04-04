@@ -1,13 +1,22 @@
 "use client"
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useCallback } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { Headphones, Plus, Trash2, Clock, Loader2, AlertCircle } from 'lucide-react'
+import { Headphones, Plus, Trash2, Clock, Loader2, AlertCircle, Check, FileText } from 'lucide-react'
 import { cn } from "@/shared/lib/utils"
 import { toast } from "@/shared/hooks/use-toast"
 import { useAudioStore } from '@/features/audio/store'
 import type { AudioGenerateRequest } from '@/features/audio/api'
+import { apiListNotes } from '@/features/notes/api'
+import { apiListDecks, apiListCards } from '@/features/flashcards/api'
+
+/* ── Types ── */
+
+interface SourceItem {
+  id: string
+  label: string
+}
 
 /* ── Helpers ── */
 
@@ -25,43 +34,164 @@ const statusColors: Record<string, string> = {
   failed: 'bg-red-900/30 text-red-400',
 }
 
+/* ── Source Picker ── */
+
+interface SourcePickerProps {
+  sourceType: string
+  selectedIds: string[]
+  onToggle: (id: string) => void
+  items: SourceItem[]
+  loading: boolean
+}
+
+function SourcePicker({ sourceType, selectedIds, onToggle, items, loading }: SourcePickerProps) {
+  const label = sourceType === 'notes' ? 'Notes' : 'Flashcard Decks'
+
+  return (
+    <div>
+      <label className="text-[10px] font-bold tracking-wider uppercase text-page-muted mb-1 block">
+        {label} {selectedIds.length > 0 && <span className="text-[var(--primary)]">({selectedIds.length} selected)</span>}
+      </label>
+      <div className="border border-[var(--card-border)] rounded-lg overflow-hidden">
+        {loading ? (
+          <div className="flex items-center justify-center gap-2 py-6 text-sm text-page-muted">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Loading…
+          </div>
+        ) : items.length === 0 ? (
+          <p className="py-6 text-center text-sm text-page-muted">
+            No {label.toLowerCase()} found.
+          </p>
+        ) : (
+          <ul className="max-h-48 overflow-y-auto divide-y divide-[var(--card-border)]">
+            {items.map((item) => {
+              const selected = selectedIds.includes(item.id)
+              return (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    onClick={() => onToggle(item.id)}
+                    className={cn(
+                      "w-full flex items-center gap-3 px-3 py-2.5 text-left text-sm transition-colors hover:bg-white/5",
+                      selected && "bg-violet-900/20"
+                    )}
+                  >
+                    <span className={cn(
+                      "flex h-4 w-4 flex-shrink-0 items-center justify-center rounded border transition-colors",
+                      selected
+                        ? "border-violet-500 bg-violet-600"
+                        : "border-[var(--card-border)]"
+                    )}>
+                      {selected && <Check className="h-3 w-3 text-white" />}
+                    </span>
+                    <span className="truncate text-page-card-title">{item.label || 'Untitled'}</span>
+                  </button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  )
+}
+
+/* ── Main Component ── */
+
 export function AudioView() {
   const {
     overviews, loading, generating,
     fetchOverviews, generateAudio, deleteOverview,
   } = useAudioStore()
 
+  // Form state
   const [showGenerate, setShowGenerate] = useState(false)
   const [formSourceType, setFormSourceType] = useState('notes')
-  const [formSourceIds, setFormSourceIds] = useState('')
   const [formFormat, setFormFormat] = useState('summary')
   const [formTitle, setFormTitle] = useState('')
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+
+  // Source picker data
+  const [sourceItems, setSourceItems] = useState<SourceItem[]>([])
+  const [loadingSources, setLoadingSources] = useState(false)
+
+  // Misc UI
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null)
 
   useEffect(() => {
     fetchOverviews()
   }, [fetchOverviews])
 
+  // Fetch source items when source type changes or the form opens
+  const fetchSources = useCallback(async (type: string) => {
+    setLoadingSources(true)
+    setSelectedIds([])
+    try {
+      if (type === 'notes') {
+        const notes = await apiListNotes()
+        setSourceItems(notes.map((n) => ({ id: n.id, label: n.title || 'Untitled' })))
+      } else if (type === 'flashcards') {
+        const decks = await apiListDecks()
+        setSourceItems(decks.map((d) => ({ id: d.id, label: d.name })))
+      }
+    } catch {
+      setSourceItems([])
+    } finally {
+      setLoadingSources(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    if (showGenerate) {
+      fetchSources(formSourceType)
+    }
+  }, [showGenerate, formSourceType, fetchSources])
+
+  const handleSourceTypeChange = (type: string) => {
+    setFormSourceType(type)
+    setSelectedIds([])
+    setSourceItems([])
+  }
+
+  const toggleSource = (id: string) => {
+    setSelectedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
+
   const resetForm = () => {
     setFormSourceType('notes')
-    setFormSourceIds('')
     setFormFormat('summary')
     setFormTitle('')
+    setSelectedIds([])
+    setSourceItems([])
   }
 
   const handleGenerate = async () => {
-    const ids = formSourceIds
-      .split('\n')
-      .map((s) => s.trim())
-      .filter(Boolean)
-
-    if (ids.length === 0) {
-      toast({ title: 'Missing source IDs', description: 'Enter at least one source ID.', variant: 'warning' })
+    if (selectedIds.length === 0) {
+      toast({ title: 'No source selected', description: 'Pick at least one item.', variant: 'warning' })
       return
     }
 
+    let sourceIds = selectedIds
+
+    // For flashcards, expand deck IDs → card IDs
+    if (formSourceType === 'flashcards') {
+      try {
+        const cardGroups = await Promise.all(selectedIds.map((id) => apiListCards(id, 200)))
+        sourceIds = cardGroups.flat().map((c) => c.id)
+        if (sourceIds.length === 0) {
+          toast({ title: 'Empty decks', description: 'Selected decks have no cards.', variant: 'warning' })
+          return
+        }
+      } catch {
+        toast({ title: 'Failed to load cards', variant: 'error' })
+        return
+      }
+    }
+
     const data: AudioGenerateRequest = {
-      source_ids: ids,
+      source_ids: sourceIds,
       source_type: formSourceType,
       format: formFormat,
       title: formTitle.trim() || undefined,
@@ -141,7 +271,7 @@ export function AudioView() {
                   <input
                     value={formTitle}
                     onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="My audio overview..."
+                    placeholder="My audio overview…"
                     className="w-full bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   />
                 </div>
@@ -151,12 +281,11 @@ export function AudioView() {
                   <label className="text-[10px] font-bold tracking-wider uppercase text-page-muted mb-1 block">Source Type</label>
                   <select
                     value={formSourceType}
-                    onChange={(e) => setFormSourceType(e.target.value)}
+                    onChange={(e) => handleSourceTypeChange(e.target.value)}
                     className="w-full bg-[#161b22] border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--primary)]"
                   >
                     <option className="bg-[#161b22] text-[#e6edf3]" value="notes">Notes</option>
-                    <option className="bg-[#161b22] text-[#e6edf3]" value="documents">Documents</option>
-                    <option className="bg-[#161b22] text-[#e6edf3]" value="flashcards">Flashcards</option>
+                    <option className="bg-[#161b22] text-[#e6edf3]" value="flashcards">Flashcard Decks</option>
                   </select>
                 </div>
 
@@ -175,15 +304,14 @@ export function AudioView() {
                 </div>
               </div>
 
-              {/* Source IDs */}
+              {/* Source Picker */}
               <div className="mt-4">
-                <label className="text-[10px] font-bold tracking-wider uppercase text-page-muted mb-1 block">Source IDs (one per line)</label>
-                <textarea
-                  rows={4}
-                  value={formSourceIds}
-                  onChange={(e) => setFormSourceIds(e.target.value)}
-                  placeholder={"Enter source IDs, one per line...\ne.g.\nabc-123\ndef-456"}
-                  className="w-full bg-transparent border border-[var(--card-border)] rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-1 focus:ring-[var(--primary)] resize-none"
+                <SourcePicker
+                  sourceType={formSourceType}
+                  selectedIds={selectedIds}
+                  onToggle={toggleSource}
+                  items={sourceItems}
+                  loading={loadingSources}
                 />
               </div>
 
@@ -191,7 +319,7 @@ export function AudioView() {
               <div className="mt-5 flex items-center gap-3">
                 <button
                   onClick={handleGenerate}
-                  disabled={generating}
+                  disabled={generating || selectedIds.length === 0}
                   className="bg-[var(--primary)] text-white rounded-lg px-4 py-2 text-sm font-medium hover:opacity-90 disabled:opacity-50 flex items-center gap-2"
                 >
                   {generating && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -226,7 +354,7 @@ export function AudioView() {
           {/* List Header */}
           <div className="mb-4">
             <h2 className="text-[10px] font-black tracking-widest uppercase text-page-section-label">
-              {loading ? 'Loading...' : `Audio Overviews (${overviews.length})`}
+              {loading ? 'Loading…' : `Audio Overviews (${overviews.length})`}
             </h2>
           </div>
 
@@ -235,7 +363,7 @@ export function AudioView() {
             <div className="text-center py-12">
               <Headphones className="mx-auto h-12 w-12 text-page-muted mb-4 opacity-60" />
               <p className="text-page-muted">No audio overviews yet</p>
-              <p className="text-sm text-page-muted mt-1">Generate audio summaries from your notes, documents, or flashcards.</p>
+              <p className="text-sm text-page-muted mt-1">Generate audio summaries from your notes or flashcard decks.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -250,7 +378,7 @@ export function AudioView() {
                       "rounded-xl p-3 transition-transform group-hover:scale-110",
                       statusColors[overview.status] || 'bg-slate-800/40 text-slate-500'
                     )}>
-                      {overview.status === 'generating'
+                      {overview.status === 'generating' || overview.status === 'pending'
                         ? <Loader2 className="h-6 w-6 animate-spin" />
                         : overview.status === 'failed'
                         ? <AlertCircle className="h-6 w-6" />
@@ -296,6 +424,19 @@ export function AudioView() {
                           src={'/api/audio/' + overview.id + '/stream'}
                           className="w-full mt-2"
                         />
+                      )}
+
+                      {/* Transcript (expandable) */}
+                      {overview.status === 'ready' && overview.transcript && (
+                        <details className="mt-3">
+                          <summary className="flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase text-slate-400 cursor-pointer hover:text-slate-300 select-none">
+                            <FileText className="h-3 w-3" />
+                            View Transcript
+                          </summary>
+                          <p className="mt-2 text-xs text-slate-400 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto border border-[var(--card-border)] rounded-lg p-3">
+                            {overview.transcript}
+                          </p>
+                        </details>
                       )}
 
                       {/* Error message for failed */}

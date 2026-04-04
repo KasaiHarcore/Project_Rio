@@ -207,6 +207,7 @@ class FlashcardService:
         card.interval_days = new_interval
         card.next_review = now + timedelta(days=new_interval)
         card.total_reviews += 1
+        card.last_reviewed_at = now
         if is_correct:
             card.correct_count += 1
             card.streak += 1
@@ -362,15 +363,20 @@ class FlashcardService:
             response = form.SELECTED_MODEL.llm.invoke(prompt)
             content = response.content if hasattr(response, "content") else str(response)
 
-            # Extract JSON from response (may be wrapped in markdown code block)
-            if "```" in content:
-                start = content.find("[")
-                end = content.rfind("]") + 1
-                content = content[start:end]
+            # Robustly extract the first JSON array from anywhere in the response
+            start = content.find("[")
+            end = content.rfind("]")
+            if start == -1 or end == -1 or end <= start:
+                log_warning(f"No JSON array found in flashcard generation response")
+                return []
+            content = content[start:end + 1]
 
             pairs = json.loads(content)
+        except json.JSONDecodeError as e:
+            log_warning(f"Failed to parse flashcard generation JSON: {e}")
+            return []
         except Exception as e:
-            log_warning(f"Failed to parse flashcard generation output: {e}")
+            log_warning(f"Flashcard generation failed: {e}")
             return []
 
         if not isinstance(pairs, list):
@@ -393,29 +399,38 @@ class FlashcardService:
 
         return self.create_cards_bulk(user_id, cards_data)
 
+    # ── Card Update ─────────────────────────────────────────────────
+
+    def update_card(self, user_id: UUID, card_id: UUID, data) -> Optional[FlashcardInDB]:
+        card = self._repo.get_card(card_id, user_id)
+        if not card:
+            return None
+        if data.front is not None:
+            card.front = data.front
+        if data.back is not None:
+            card.back = data.back
+        if data.tags is not None:
+            card.tags = data.tags
+        if data.is_suspended is not None:
+            card.is_suspended = data.is_suspended
+        self._repo.flush()
+        return FlashcardInDB.model_validate(card)
+
     # ── Stats ───────────────────────────────────────────────────────
 
     def get_stats(self, user_id: UUID) -> FlashcardStats:
+        from repositories.flashcard_repository import FlashcardRepository
+
         due = self._repo.count_due(user_id)
-        all_cards = self._repo.list_cards(user_id, limit=10000)
+        total_cards = self._repo.count_by_user(user_id)
+        reviewed_today = self._repo.count_reviewed_today(user_id)
+        total_reviews, total_correct, longest_streak = self._repo.get_accuracy_stats(user_id)
         decks = self.list_decks(user_id)
 
-        now = datetime.now(timezone.utc)
-        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
-
-        reviewed_today = sum(
-            1 for c in all_cards
-            if c.total_reviews > 0 and c.updated_at >= today_start
-        )
-
-        total_correct = sum(c.correct_count for c in all_cards)
-        total_reviews = sum(c.total_reviews for c in all_cards)
         accuracy = total_correct / total_reviews if total_reviews > 0 else 0.0
 
-        longest_streak = max((c.streak for c in all_cards), default=0)
-
         return FlashcardStats(
-            total_cards=len(all_cards),
+            total_cards=total_cards,
             due_today=due,
             reviewed_today=reviewed_today,
             accuracy_rate=round(accuracy, 3),

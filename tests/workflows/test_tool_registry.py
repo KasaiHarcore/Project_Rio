@@ -1,4 +1,4 @@
-"""Tests for the dual tool/skill registry."""
+"""Tests for the tool registry."""
 
 from workflows.tool_registry import (
     ToolRegistryEntry,
@@ -8,22 +8,16 @@ from workflows.tool_registry import (
 )
 
 
-def test_user_registry_contains_skills(sample_registry):
-    for name in ("gestures", "out_of_scope", "abusive"):
-        assert name in sample_registry
-        assert sample_registry[name].is_skill is True
-
-
 def test_user_registry_contains_tools(sample_registry):
     expected_tools = [
         "recall_memories", "store_memory", "forget_memory",
         "web_search", "web_extract",
         "search_documents", "search_knowledge_graph",
         "delegate_mission_task", "delegate_note_task",
+        "delegate_flashcard_task", "delegate_automation_task", "delegate_audio_task",
     ]
     for name in expected_tools:
         assert name in sample_registry
-        assert sample_registry[name].is_skill is False
 
 
 def test_user_registry_excludes_admin_tools(sample_registry):

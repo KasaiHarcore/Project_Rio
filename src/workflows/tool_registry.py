@@ -1,4 +1,4 @@
-"""Dual tool/skill registry for the planner + agent architecture.
+"""Dual tool registry for the planner + agent architecture.
 
 Each entry has two text fields:
   - **description** (brief): shown to the planner — WHEN to use.
@@ -10,21 +10,19 @@ the guides for planner-selected tools (focused context).
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Dict
 
 from utils.log import log_info
-from workflows.default_skills import DEFAULT_SKILLS
 
 
 @dataclass(frozen=True)
 class ToolRegistryEntry:
-    """A single tool or skill in the registry."""
+    """A single tool in the registry."""
 
     name: str
     description: str       # Brief — shown to planner (WHEN to use)
     guide: str             # Detailed — injected into agent (HOW to use)
-    is_skill: bool = False # True = prompt-only, no callable tool
     admin_only: bool = False
 
 
@@ -261,12 +259,7 @@ _PLANNER_DESC_CACHE: Dict[str, str] = {}
 
 
 def build_tool_registry(user_role: str = "user") -> Dict[str, ToolRegistryEntry]:
-    """Build the full tool/skill registry (cached per user_role).
-
-    Registration order:
-        1. Default skills (gestures, out_of_scope, abusive)
-        2. Direct tools (memory, search)
-        3. Delegation tools (mission, note, sql, os)
+    """Build the full tool registry (cached per user_role).
 
     Admin-only tools are excluded when ``user_role != "admin"``.
     """
@@ -275,16 +268,6 @@ def build_tool_registry(user_role: str = "user") -> Dict[str, ToolRegistryEntry]
 
     registry: Dict[str, ToolRegistryEntry] = {}
 
-    # 1. Default skills
-    for skill_name, skill_entry in DEFAULT_SKILLS.items():
-        registry[skill_name] = ToolRegistryEntry(
-            name=skill_entry["name"],
-            description=skill_entry["description"],
-            guide=skill_entry["guide"],
-            is_skill=True,
-        )
-
-    # 2+3. Tools
     for tool_name, entry in _TOOL_ENTRIES.items():
         is_admin = entry.get("admin_only", False)
         if is_admin and user_role != "admin":
@@ -297,9 +280,7 @@ def build_tool_registry(user_role: str = "user") -> Dict[str, ToolRegistryEntry]
         )
 
     log_info(
-        f"[ToolRegistry] Built registry: {len(registry)} entries "
-        f"({sum(1 for e in registry.values() if e.is_skill)} skills, "
-        f"{sum(1 for e in registry.values() if not e.is_skill)} tools) "
+        f"[ToolRegistry] Built registry: {len(registry)} tools "
         f"for role={user_role}"
     )
     _REGISTRY_CACHE[user_role] = registry
@@ -344,14 +325,13 @@ def build_selected_guides(
         entry = registry.get(action_name)
         if not entry:
             continue
-        parts.append(f"**Tool/Skill: {action_name}**\n\n{entry.guide}")
+        parts.append(f"**Tool: {action_name}**\n\n{entry.guide}")
 
     # Compact reference for other tools (so agent can discover them mid-reasoning)
-    _skip = {"gestures", "out_of_scope", "abusive"} | seen
     other_lines = [
         f"- **{name}**: {entry.description[:150]}"
         for name, entry in registry.items()
-        if name not in _skip and not entry.is_skill
+        if name not in seen
     ]
     if other_lines:
         parts.append(

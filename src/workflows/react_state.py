@@ -32,7 +32,7 @@ class ReactAgentState(TypedDict, total=False):
 
     # ── Planner output (set by planner node, consumed by agent node) ──
     instruction: Optional[str]       # Focused instruction from planner
-    actions: Optional[List[str]]     # Selected tool/skill names from planner
+    actions: Optional[List[str]]     # Selected tool names from planner
 
     # ── Guardrails ──
     guardrail_passed: Optional[bool]

@@ -3,7 +3,7 @@
 import React, { useState, useEffect } from 'react'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { Zap, Plus, Play, Loader2, Trash2, Clock, Calendar, Hash, Power } from 'lucide-react'
+import { Zap, Plus, Play, Loader2, Trash2, Clock, Calendar, Hash, Power, ChevronDown, ChevronUp, FileText, MessageSquare, Bell, AlertTriangle } from 'lucide-react'
 import { cn } from "@/shared/lib/utils"
 import { toast } from "@/shared/hooks/use-toast"
 import { useAutomationStore } from '@/features/automations/store'
@@ -55,6 +55,28 @@ const TIMEZONES = [
   'Australia/Sydney',
 ]
 
+function deliveryLabel(delivery?: string): { label: string; icon: React.ReactNode; color: string } {
+  switch (delivery) {
+    case 'note':
+      return { label: 'Delivered as Note', icon: <FileText className="h-3 w-3" />, color: 'text-purple-400' }
+    case 'chat_thread':
+      return { label: 'Delivered to Chat', icon: <MessageSquare className="h-3 w-3" />, color: 'text-blue-400' }
+    default:
+      return { label: 'Notification', icon: <Bell className="h-3 w-3" />, color: 'text-amber-400' }
+  }
+}
+
+function timeAgo(isoString: string): string {
+  const diff = Date.now() - new Date(isoString).getTime()
+  const mins = Math.floor(diff / 60000)
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins}m ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours}h ago`
+  const days = Math.floor(hours / 24)
+  return `${days}d ago`
+}
+
 export function AutomationsView() {
   const {
     automations, loading, running,
@@ -71,6 +93,7 @@ export function AutomationsView() {
   const [formTimezone, setFormTimezone] = useState('UTC')
   const [formMaxRuns, setFormMaxRuns] = useState('')
   const [creating, setCreating] = useState(false)
+  const [expandedResult, setExpandedResult] = useState<string | null>(null)
 
   useEffect(() => {
     fetchAutomations()
@@ -410,6 +433,60 @@ export function AutomationsView() {
                           Runs: {auto.run_count}{auto.max_runs ? ` / ${auto.max_runs}` : ''}
                         </span>
                       </div>
+
+                      {/* Last Result */}
+                      {auto.last_result?.answer && (
+                        <div className="mt-3 rounded-lg border p-3 bg-slate-900/30 border-slate-700/50">
+                          <button
+                            onClick={() => setExpandedResult(expandedResult === auto.id ? null : auto.id)}
+                            className="flex items-center gap-2 w-full text-left"
+                          >
+                            {(() => {
+                              const dl = deliveryLabel(auto.last_result.delivery)
+                              return (
+                                <span className={cn("flex items-center gap-1.5 text-[10px] font-bold tracking-wider uppercase", dl.color)}>
+                                  {dl.icon}
+                                  {dl.label}
+                                </span>
+                              )
+                            })()}
+                            {auto.last_result.executed_at && (
+                              <span className="text-[10px] text-slate-500">
+                                {timeAgo(auto.last_result.executed_at)}
+                              </span>
+                            )}
+                            {auto.last_result.delivery_error && (
+                              <span className="flex items-center gap-1 text-[10px] text-red-400">
+                                <AlertTriangle className="h-3 w-3" />
+                                Delivery failed
+                              </span>
+                            )}
+                            <span className="ml-auto">
+                              {expandedResult === auto.id
+                                ? <ChevronUp className="h-3.5 w-3.5 text-slate-500" />
+                                : <ChevronDown className="h-3.5 w-3.5 text-slate-500" />
+                              }
+                            </span>
+                          </button>
+                          {expandedResult === auto.id ? (
+                            <div className="mt-2">
+                              <div className="text-sm text-slate-300 whitespace-pre-wrap break-words max-h-48 overflow-y-auto">
+                                {auto.last_result.answer}
+                              </div>
+                              {auto.last_result.delivery_error && (
+                                <p className="mt-2 text-xs text-red-400 flex items-center gap-1">
+                                  <AlertTriangle className="h-3 w-3" />
+                                  {auto.last_result.delivery_error}
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="mt-1.5 text-xs text-slate-400 truncate">
+                              {auto.last_result.answer.slice(0, 120)}{auto.last_result.answer.length > 120 ? '...' : ''}
+                            </p>
+                          )}
+                        </div>
+                      )}
                     </div>
 
                     {/* Actions */}
