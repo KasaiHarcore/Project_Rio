@@ -12,7 +12,7 @@ from uuid import UUID
 
 from langchain_core.tools import tool
 
-from infrastructure.tools.mission_tool import MissionTool, get_mission_service_session
+from infrastructure.data_access.mission_tool import MissionTool, get_mission_service_session
 from schemas.mission import MissionCreate, MissionStepSchema, MissionUpdate
 from utils.log import log_info, log_warning
 

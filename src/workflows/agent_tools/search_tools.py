@@ -30,7 +30,7 @@ def build_search_tools(user_id: str) -> list:
         Returns:
             Formatted search results with source references and relevance scores.
         """
-        from infrastructure.tools.qdrant_tool import get_vector_db_tool
+        from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 
         vdb = get_vector_db_tool()
         return vdb.search_documents(query, k=k, user_id=user_id)
@@ -62,7 +62,7 @@ def build_search_tools(user_id: str) -> list:
             JSON with search results including title, URL, content snippet,
             and relevance score. May include a quick answer summary.
         """
-        from infrastructure.tools.web_search_tool import web_search_tool
+        from infrastructure.data_access.web_search_tool import web_search_tool
 
         result = web_search_tool.search(
             query=query,
@@ -95,7 +95,7 @@ def build_search_tools(user_id: str) -> list:
         Returns:
             JSON with extracted markdown content for each URL, plus any failed URLs.
         """
-        from infrastructure.tools.web_extract_tool import web_extract_tool
+        from infrastructure.data_access.web_extract_tool import web_extract_tool
 
         result = web_extract_tool.extract(
             urls=urls[:5],
@@ -127,7 +127,7 @@ def build_search_tools(user_id: str) -> list:
                 Returns:
                     Answer from graph traversal, or related entities and relationships.
                 """
-                from infrastructure.tools.neo4j_tool import get_graph_db_tool
+                from infrastructure.data_access.neo4j_tool import get_graph_db_tool
 
                 graph_tool = get_graph_db_tool()
                 answer = graph_tool.search_graph(query, user_id=user_id, depth=depth)

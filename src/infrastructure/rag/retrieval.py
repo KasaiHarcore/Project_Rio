@@ -62,7 +62,7 @@ class RetrievalService:
 				log_warning("No documents found for query")
 				# Distinguish empty knowledge base from no matches
 				try:
-					from infrastructure.tools.qdrant_tool import get_vector_db_tool
+					from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 					tool = get_vector_db_tool()
 					info = tool.get_collection_info()
 					total = info.get("points_count", 0) if info else 0

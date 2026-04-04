@@ -12,8 +12,8 @@ from typing import Any, Dict, Optional
 from langchain_core.tools import tool
 from langgraph.types import interrupt
 
-from infrastructure.tools.sql_tool import sql_tool
-from infrastructure.db.sql_classifier import SQLClassifier, DangerLevel, ApprovalPolicy
+from infrastructure.data_access.sql_tool import sql_tool
+from infrastructure.database.sql_classifier import SQLClassifier, DangerLevel, ApprovalPolicy
 from utils.log import log_info, log_warning
 
 _classifier = SQLClassifier()

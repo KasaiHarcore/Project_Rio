@@ -14,9 +14,9 @@ from typing import Any, Optional
 from core.settings import AgentConfig
 from utils.log import log_info
 
-from workflows.tools.search_tools import build_search_tools
-from workflows.tools.memory_tools import build_memory_tools
-from workflows.tools.delegation_tools import build_delegation_tools
+from workflows.agent_tools.search_tools import build_search_tools
+from workflows.agent_tools.memory_tools import build_memory_tools
+from workflows.agent_tools.delegation_tools import build_delegation_tools
 
 
 def build_supervisor_tools(

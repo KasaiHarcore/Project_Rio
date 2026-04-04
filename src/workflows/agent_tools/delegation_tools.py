@@ -51,7 +51,7 @@ def build_delegation_tools(user_id: str, user_role: str) -> list:
 
     def _get_agent(name: str):
         if name not in _cache:
-            from workflows.tools.sub_agents import (
+            from workflows.agent_tools.sub_agents import (
                 build_mission_sub_agent,
                 build_note_sub_agent,
                 build_flashcard_sub_agent,

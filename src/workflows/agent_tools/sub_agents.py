@@ -116,7 +116,7 @@ def _get_llm():
 
 def build_mission_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for mission operations."""
-    from workflows.tools.mission_tools import build_mission_tools
+    from workflows.agent_tools.mission_tools import build_mission_tools
 
     tools = build_mission_tools(user_id)
     agent = create_react_agent(
@@ -130,7 +130,7 @@ def build_mission_sub_agent(user_id: str):
 
 def build_note_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for note operations."""
-    from workflows.tools.note_tools import build_note_tools
+    from workflows.agent_tools.note_tools import build_note_tools
 
     tools = build_note_tools(user_id)
     agent = create_react_agent(
@@ -144,7 +144,7 @@ def build_note_sub_agent(user_id: str):
 
 def build_sql_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for SQL operations."""
-    from workflows.tools.sql_tools import build_sql_tools
+    from workflows.agent_tools.sql_tools import build_sql_tools
 
     tools = build_sql_tools(user_id)
     agent = create_react_agent(
@@ -158,7 +158,7 @@ def build_sql_sub_agent(user_id: str):
 
 def build_flashcard_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for flashcard operations."""
-    from workflows.tools.flashcard_tools import build_flashcard_tools
+    from workflows.agent_tools.flashcard_tools import build_flashcard_tools
 
     tools = build_flashcard_tools(user_id)
     agent = create_react_agent(
@@ -172,7 +172,7 @@ def build_flashcard_sub_agent(user_id: str):
 
 def build_automation_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for automation/scheduled task operations."""
-    from workflows.tools.automation_tools import build_automation_tools
+    from workflows.agent_tools.automation_tools import build_automation_tools
 
     tools = build_automation_tools(user_id)
     agent = create_react_agent(
@@ -186,7 +186,7 @@ def build_automation_sub_agent(user_id: str):
 
 def build_audio_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for audio overview operations."""
-    from workflows.tools.audio_tools import build_audio_tools
+    from workflows.agent_tools.audio_tools import build_audio_tools
 
     tools = build_audio_tools(user_id)
     agent = create_react_agent(
@@ -200,7 +200,7 @@ def build_audio_sub_agent(user_id: str):
 
 def build_os_sub_agent(user_id: str):
     """Build a compiled ReAct sub-agent for OS control operations."""
-    from workflows.tools.os_control_tools import build_os_control_tools
+    from workflows.agent_tools.os_control_tools import build_os_control_tools
 
     tools = build_os_control_tools(user_id)
     agent = create_react_agent(

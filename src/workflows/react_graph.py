@@ -38,7 +38,7 @@ from workflows.planner import planner_node
 from workflows.react_prompt import build_system_prompt, build_dynamic_prompt_section
 from workflows.react_state import ReactAgentState
 from workflows.tool_registry import build_selected_guides, build_tool_registry, ToolRegistryEntry
-from workflows.tools import build_supervisor_tools
+from workflows.agent_tools import build_supervisor_tools
 from workflows.utils.circuit_breaker import check_circuit_breaker, check_max_tool_rounds
 from workflows.utils.message_utils import trim_messages_with_integrity, truncate_ai_messages
 from workflows.utils.tool_fallback import tool_error_fallback

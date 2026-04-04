@@ -311,7 +311,7 @@ class VectorDBTool:
 		neo4j_config = get_neo4j_config()
 		if neo4j_config.enabled:
 			try:
-				from infrastructure.tools.neo4j_tool import get_graph_db_tool
+				from infrastructure.data_access.neo4j_tool import get_graph_db_tool
 				self._graph_db_tool = get_graph_db_tool()
 				log_info("Neo4j GraphDBTool attached to VectorDBTool")
 			except Exception as e:

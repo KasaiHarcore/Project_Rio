@@ -60,7 +60,7 @@ class NoteKnowledgeTool:
         # Try Qdrant vector search first
         vector_hits = []
         try:
-            from infrastructure.tools.note_vector_tool import get_note_vector_tool
+            from infrastructure.data_access.note_vector_tool import get_note_vector_tool
             vector_hits = get_note_vector_tool().search(
                 query=query,
                 user_id=user_id,

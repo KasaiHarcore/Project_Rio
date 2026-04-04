@@ -24,7 +24,7 @@ from models.user import User
 from schemas.document import DocumentUploadResponse, DocumentResponse
 from services.document_service import DocumentService
 from services.xp_service import award_xp
-from infrastructure.tools.qdrant_tool import get_vector_db_tool
+from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 from utils.log import log_info, log_error, log_success
 
 router = APIRouter(prefix="/ingest", tags=["ingest"])

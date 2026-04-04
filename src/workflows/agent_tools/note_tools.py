@@ -13,7 +13,7 @@ from uuid import UUID
 from langchain_core.tools import tool
 
 from infrastructure.database.session import get_session_factory
-from infrastructure.tools.note_knowledge_tool import NoteKnowledgeTool
+from infrastructure.data_access.note_knowledge_tool import NoteKnowledgeTool
 from repositories.note_repository import NoteRepository
 from services.note_service import NoteService
 from schemas.note import NoteCreate, NoteUpdate

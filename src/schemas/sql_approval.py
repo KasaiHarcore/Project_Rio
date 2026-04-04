@@ -14,7 +14,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from utils.timezone import utc_now
 
-from infrastructure.db.sql_classifier import (
+from infrastructure.database.sql_classifier import (
     ApprovalPolicy,
     DangerLevel,
     SQLOperationType,

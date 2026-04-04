@@ -72,7 +72,7 @@ async def search_documents(
     """Search the user's uploaded knowledge base via Qdrant vector similarity."""
 
     def _query():
-        from infrastructure.tools.qdrant_tool import get_vector_db_tool
+        from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 
         log_info(f"[Search] documents: user={user.username} query={body.query[:80]}")
 
@@ -99,7 +99,7 @@ async def search_web(
     """Perform a web search via Tavily and return structured results."""
 
     def _query():
-        from infrastructure.tools.web_search_tool import web_search_tool
+        from infrastructure.data_access.web_search_tool import web_search_tool
 
         log_info(f"[Search] web: user={user.username} query={body.query[:80]}")
 
@@ -128,7 +128,7 @@ async def extract_web(
     """Extract full page content from one or more URLs via Tavily Extract."""
 
     def _query():
-        from infrastructure.tools.web_extract_tool import web_extract_tool
+        from infrastructure.data_access.web_extract_tool import web_extract_tool
 
         log_info(f"[Search] extract: user={user.username} urls={len(body.urls)}")
 
@@ -159,7 +159,7 @@ async def search_graph(
     """Query the Neo4j knowledge graph using natural language."""
 
     def _query():
-        from infrastructure.tools.neo4j_tool import get_graph_db_tool
+        from infrastructure.data_access.neo4j_tool import get_graph_db_tool
 
         log_info(f"[Search] graph: user={user.username} query={body.query[:80]}")
 

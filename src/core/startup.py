@@ -27,7 +27,7 @@ from utils.log import (
     configure_logging_from_env,
 )
 import models  # noqa: F401
-from infrastructure.tools.qdrant_tool import get_vector_db_tool
+from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 from infrastructure.cache.redis_cache import redis_tool
 
 

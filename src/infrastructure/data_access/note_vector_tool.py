@@ -55,7 +55,7 @@ class NoteVectorTool:
         # Reuse the Qdrant client from VectorDBTool to avoid local storage
         # lock conflicts. Local Qdrant only allows one client per storage dir.
         try:
-            from infrastructure.tools.qdrant_tool import get_vector_db_tool
+            from infrastructure.data_access.qdrant_tool import get_vector_db_tool
             vdb = get_vector_db_tool()
             vdb._ensure_initialized()
             if vdb._client is not None:
@@ -90,7 +90,7 @@ class NoteVectorTool:
         # Try to reuse the embedding model from the primary VectorDBTool
         # to avoid loading the same HuggingFace model twice (~500MB)
         try:
-            from infrastructure.tools.qdrant_tool import get_vector_db_tool
+            from infrastructure.data_access.qdrant_tool import get_vector_db_tool
             vdb = get_vector_db_tool()
             if vdb._embeddings is not None and vdb._embedding_dim:
                 self._embeddings = vdb._embeddings

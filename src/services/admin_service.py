@@ -4,7 +4,7 @@ Admin Service - System administration tasks
 
 from models.base import Base
 from infrastructure.database.session import get_engine
-from infrastructure.tools.qdrant_tool import get_vector_db_tool
+from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 from utils.log import log_info, log_success, log_error
 import models  # noqa: F401 - register models with Base
 

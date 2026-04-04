@@ -1,19 +1,25 @@
-"""Emotional state endpoints: mood, affinity, headpat, relationship history.
+"""Emotional state endpoints: mood, affinity, headpat, relationship history,
+and Rio response generation.
 
 These endpoints expose the Living AI emotional engine to the frontend,
-enabling real-time mood display, headpat interactions, and relationship
-history viewing.
+enabling real-time mood display, headpat interactions, relationship
+history viewing, and dynamic response generation.
 """
 
 from __future__ import annotations
 
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 
 from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_emotional_engine
 from services.emotional_engine import EmotionalEngine
+from services.rio_response_service import (
+    GeneratedResponse,
+    ResponseContext,
+    generate_response,
+)
 from core.exceptions import ValidationError
 from models.user import User
 from schemas.emotional_state import (
@@ -24,6 +30,7 @@ from schemas.emotional_state import (
     RelationshipEventResponse,
     RelationshipHistoryResponse,
 )
+from utils.log import log_info, log_error
 
 router = APIRouter(prefix="/emotional", tags=["emotional"])
 
@@ -142,3 +149,29 @@ async def get_relationship_history(
         )
 
     return await concurrency_manager.run_in_thread(_query)
+
+
+@router.post("/generate-response", response_model=GeneratedResponse)
+async def generate_rio_response(
+    context: ResponseContext,
+    user: User = Depends(get_current_user),
+) -> GeneratedResponse:
+    """Generate a dynamic, context-aware response from Rio using LLM.
+
+    Analyzes emotional state, activity context, and situation type
+    to generate personalized responses matching Rio's personality.
+    """
+    try:
+        log_info(
+            f"Generating Rio response for user {user.id}: "
+            f"situation={context.situation_type}, tier={context.relationship_tier}, mood={context.mood}"
+        )
+        response = generate_response(context)
+        log_info(f"Generated response with tone={response.tone}, length={len(response.message)} chars")
+        return response
+    except Exception as e:
+        log_error(f"Failed to generate Rio response: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to generate response",
+        )

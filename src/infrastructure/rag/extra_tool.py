@@ -15,7 +15,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from pydantic import BaseModel, Field
 
 from infrastructure.llm import form
-from infrastructure.tools.qdrant_tool import get_vector_db_tool
+from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 from core.concurrency import concurrency_manager
 from utils.log import log_info, log_success, log_error, log_warning
 

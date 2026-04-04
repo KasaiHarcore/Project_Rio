@@ -102,7 +102,7 @@ class NoteService:
 
         def _run():
             try:
-                from infrastructure.tools.note_vector_tool import get_note_vector_tool
+                from infrastructure.data_access.note_vector_tool import get_note_vector_tool
                 get_note_vector_tool().upsert_note(
                     note_id=note_id, user_id=user_id,
                     title=title, content=content,
@@ -117,7 +117,7 @@ class NoteService:
         nid = str(note_id)
         def _run():
             try:
-                from infrastructure.tools.note_vector_tool import get_note_vector_tool
+                from infrastructure.data_access.note_vector_tool import get_note_vector_tool
                 get_note_vector_tool().delete_note(nid)
             except Exception as e:
                 log_warning(f"Note embedding delete failed for {nid}: {e}")

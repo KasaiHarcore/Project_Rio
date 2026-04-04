@@ -7,7 +7,6 @@ from routers.chat import router as chat_router
 from routers.collection import router as collection_router
 from routers.dashboard import router as dashboard_router
 from routers.emotional import router as emotional_router
-from routers.rio_response import router as rio_response_router
 from routers.health import router as health_router
 from routers.knowledge import router as knowledge_router
 from routers.onboarding import router as onboarding_router
@@ -38,7 +37,6 @@ v1_router.include_router(oauth_router)
 v1_router.include_router(chat_router)
 v1_router.include_router(dashboard_router)
 v1_router.include_router(emotional_router)
-v1_router.include_router(rio_response_router)
 v1_router.include_router(health_router)
 v1_router.include_router(knowledge_router)
 v1_router.include_router(onboarding_router)
