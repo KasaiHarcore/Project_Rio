@@ -22,6 +22,7 @@ from repositories.message_repository import MessageRepository
 from utils.log import log_debug, log_info, log_warning, log_error
 from infrastructure.llm import form
 from schemas.query import ChatMessageRecord
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 
 
@@ -192,14 +193,12 @@ class ChatHistoryService:
 
                     # Write-through to Redis hot window (best-effort).
                     if self._cache:
-                        try:
-                            self._cache.append_hot_message(
-                                thread_id=str(thread_uuid),
-                                role=role.value,
-                                content=content,
-                            )
-                        except Exception:
-                            pass
+                        best_effort(
+                            self._cache.append_hot_message,
+                            thread_id=str(thread_uuid),
+                            role=role.value,
+                            content=content,
+                        )
 
                     self._compact_if_needed(message_repo, thread_uuid)
             except Exception as e:
@@ -224,10 +223,7 @@ class ChatHistoryService:
 
                 # Clear stale Redis hot/warm data (best-effort).
                 if self._cache:
-                    try:
-                        self._cache.clear_thread_cache(thread_id=str(thread_id))
-                    except Exception:
-                        pass
+                    best_effort(self._cache.clear_thread_cache, thread_id=str(thread_id))
 
                 return True
             return False
@@ -299,10 +295,7 @@ class ChatHistoryService:
             buffer.append({"role": "assistant", "content": summary_text})
             # Cache warm summary (best-effort).
             if self._cache:
-                try:
-                    self._cache.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
-                except Exception:
-                    pass
+                best_effort(self._cache.set_warm_summary, thread_id=str(thread_id), summary=summary_text)
 
         user_seen = 0
         for msg in reversed(messages):
@@ -363,10 +356,7 @@ class ChatHistoryService:
 
         # Cache warm summary (Redis).
         if self._cache:
-            try:
-                self._cache.set_warm_summary(thread_id=str(thread_id), summary=summary_text)
-            except Exception:
-                pass
+            best_effort(self._cache.set_warm_summary, thread_id=str(thread_id), summary=summary_text)
 
         summary_message = Message(
             thread_id=thread_id,

@@ -14,6 +14,7 @@ from core.dependencies import (
     get_chat_service,
 )
 from core.exceptions import NotFoundError, ValidationError
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 from models.user import User
 from protocols.sse_stream import (
@@ -332,12 +333,7 @@ async def list_threads(
             for t in threads
         ]
 
-        try:
-            cache.set_cached_threads(
-                uid_str, [t.model_dump() for t in thread_list]
-            )
-        except Exception:
-            pass
+        best_effort(cache.set_cached_threads, uid_str, [t.model_dump() for t in thread_list])
 
         return ThreadListResponse(threads=thread_list)
 
@@ -436,12 +432,9 @@ async def delete_thread(
 
         chat_history_service.hard_delete_thread(tid)
 
-        try:
-            uid_str = str(user.id)
-            cache.invalidate_threads(uid_str)
-            cache.invalidate_dashboard(uid_str)
-        except Exception:
-            pass
+        uid_str = str(user.id)
+        best_effort(cache.invalidate_threads, uid_str)
+        best_effort(cache.invalidate_dashboard, uid_str)
 
     await concurrency_manager.run_in_thread(_query)
     return None
@@ -472,10 +465,7 @@ async def update_thread(
         if not thread_snapshot:
             raise NotFoundError("Thread not found")
 
-        try:
-            cache.invalidate_threads(str(user.id))
-        except Exception:
-            pass
+        best_effort(cache.invalidate_threads, str(user.id))
 
         return ThreadResponse(
             id=thread_snapshot["id"],

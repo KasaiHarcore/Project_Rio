@@ -1,14 +1,4 @@
-const headers = { 'Content-Type': 'application/json' }
-
-async function audioFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(path, { headers, ...opts })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(body || `Audio API error: ${res.status}`)
-  }
-  if (res.status === 204) return null as T
-  return (await res.json()) as T
-}
+import { apiFetch } from '@/shared/api/client'
 
 export interface AudioOverview {
   id: string
@@ -34,20 +24,28 @@ export interface AudioGenerateRequest {
 }
 
 export function apiListAudio(limit = 20, offset = 0): Promise<AudioOverview[]> {
-  return audioFetch<AudioOverview[]>(`/api/audio?limit=${limit}&offset=${offset}`)
+  return apiFetch<AudioOverview[]>(`/audio?limit=${limit}&offset=${offset}`)
 }
 
 export function apiGetAudio(id: string): Promise<AudioOverview> {
-  return audioFetch<AudioOverview>(`/api/audio/${id}`)
+  return apiFetch<AudioOverview>(`/audio/${id}`)
 }
 
 export function apiGenerateAudio(data: AudioGenerateRequest): Promise<AudioOverview> {
-  return audioFetch<AudioOverview>('/api/audio', {
+  return apiFetch<AudioOverview>('/audio/generate', {
     method: 'POST',
     body: JSON.stringify(data),
   })
 }
 
 export async function apiDeleteAudio(id: string): Promise<void> {
-  await audioFetch<void>(`/api/audio/${id}`, { method: 'DELETE' })
+  await apiFetch(`/audio/${id}`, { method: 'DELETE' })
+}
+
+/**
+ * Build the audio stream URL.
+ * Uses the Next.js proxy route because <audio src> cannot set Authorization headers.
+ */
+export function getAudioStreamUrl(id: string): string {
+  return `/api/audio/${id}/stream`
 }

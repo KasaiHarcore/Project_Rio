@@ -1,14 +1,4 @@
-const headers = { 'Content-Type': 'application/json' }
-
-async function fcFetch<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(path, { headers, ...opts })
-  if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(body || `Flashcard API error: ${res.status}`)
-  }
-  if (res.status === 204) return null as T
-  return (await res.json()) as T
-}
+import { apiFetch } from '@/shared/api/client'
 
 /* ── Types ── */
 
@@ -76,25 +66,25 @@ export interface AdaptiveSession {
 /* ── Deck API ── */
 
 export function apiListDecks(): Promise<Deck[]> {
-  return fcFetch<Deck[]>('/api/flashcards/decks')
+  return apiFetch<Deck[]>('/flashcards/decks')
 }
 
 export function apiCreateDeck(name: string, description = ''): Promise<Deck> {
-  return fcFetch<Deck>('/api/flashcards/decks', {
+  return apiFetch<Deck>('/flashcards/decks', {
     method: 'POST',
     body: JSON.stringify({ name, description }),
   })
 }
 
 export function apiUpdateDeck(id: string, data: { name?: string; description?: string }): Promise<Deck> {
-  return fcFetch<Deck>(`/api/flashcards/decks/${id}`, {
+  return apiFetch<Deck>(`/flashcards/decks/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   })
 }
 
 export async function apiDeleteDeck(id: string): Promise<void> {
-  await fcFetch<void>(`/api/flashcards/decks/${id}`, { method: 'DELETE' })
+  await apiFetch(`/flashcards/decks/${id}`, { method: 'DELETE' })
 }
 
 /* ── Card API ── */
@@ -104,11 +94,11 @@ export function apiListCards(deckId?: string, limit = 50, offset = 0): Promise<F
   if (deckId) params.set('deck_id', deckId)
   params.set('limit', String(limit))
   params.set('offset', String(offset))
-  return fcFetch<Flashcard[]>(`/api/flashcards/cards?${params}`)
+  return apiFetch<Flashcard[]>(`/flashcards/cards?${params}`)
 }
 
 export function apiCreateCard(data: { deck_id: string; front: string; back: string; tags?: string[] }): Promise<Flashcard> {
-  return fcFetch<Flashcard>('/api/flashcards/cards', {
+  return apiFetch<Flashcard>('/flashcards/cards', {
     method: 'POST',
     body: JSON.stringify(data),
   })
@@ -118,14 +108,14 @@ export function apiUpdateCard(
   id: string,
   data: { front?: string; back?: string; tags?: string[]; is_suspended?: boolean },
 ): Promise<Flashcard> {
-  return fcFetch<Flashcard>(`/api/flashcards/cards/${id}`, {
+  return apiFetch<Flashcard>(`/flashcards/cards/${id}`, {
     method: 'PATCH',
     body: JSON.stringify(data),
   })
 }
 
 export async function apiDeleteCard(id: string): Promise<void> {
-  await fcFetch<void>(`/api/flashcards/cards/${id}`, { method: 'DELETE' })
+  await apiFetch(`/flashcards/cards/${id}`, { method: 'DELETE' })
 }
 
 /* ── Review API ── */
@@ -134,11 +124,11 @@ export function apiGetDueCards(deckId?: string, limit = 20): Promise<Flashcard[]
   const params = new URLSearchParams()
   if (deckId) params.set('deck_id', deckId)
   params.set('limit', String(limit))
-  return fcFetch<Flashcard[]>(`/api/flashcards/due?${params}`)
+  return apiFetch<Flashcard[]>(`/flashcards/due?${params}`)
 }
 
 export function apiSubmitReview(cardId: string, quality: number): Promise<ReviewResult> {
-  return fcFetch<ReviewResult>('/api/flashcards/review', {
+  return apiFetch<ReviewResult>('/flashcards/review', {
     method: 'POST',
     body: JSON.stringify({ card_id: cardId, quality }),
   })
@@ -147,7 +137,7 @@ export function apiSubmitReview(cardId: string, quality: number): Promise<Review
 /* ── Generation ── */
 
 export function apiGenerateFromNote(noteId: string, deckId: string, maxCards = 10): Promise<Flashcard[]> {
-  return fcFetch<Flashcard[]>('/api/flashcards/generate/note', {
+  return apiFetch<Flashcard[]>('/flashcards/generate/note', {
     method: 'POST',
     body: JSON.stringify({ note_id: noteId, deck_id: deckId, max_cards: maxCards }),
   })
@@ -156,12 +146,12 @@ export function apiGenerateFromNote(noteId: string, deckId: string, maxCards = 1
 /* ── Stats & Session ── */
 
 export function apiGetStats(): Promise<FlashcardStats> {
-  return fcFetch<FlashcardStats>('/api/flashcards/stats')
+  return apiFetch<FlashcardStats>('/flashcards/stats')
 }
 
 export function apiGetAdaptiveSession(deckId?: string, maxCards = 20): Promise<AdaptiveSession> {
   const params = new URLSearchParams()
   if (deckId) params.set('deck_id', deckId)
   params.set('max_cards', String(maxCards))
-  return fcFetch<AdaptiveSession>(`/api/flashcards/session?${params}`)
+  return apiFetch<AdaptiveSession>(`/flashcards/session?${params}`)
 }

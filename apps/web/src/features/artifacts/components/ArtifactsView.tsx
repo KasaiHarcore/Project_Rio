@@ -6,6 +6,7 @@ import { PageTransition } from "@/components/layout/page-transition"
 import { FileCode, FileText, Image, Download, Eye, Trash2, Clock, Sparkles, X, Link2 } from 'lucide-react'
 import { cn } from "@/shared/lib/utils"
 import { useArtifactStore, type ArtifactRecord } from '@/features/artifacts/store'
+import { apiDownloadArtifact } from '@/features/artifacts/api'
 import { useSearchParams } from 'next/navigation'
 
 const typeIcons: Record<string, React.ComponentType<Record<string, unknown>>> = {
@@ -60,9 +61,7 @@ function ArtifactsContent() {
 
   const handleDownload = async (artifact: ArtifactRecord) => {
     try {
-      const res = await fetch(`/api/artifacts/${artifact.id}/download`)
-      if (!res.ok) return
-      const blob = await res.blob()
+      const blob = await apiDownloadArtifact(artifact.id)
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url

@@ -42,6 +42,7 @@ from core.exceptions import (
     ValidationError,
 )
 from core.settings import get_oauth_config
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 from infrastructure.security.auth import (
     TokenPair,
@@ -189,10 +190,7 @@ async def reset_password(
         raise ValidationError(error or "Password reset failed")
 
     # Invalidate cached user data
-    try:
-        cache.invalidate_user(str(user.id))
-    except Exception:
-        pass
+    best_effort(cache.invalidate_user, str(user.id))
 
     return {"success": True, "message": "Password reset successfully"}
 

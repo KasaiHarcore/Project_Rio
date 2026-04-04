@@ -12,6 +12,7 @@ import {
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useNoteStore, noteUid, blockUid } from '@/features/notes/store'
+import { apiDeleteNote } from '@/features/notes/api'
 
 const LOGIC_ICONS: Record<string, React.ComponentType<Record<string, unknown>>> = {
   thinking: Brain,
@@ -42,7 +43,7 @@ export function AgentsTab() {
   function handleRemoveNote(note: { id: string; dbId?: string }) {
     removeStickyNote(note.id)
     if (note.dbId) {
-      fetch(`/api/notes/${note.dbId}`, { method: 'DELETE' }).catch(() => { })
+      apiDeleteNote(note.dbId).catch(() => { })
     }
   }
 

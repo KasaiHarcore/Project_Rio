@@ -1,20 +1,7 @@
 import { create } from 'zustand'
+import { apiListArtifacts, apiDeleteArtifact, type ArtifactRecord } from './api'
 
-/* ─── Types ──────────────────────────────────────────────────────── */
-
-export interface ArtifactRecord {
-  id: string
-  user_id: string
-  thread_id: string | null
-  name: string
-  artifact_type: string
-  language: string | null
-  content: string
-  version: number
-  parent_id: string | null
-  created_at: string
-  updated_at: string
-}
+export type { ArtifactRecord }
 
 /* ─── Store ──────────────────────────────────────────────────────── */
 
@@ -38,13 +25,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
   fetchArtifacts: async (threadId, artifactType) => {
     set({ loading: true, error: null })
     try {
-      const params = new URLSearchParams()
-      if (threadId) params.set('thread_id', threadId)
-      if (artifactType) params.set('artifact_type', artifactType)
-      const qs = params.toString()
-      const res = await fetch(`/api/artifacts${qs ? `?${qs}` : ''}`)
-      if (!res.ok) throw new Error('Failed to fetch artifacts')
-      const data = await res.json()
+      const data = await apiListArtifacts(threadId, artifactType)
       set({ artifacts: Array.isArray(data) ? data : [], loading: false })
     } catch (err) {
       set({ error: (err as Error).message, loading: false })
@@ -75,8 +56,7 @@ export const useArtifactStore = create<ArtifactState>((set, get) => ({
 
   deleteArtifact: async (id) => {
     try {
-      const res = await fetch(`/api/artifacts/${id}`, { method: 'DELETE' })
-      if (!res.ok && res.status !== 204) return false
+      await apiDeleteArtifact(id)
       set((s) => ({ artifacts: s.artifacts.filter((a) => a.id !== id) }))
       return true
     } catch {

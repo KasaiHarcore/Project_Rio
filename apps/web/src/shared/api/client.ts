@@ -103,6 +103,39 @@ export async function apiFetch<T = unknown>(
   return promise;
 }
 
+/**
+ * Like apiFetch but returns the raw Response for streaming use cases
+ * (SSE, data-stream protocol). Adds auth headers automatically.
+ */
+export async function apiStreamFetch(
+  path: string,
+  options: ApiOptions = {},
+): Promise<Response> {
+  const { noAuth, headers: extraHeaders, ...rest } = options;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(extraHeaders as Record<string, string>),
+  };
+
+  if (!noAuth) {
+    const token = getAccessToken();
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+  }
+
+  const url = `${API_BASE}/api/v1${path}`;
+  const res = await fetch(url, { headers, ...rest });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => "Request failed");
+    throw new ApiError(res.status, errText);
+  }
+
+  return res;
+}
+
 export class ApiError extends Error {
   status: number;
   body: unknown;

@@ -7,7 +7,7 @@ import { Headphones, Plus, Trash2, Clock, Loader2, AlertCircle, Check, FileText 
 import { cn } from "@/shared/lib/utils"
 import { toast } from "@/shared/hooks/use-toast"
 import { useAudioStore } from '@/features/audio/store'
-import type { AudioGenerateRequest } from '@/features/audio/api'
+import { type AudioGenerateRequest, getAudioStreamUrl } from '@/features/audio/api'
 import { apiListNotes } from '@/features/notes/api'
 import { apiListDecks, apiListCards } from '@/features/flashcards/api'
 
@@ -421,7 +421,7 @@ export function AudioView() {
                       {overview.status === 'ready' && (
                         <audio
                           controls
-                          src={'/api/audio/' + overview.id + '/stream'}
+                          src={getAudioStreamUrl(overview.id)}
                           className="w-full mt-2"
                         />
                       )}

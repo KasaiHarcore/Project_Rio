@@ -5,8 +5,8 @@
  * Displays the generated SQL, classification info, and action buttons
  * (Approve, Always Approve, Reject, Edit & Approve).
  *
- * On action, calls POST /api/sql-approve which streams the response
- * back using the data-stream protocol.
+ * On action, calls POST /api/v1/sql-approval/resume on the backend
+ * directly, streaming the response back using the data-stream protocol.
  */
 
 'use client'
@@ -14,6 +14,7 @@
 import React, { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/shared/lib/utils'
+import { apiStreamFetch } from '@/shared/api/client'
 import {
   Shield,
   ShieldAlert,
@@ -133,22 +134,20 @@ export function SQLApprovalCard({ onStreamText }: SQLApprovalCardProps) {
       setResult(null)
 
       try {
-        const res = await fetch('/api/sql-approve', {
+        const res = await apiStreamFetch('/sql-approval/resume', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             thread_id: threadId,
             action: action === 'edit' ? 'edit' : action,
             edited_sql: action === 'edit' ? editedSQL : undefined,
           }),
+        }).catch((err) => {
+          setResult({ success: false, message: err.message || 'Request failed' })
+          setResuming(false)
+          return null
         })
 
-        if (!res.ok) {
-          const errText = await res.text()
-          setResult({ success: false, message: errText || 'Request failed' })
-          setResuming(false)
-          return
-        }
+        if (!res) return
 
         // Read the streaming response and dispatch events
         const reader = res.body?.getReader()

@@ -9,6 +9,7 @@ from pydantic import BaseModel
 
 from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_dashboard_service, get_cache_service
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 from models.user import User
 from services.dashboard_service import DashboardService
@@ -66,10 +67,7 @@ async def get_dashboard_stats(
         stats = DashboardStats(**result)
 
         # Backfill Redis cache
-        try:
-            cache.set_cached_dashboard(uid_str, stats.model_dump())
-        except Exception:
-            pass
+        best_effort(cache.set_cached_dashboard, uid_str, stats.model_dump())
 
         return stats
 

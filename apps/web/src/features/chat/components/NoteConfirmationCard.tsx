@@ -5,8 +5,8 @@
  * Shown for destructive operations (delete, full-rewrite) when the
  * agent is running in SAFE or STRICT interaction mode.
  *
- * On action, calls POST /api/note-confirm which streams the response
- * back using the data-stream protocol.
+ * On action, calls POST /api/v1/note-confirmation/resume on the backend
+ * directly, streaming the response back using the data-stream protocol.
  */
 
 'use client'
@@ -14,6 +14,7 @@
 import React, { useCallback, useState } from 'react'
 import { motion } from 'framer-motion'
 import { cn } from '@/shared/lib/utils'
+import { apiStreamFetch } from '@/shared/api/client'
 import {
   Trash2,
   RefreshCw,
@@ -122,21 +123,19 @@ export function NoteConfirmationCard() {
       setResult(null)
 
       try {
-        const res = await fetch('/api/note-confirm', {
+        const res = await apiStreamFetch('/note-confirmation/resume', {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             thread_id: threadId,
             decision,
           }),
+        }).catch((err) => {
+          setResult({ success: false, message: err.message || 'Request failed' })
+          setResuming(false)
+          return null
         })
 
-        if (!res.ok) {
-          const errText = await res.text()
-          setResult({ success: false, message: errText || 'Request failed' })
-          setResuming(false)
-          return
-        }
+        if (!res) return
 
         // Read the streaming response and dispatch events
         const reader = res.body?.getReader()

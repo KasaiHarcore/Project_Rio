@@ -1,4 +1,4 @@
-import { apiFetch, ApiError } from '@/shared/api/client'
+import { apiFetch } from '@/shared/api/client'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -62,7 +62,7 @@ export interface NoteGraphResponse {
   stats: NoteGraphStats;
 }
 
-// ── Notes API (uses Next.js proxy) ─────────────────────────────────────────
+// ── Notes API ─────────────────────────────────────────────────────────────
 
 export async function apiListNotes(
   threadId?: string,
@@ -70,49 +70,41 @@ export async function apiListNotes(
   const params = new URLSearchParams();
   if (threadId) params.set("thread_id", threadId);
   const qs = params.toString();
-  const url = `/api/notes${qs ? `?${qs}` : ""}`;
-  const res = await fetch(url);
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data : data.notes ?? [];
+  try {
+    const data = await apiFetch<NoteRecord[] | { notes: NoteRecord[] }>(
+      `/notes${qs ? `?${qs}` : ""}`,
+    );
+    if (Array.isArray(data)) return data;
+    return (data as { notes: NoteRecord[] }).notes ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export async function apiCreateNote(
   note: Partial<NoteRecord>,
 ): Promise<NoteRecord> {
-  const res = await fetch("/api/notes", {
+  return apiFetch<NoteRecord>("/notes", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(note),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? "Failed to create note", body);
-  }
-  return res.json();
 }
 
 export async function apiUpdateNote(
   id: string,
   patch: Partial<NoteRecord>,
 ): Promise<NoteRecord> {
-  const res = await fetch(`/api/notes/${id}`, {
+  return apiFetch<NoteRecord>(`/notes/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? "Failed to update note", body);
-  }
-  return res.json();
 }
 
 export async function apiDeleteNote(id: string): Promise<void> {
-  await fetch(`/api/notes/${id}`, { method: "DELETE" });
+  await apiFetch(`/notes/${id}`, { method: "DELETE" });
 }
 
-// ── Collections API (uses Next.js proxy) ──────────────────────────────────
+// ── Collections API ──────────────────────────────────────────────────────
 
 export interface CollectionRecord {
   id: string;
@@ -123,45 +115,35 @@ export interface CollectionRecord {
 }
 
 export async function apiListCollections(): Promise<CollectionRecord[]> {
-  const res = await fetch("/api/collections");
-  if (!res.ok) return [];
-  const data = await res.json();
-  return Array.isArray(data) ? data : [];
+  try {
+    const data = await apiFetch<CollectionRecord[]>("/collections");
+    return Array.isArray(data) ? data : [];
+  } catch {
+    return [];
+  }
 }
 
 export async function apiCreateCollection(
   name: string,
 ): Promise<CollectionRecord> {
-  const res = await fetch("/api/collections", {
+  return apiFetch<CollectionRecord>("/collections", {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name }),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? "Failed to create collection", body);
-  }
-  return res.json();
 }
 
 export async function apiUpdateCollection(
   id: string,
   patch: { name?: string },
 ): Promise<CollectionRecord> {
-  const res = await fetch(`/api/collections/${id}`, {
+  return apiFetch<CollectionRecord>(`/collections/${id}`, {
     method: "PATCH",
-    headers: { "Content-Type": "application/json" },
     body: JSON.stringify(patch),
   });
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({}));
-    throw new ApiError(res.status, body.detail ?? "Failed to update collection", body);
-  }
-  return res.json();
 }
 
 export async function apiDeleteCollection(id: string): Promise<void> {
-  await fetch(`/api/collections/${id}`, { method: "DELETE" });
+  await apiFetch(`/collections/${id}`, { method: "DELETE" });
 }
 
 // ── Note Links API ────────────────────────────────────────────────────────

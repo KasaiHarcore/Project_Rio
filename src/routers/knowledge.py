@@ -28,6 +28,7 @@ from uuid import UUID
 from core.concurrency import concurrency_manager
 from core.dependencies import get_current_user, get_db, get_document_service, get_cache_service
 from core.exceptions import ValidationError, NotFoundError, ExternalServiceError
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 from infrastructure.data_access.qdrant_tool import get_vector_db_tool
 from models.document import Document
@@ -145,12 +146,9 @@ async def upload_document(
                 pass  # XP failure should not block the response
 
             # Invalidate L2 caches
-            try:
-                uid_str = str(user.id)
-                cache.invalidate_dashboard(uid_str)
-                cache.invalidate_xp(uid_str)
-            except Exception:
-                pass
+            uid_str = str(user.id)
+            best_effort(cache.invalidate_dashboard, uid_str)
+            best_effort(cache.invalidate_xp, uid_str)
 
             return DocumentUploadResponse(
                 document=_doc_to_response(doc),
@@ -216,10 +214,7 @@ async def delete_document(
             log_error(f"[Knowledge] vector delete failed: {exc}")
 
         # Invalidate dashboard (document count changed)
-        try:
-            cache.invalidate_dashboard(str(user.id))
-        except Exception:
-            pass
+        best_effort(cache.invalidate_dashboard, str(user.id))
 
     await concurrency_manager.run_in_thread(_query)
     return None

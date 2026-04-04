@@ -38,6 +38,7 @@ from repositories.flashcard_repository import FlashcardRepository
 from repositories.automation_repository import AutomationRepository
 from repositories.audio_overview_repository import AudioOverviewRepository
 
+from infrastructure.cache.helpers import best_effort
 from infrastructure.cache.service import CacheService
 from services.auth_service import AuthService
 from services.mission_service import MissionService
@@ -109,15 +110,12 @@ async def get_current_user(
         raise AuthenticationError("User not found")
 
     # Backfill / refresh cache
-    try:
-        cache.set_cached_user(str(user_id), {
-            "id": str(user.id),
-            "username": user.username,
-            "email": user.email,
-            "role": user.role.value if hasattr(user.role, "value") else str(user.role),
-        })
-    except Exception:
-        pass
+    best_effort(cache.set_cached_user, str(user_id), {
+        "id": str(user.id),
+        "username": user.username,
+        "email": user.email,
+        "role": user.role.value if hasattr(user.role, "value") else str(user.role),
+    })
 
     return user
 

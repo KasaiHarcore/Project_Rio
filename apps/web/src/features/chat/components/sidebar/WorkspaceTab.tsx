@@ -10,6 +10,7 @@ import {
   X, Plus, Search, Globe, Database, Sparkles, Download,
   ChevronDown, ChevronRight, ExternalLink, Trash2, Link2,
 } from 'lucide-react'
+import { apiDownloadArtifact } from '@/features/artifacts/api'
 
 /* ─── File type → icon mapping ───────────────────────────────────── */
 
@@ -231,11 +232,16 @@ export function WorkspaceTab() {
                       )}
                       {isArtifact && (
                         <button
-                          onClick={() => {
-                            const a = document.createElement('a')
-                            a.href = `/api/artifacts/${file.artifactId}/download`
-                            a.download = file.name
-                            a.click()
+                          onClick={async () => {
+                            try {
+                              const blob = await apiDownloadArtifact(file.artifactId!)
+                              const url = URL.createObjectURL(blob)
+                              const a = document.createElement('a')
+                              a.href = url
+                              a.download = file.name
+                              a.click()
+                              URL.revokeObjectURL(url)
+                            } catch { /* ignore */ }
                           }}
                           className="rounded p-0.5 text-[var(--chat-sidebar-stat-label)] hover:text-emerald-400 transition-colors"
                           title="Download"
