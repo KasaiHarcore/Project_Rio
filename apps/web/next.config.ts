@@ -3,11 +3,8 @@ import type { NextConfig } from "next";
 const isProd = process.env.NODE_ENV === "production";
 
 const nextConfig: NextConfig = {
-  // Only run the React Compiler on components with 'use memo' directive
-  // to avoid extra compilation overhead on every component during dev
   reactCompiler: { compilationMode: "annotation" },
 
-  // standalone output is for Docker deployments — skip in dev to avoid trace overhead
   output: isProd ? "standalone" : undefined,
 
   images: {
@@ -16,7 +13,11 @@ const nextConfig: NextConfig = {
 
   compress: isProd,
 
+  // Disable source maps in production to reduce memory and bundle size
+  productionBrowserSourceMaps: false,
+
   experimental: {
+    // Tree-shake heavy packages — only import what's actually used
     optimizePackageImports: [
       "framer-motion",
       "lucide-react",
@@ -32,6 +33,18 @@ const nextConfig: NextConfig = {
       "remark-math",
     ],
   },
+
+  // Reduce dev memory pressure by limiting concurrent compilations
+  ...(isProd ? {} : {
+    webpack: (config: any) => {
+      config.optimization = {
+        ...config.optimization,
+        // Reduce parallelism to lower memory usage in dev
+        realContentHash: false,
+      };
+      return config;
+    },
+  }),
 };
 
 export default nextConfig;

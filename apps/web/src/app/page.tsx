@@ -1,14 +1,24 @@
 "use client"
 
 import React, { useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { DashboardLayout } from "@/components/layout/dashboard-layout"
 import { PageTransition } from "@/components/layout/page-transition"
-import { MissionBoard } from "@/features/dashboard/components/MissionBoard"
-import { MissionControl } from "@/features/mission/components/MissionControl"
-import { SplashScreen } from "@/components/layout/splash-screen"
 import { AnimatePresence, motion } from "framer-motion"
 import { useUIStore } from '@/shared/store/ui-store'
 import { useShallow } from 'zustand/react/shallow'
+
+// Lazy-load heavy dashboard views — only one is visible at a time
+const MissionBoard = dynamic(
+  () => import("@/features/dashboard/components/MissionBoard").then((m) => m.MissionBoard),
+)
+const MissionControl = dynamic(
+  () => import("@/features/mission/components/MissionControl").then((m) => m.MissionControl),
+)
+const SplashScreen = dynamic(
+  () => import("@/components/layout/splash-screen").then((m) => m.SplashScreen),
+  { ssr: false },
+)
 
 export default function Page() {
   const { splashSeen, setSplashSeen, hydrateFromStorage, viewMode, activeMissionId } = useUIStore(

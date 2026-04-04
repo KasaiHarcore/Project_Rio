@@ -1,16 +1,28 @@
 import React, { useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import { Sidebar } from './sidebar'
 import { MobileNav } from './mobile-nav'
 import { useUIStore } from '@/shared/store/ui-store'
 import { useEmotionalStore } from '@/features/emotional/store'
 import { cn } from '@/shared/lib/utils'
-import { TutorialOverlay } from '@/features/tutorial/components/TutorialOverlay'
 import { AffinityFlashIndicator } from '@/components/ui/affinity-flash'
 import { PageTransition } from './page-transition'
 import { useKeyboardShortcuts } from '@/shared/hooks/use-keyboard-shortcuts'
 import { apiGetMe } from '@/features/auth/api'
-import { RioGuardian } from '@/features/rio/components/RioGuardian'
-import { MusicEngine } from '@/features/music/components/MusicEngine'
+
+// Lazy-load non-critical overlays — they render after first paint
+const RioGuardian = dynamic(
+  () => import('@/features/rio/components/RioGuardian').then((m) => m.RioGuardian),
+  { ssr: false },
+)
+const MusicEngine = dynamic(
+  () => import('@/features/music/components/MusicEngine').then((m) => m.MusicEngine),
+  { ssr: false },
+)
+const TutorialOverlay = dynamic(
+  () => import('@/features/tutorial/components/TutorialOverlay').then((m) => m.TutorialOverlay),
+  { ssr: false },
+)
 
 interface DashboardLayoutProps {
   children: React.ReactNode
