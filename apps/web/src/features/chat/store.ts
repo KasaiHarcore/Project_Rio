@@ -64,6 +64,53 @@ export interface SearchReference {
   url?: string
 }
 
+/**
+ * Structured web/doc source cited by an assistant turn. Rendered as a
+ * rich preview card inside the tree view's DetailPanel (Messenger-style
+ * link unfurl for web, document-thumbnail card for RAG / KB hits).
+ *
+ * Populated today by mock synthesis from logic entries; in a follow-up
+ * phase the backend will emit a `source` SSE event with this shape
+ * directly so we can drop the derivation layer.
+ */
+export interface WebSource {
+  kind: 'web'
+  /** Canonical URL — used as card anchor and for domain display. */
+  url: string
+  /** og:title — falls back to URL host when missing. */
+  title: string
+  /** og:description / meta description. */
+  snippet?: string
+  /** og:image hero. Absolute URL. */
+  ogImage?: string
+  /** Favicon URL. Absolute. */
+  favicon?: string
+  /** og:site_name or domain. */
+  siteName?: string
+  /** Time the citation was captured, ms since epoch. */
+  timestamp: number
+}
+
+export interface DocSource {
+  kind: 'doc'
+  /** Document filename shown in the footer chip. */
+  filename: string
+  /** Optional display title (often same as filename without ext). */
+  title?: string
+  /** Data URL or blob URL for the thumbnail preview. */
+  thumbnailUrl?: string
+  /** Excerpt rendered inside the card body when no thumbnail is available. */
+  excerpt?: string
+  /** Page / section anchor within the document. */
+  page?: number
+  /** Origin — typically the knowledge-base / RAG worker name. */
+  source?: string
+  /** Captured at. */
+  timestamp: number
+}
+
+export type MessageSource = WebSource | DocSource
+
 /** A memory entry the agent writes or the user edits */
 export interface MemoryEntry {
   id: string
@@ -114,6 +161,13 @@ interface SidebarState {
   persistedMemories: MemoryEntry[]
   memoriesLoading: boolean
 
+  /**
+   * Structured sources attached to an assistant message, keyed by its UIMessage id.
+   * Populated by the transport when a `source` SSE event fires; read by the tree
+   * view's DetailPanel to render rich preview cards.
+   */
+  messageSources: Record<string, MessageSource[]>
+
   /* ── Actions ── */
   setActiveTab: (tab: SidebarTab) => void
 
@@ -156,6 +210,11 @@ interface SidebarState {
   clearMemoryEntries: () => void
   fetchThreadMemories: (threadId: string) => Promise<void>
 
+  // Message sources
+  setMessageSources: (messageId: string, sources: MessageSource[]) => void
+  appendMessageSource: (messageId: string, source: MessageSource) => void
+  clearMessageSources: () => void
+
   resetSession: () => void
 }
 
@@ -193,6 +252,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   memoryEntries: [],
   persistedMemories: [],
   memoriesLoading: false,
+  messageSources: {},
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -320,6 +380,18 @@ export const useSidebarStore = create<SidebarState>((set) => ({
     }
   },
 
+  /* ── Message Sources ── */
+  setMessageSources: (messageId, sources) => set((s) => ({
+    messageSources: { ...s.messageSources, [messageId]: sources },
+  })),
+  appendMessageSource: (messageId, source) => set((s) => ({
+    messageSources: {
+      ...s.messageSources,
+      [messageId]: [...(s.messageSources[messageId] ?? []), source],
+    },
+  })),
+  clearMessageSources: () => set({ messageSources: {} }),
+
   /* ── Session Reset ── */
   resetSession: () => set({
     logicEntries: [],
@@ -332,6 +404,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
     memoryEntries: [],
     persistedMemories: [],
     memoriesLoading: false,
+    messageSources: {},
     // Keep workspaceFiles — those are project-level, not session-level
   }),
 }))
