@@ -23,6 +23,7 @@ import type { UIMessage } from 'ai'
 import {
   User as UserIcon, Bot, Brain, Route, Wrench, Info,
   X, Loader2, ChevronLeft, ChevronRight,
+  Database, Globe, Code2, Sparkles,
 } from 'lucide-react'
 import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
 import { buildMessageTree, getActivePath, type MessageNode } from '@/features/chat/lib/message-tree'
@@ -35,6 +36,17 @@ interface ConversationTreeViewProps {
   messages: UIMessage[]
   status: 'ready' | 'streaming' | 'submitted' | 'error'
 }
+
+/**
+ * EdgeKind — how the edge between a user message and its assistant reply is
+ * visually differentiated based on what happened during generation:
+ *   - direct   : plain reply, no tools or reasoning events (solid rose)
+ *   - thinking : the agent produced planning / reasoning entries (amber dashed)
+ *   - tool     : a non-source tool ran (violet dashed)
+ *   - source   : a retrieval tool ran (RAG / web / knowledge) — cyan bold
+ * Assistant → user edges always use `direct` (it's just the next turn).
+ */
+type EdgeKind = 'direct' | 'thinking' | 'tool' | 'source'
 
 type MessageNodeData = {
   label: string
@@ -49,6 +61,8 @@ type MessageNodeData = {
   isStreaming: boolean
   parentId: string | null
   messageId: string
+  /** Tool tags derived from logic_entries in the preceding user→assistant turn */
+  toolTags: string[]
 }
 
 type MessageFlowNode = Node<MessageNodeData, 'messageNode'>
@@ -63,6 +77,37 @@ const LOGIC_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
 const LOGIC_COLORS: Record<string, string> = {
   thinking: 'text-rose-400', decision: 'text-emerald-400',
   'tool-call': 'text-violet-400', info: 'text-sky-400',
+}
+
+/** Worker names that represent retrieval sources (RAG / web search / KB). */
+const SOURCE_WORKERS = new Set(['rag', 'web', 'search', 'knowledge', 'kb', 'retrieval'])
+
+const EDGE_STYLES: Record<EdgeKind, {
+  stroke: string
+  strokeWidth: number
+  dasharray?: string
+}> = {
+  direct:   { stroke: '#f43f5e', strokeWidth: 2 },                    // rose — normal reply
+  thinking: { stroke: '#f59e0b', strokeWidth: 2, dasharray: '5 3' },  // amber dashed — reasoning
+  tool:     { stroke: '#a78bfa', strokeWidth: 2, dasharray: '7 2' },  // violet long-dashed — tool call
+  source:   { stroke: '#22d3ee', strokeWidth: 2.5 },                  // cyan bold — retrieval
+}
+
+/** Icon + color per tool tag chip. */
+const TOOL_CHIP_META: Record<string, { icon: React.ComponentType<{ className?: string }>; color: string; label: string }> = {
+  rag:        { icon: Database, color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',   label: 'RAG' },
+  knowledge:  { icon: Database, color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',   label: 'KB' },
+  kb:         { icon: Database, color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',   label: 'KB' },
+  retrieval:  { icon: Database, color: 'bg-cyan-500/20 text-cyan-300 border-cyan-500/30',   label: 'DOC' },
+  web:        { icon: Globe,    color: 'bg-sky-500/20 text-sky-300 border-sky-500/30',      label: 'WEB' },
+  search:     { icon: Globe,    color: 'bg-sky-500/20 text-sky-300 border-sky-500/30',      label: 'WEB' },
+  sql:        { icon: Code2,    color: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', label: 'SQL' },
+}
+
+const DEFAULT_TOOL_CHIP = {
+  icon: Sparkles,
+  color: 'bg-violet-500/20 text-violet-300 border-violet-500/30',
+  label: '',
 }
 
 /* ─── Helpers ────────────────────────────────────────────────────── */
@@ -94,6 +139,54 @@ function getLogicForMessage(
     ? ((nextMsg as any).createdAt as Date)?.getTime() ?? Infinity
     : Infinity
   return logicEntries.filter((e) => e.timestamp >= msgTime && e.timestamp < nextTime)
+}
+
+/**
+ * Extract a worker name from a tool-call entry title. The transport emits
+ * titles like "rag completed", "web failed", "sql completed" — we take the
+ * first word and lowercase it.
+ */
+function extractWorker(title: string): string | null {
+  const match = title.match(/^([A-Za-z][\w-]*)\s+(completed|failed|started|running)?/)
+  return match ? match[1].toLowerCase() : null
+}
+
+/**
+ * Classify a user→assistant edge based on logic_entries that fall in the
+ * turn's time window. Also returns the distinct tool tags to render as
+ * chips on the assistant node.
+ */
+function classifyEdge(
+  parentMsg: UIMessage,
+  childMsg: UIMessage,
+  logicEntries: LogicEntry[],
+): { kind: EdgeKind; tools: string[] } {
+  const startTime = ((parentMsg as any).createdAt as Date)?.getTime() ?? 0
+  const endTime = ((childMsg as any).createdAt as Date)?.getTime() ?? Infinity
+  const inWindow = logicEntries.filter((e) => e.timestamp >= startTime && e.timestamp <= endTime)
+
+  const tools = new Set<string>()
+  let hasThinking = false
+  let hasSource = false
+  let hasTool = false
+
+  for (const e of inWindow) {
+    if (e.kind === 'tool-call') {
+      hasTool = true
+      const worker = extractWorker(e.title)
+      if (worker) {
+        tools.add(worker)
+        if (SOURCE_WORKERS.has(worker)) hasSource = true
+      }
+    } else if (e.kind === 'thinking') {
+      hasThinking = true
+    }
+  }
+
+  if (hasSource) return { kind: 'source', tools: Array.from(tools) }
+  if (hasTool) return { kind: 'tool', tools: Array.from(tools) }
+  if (hasThinking) return { kind: 'thinking', tools: [] }
+  return { kind: 'direct', tools: [] }
 }
 
 /* ─── Dagre layout ───────────────────────────────────────────────── */
@@ -137,11 +230,32 @@ function treeToFlow(
   const nodes: MessageFlowNode[] = []
   const edges: Edge[] = []
 
+  // Build a parent lookup so we can classify the edge that LEADS to each node
+  // and thereby derive tool tags for assistant nodes.
+  const parentById = new Map<string, MessageNode>()
+  function indexParents(node: MessageNode) {
+    for (const child of node.children) {
+      parentById.set(child.message.id, node)
+      indexParents(child)
+    }
+  }
+  for (const root of roots) indexParents(root)
+
   function walk(node: MessageNode) {
     const msg = node.message
     const msgIdx = allMessages.findIndex((m) => m.id === msg.id)
     const nextMsg = msgIdx >= 0 && msgIdx + 1 < allMessages.length ? allMessages[msgIdx + 1] : null
     const relatedLogic = getLogicForMessage(msg, nextMsg, logicEntries)
+
+    // Tool tags on THIS node come from classifying its incoming edge
+    // (parent-user → this-assistant). User nodes never carry tool tags.
+    let toolTags: string[] = []
+    if (msg.role === 'assistant') {
+      const parent = parentById.get(msg.id)
+      if (parent && parent.message.role === 'user') {
+        toolTags = classifyEdge(parent.message, msg, logicEntries).tools
+      }
+    }
 
     nodes.push({
       id: msg.id,
@@ -160,22 +274,34 @@ function treeToFlow(
         isStreaming: isStreaming && node.children.length === 0 && msg.role === 'assistant',
         parentId: node.parentId,
         messageId: msg.id,
+        toolTags,
       },
     })
 
     for (const child of node.children) {
       const isActiveBranch = activePathIds.has(msg.id) && activePathIds.has(child.message.id)
+
+      // Only user→assistant turns carry a meaningful "edge kind". Other edges
+      // (assistant→user follow-up) are always `direct`.
+      const isUserToAssistant = msg.role === 'user' && child.message.role === 'assistant'
+      const kind: EdgeKind = isUserToAssistant
+        ? classifyEdge(msg, child.message, logicEntries).kind
+        : 'direct'
+      const base = EDGE_STYLES[kind]
+
       edges.push({
         id: `e-${msg.id}-${child.message.id}`,
         source: msg.id,
         target: child.message.id,
         type: 'smoothstep',
-        animated: isActiveBranch,
+        animated: isActiveBranch && kind !== 'direct',
         style: {
-          stroke: isActiveBranch ? '#f43f5e' : '#4a1525',
-          strokeWidth: isActiveBranch ? 2.5 : 1.5,
-          opacity: isActiveBranch ? 1 : 0.5,
+          stroke: base.stroke,
+          strokeWidth: isActiveBranch ? base.strokeWidth + 0.5 : base.strokeWidth,
+          strokeDasharray: base.dasharray,
+          opacity: isActiveBranch ? 1 : 0.3,
         },
+        data: { kind },
       })
       walk(child)
     }
@@ -266,6 +392,32 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
           )}
         </p>
 
+        {/* Source / tool chips — what the assistant used to produce this reply */}
+        {d.toolTags.length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {d.toolTags.map((tag) => {
+              const meta = TOOL_CHIP_META[tag] ?? {
+                ...DEFAULT_TOOL_CHIP,
+                label: tag.toUpperCase().slice(0, 6),
+              }
+              const Icon = meta.icon
+              return (
+                <span
+                  key={tag}
+                  className={cn(
+                    "inline-flex items-center gap-0.5 px-1 py-[1px] rounded border text-[7px] font-bold uppercase tracking-wider",
+                    meta.color,
+                  )}
+                  title={`source: ${tag}`}
+                >
+                  <Icon className="h-2 w-2" />
+                  {meta.label}
+                </span>
+              )
+            })}
+          </div>
+        )}
+
         {/* Footer: branch info + logic count */}
         {(d.siblingCount > 1 || d.logicCount > 0) && (
           <div className="flex items-center justify-between mt-1.5 pt-1 border-t border-slate-700/30">
@@ -310,6 +462,63 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
 
 // Stable reference — defined outside component
 const nodeTypes: NodeTypes = { messageNode: MessageNodeComponent }
+
+/* ─── Edge-style legend ─────────────────────────────────────────── */
+
+const LEGEND_ITEMS: { kind: EdgeKind; label: string }[] = [
+  { kind: 'direct',   label: 'Reply' },
+  { kind: 'thinking', label: 'Thinking' },
+  { kind: 'tool',     label: 'Tool' },
+  { kind: 'source',   label: 'RAG / Web' },
+]
+
+function EdgeLegend() {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="absolute top-3 left-3 z-10">
+      {open ? (
+        <div className="rounded-lg border border-slate-700/50 bg-[#0d1520]/95 backdrop-blur-md px-3 py-2 shadow-xl">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-400">Edge key</span>
+            <button
+              onClick={() => setOpen(false)}
+              className="text-slate-500 hover:text-slate-300"
+              aria-label="Close legend"
+            >
+              <X className="h-3 w-3" />
+            </button>
+          </div>
+          <div className="space-y-1">
+            {LEGEND_ITEMS.map((item) => {
+              const s = EDGE_STYLES[item.kind]
+              return (
+                <div key={item.kind} className="flex items-center gap-2">
+                  <svg width="28" height="8" viewBox="0 0 28 8">
+                    <line
+                      x1="0" y1="4" x2="28" y2="4"
+                      stroke={s.stroke}
+                      strokeWidth={s.strokeWidth}
+                      strokeDasharray={s.dasharray}
+                    />
+                  </svg>
+                  <span className="text-[9px] text-slate-300">{item.label}</span>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setOpen(true)}
+          className="rounded-lg border border-slate-700/50 bg-[#0d1520]/90 backdrop-blur-md px-2 py-1 shadow-md hover:border-slate-600 text-[8px] font-black uppercase tracking-[0.2em] text-slate-400 hover:text-slate-200 transition-colors"
+          title="Edge style legend"
+        >
+          Edge key
+        </button>
+      )}
+    </div>
+  )
+}
 
 /* ═══════════════════════════════════════════════════════════════════
    ConversationTreeView — React Flow canvas
@@ -396,7 +605,8 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
 
   return (
     <div className="flex-1 flex overflow-hidden relative">
-      <div className="flex-1" style={{ height: '100%' }}>
+      <div className="flex-1 relative" style={{ height: '100%' }}>
+        <EdgeLegend />
         <ReactFlow
           nodes={nodes}
           edges={edges}
