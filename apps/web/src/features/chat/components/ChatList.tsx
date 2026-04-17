@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useCallback } from 'react'
+import React, { useEffect, useRef, useCallback, useState } from 'react'
 import { UIMessage } from 'ai'
 import { cn } from '@/shared/lib/utils'
-import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
+import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, X, Check } from 'lucide-react'
 import type { MessageNode } from '@/features/chat/lib/message-tree'
 import { findNode, getSiblings } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
@@ -35,6 +35,12 @@ interface ChatListProps {
   onRegenerate?: (userMessageId: string) => void
   /** Whether a regeneration is currently in progress */
   regenerating?: boolean
+  /** Callback to edit a user message (creates a new sibling branch) */
+  onEditMessage?: (messageId: string, newContent: string) => Promise<void> | void
+  /** Whether an edit is currently in progress */
+  editing?: boolean
+  /** Message id whose carousel should pulse to draw attention (after edit) */
+  pulseCarouselForId?: string | null
 }
 
 // ── Mood-Aware Greetings ────────────────────────────────────────────────
@@ -50,12 +56,42 @@ function getMoodGreeting(mood: Mood): string {
   return greetings[mood] || "Neural link established."
 }
 
-export function ChatList({ messages, isLoading, status, messageTree, onRegenerate, regenerating }: ChatListProps) {
+export function ChatList({
+  messages, isLoading, status, messageTree,
+  onRegenerate, regenerating,
+  onEditMessage, editing, pulseCarouselForId,
+}: ChatListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const { mood, fetchState } = useEmotionalStore()
   const router = useRouter()
   const { selectBranch, nextBranch, prevBranch, branchSelections } = useBranchStore()
+
+  // Inline-edit state: only one user message can be in edit mode at a time.
+  const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
+  const [editDraft, setEditDraft] = useState('')
+
+  const startEdit = useCallback((msg: UIMessage) => {
+    const text = msg.parts
+      ?.filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text)
+      .join('') || (msg as any).content || ''
+    setEditDraft(text)
+    setEditingMessageId(msg.id)
+  }, [])
+  const cancelEdit = useCallback(() => {
+    setEditingMessageId(null)
+    setEditDraft('')
+  }, [])
+  const commitEdit = useCallback(async () => {
+    if (!onEditMessage || !editingMessageId) return
+    const trimmed = editDraft.trim()
+    if (!trimmed) return
+    const id = editingMessageId
+    setEditingMessageId(null)
+    setEditDraft('')
+    await onEditMessage(id, trimmed)
+  }, [onEditMessage, editingMessageId, editDraft])
 
   useEffect(() => {
     fetchState('rio')
@@ -183,16 +219,64 @@ export function ChatList({ messages, isLoading, status, messageTree, onRegenerat
 
             {/* Content Column (Smart Card) */}
             <div className="flex-1 min-w-0 max-w-[85%]">
-                <SmartDataCard
+                {editingMessageId === m.id ? (
+                  // Inline edit mode: textarea replaces the message bubble.
+                  // Save creates a sibling branch via the edit endpoint.
+                  <div className="rounded-2xl border border-rose-500/40 bg-[var(--user-avatar-bg)] p-3 space-y-2 shadow-[0_0_12px_rgba(244,63,94,0.25)]">
+                    <textarea
+                      autoFocus
+                      value={editDraft}
+                      onChange={(e) => setEditDraft(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          cancelEdit()
+                        } else if ((e.key === 'Enter' && (e.metaKey || e.ctrlKey))) {
+                          e.preventDefault()
+                          void commitEdit()
+                        }
+                      }}
+                      rows={Math.min(10, Math.max(2, editDraft.split('\n').length))}
+                      className="w-full bg-transparent text-sm text-slate-100 placeholder-slate-500 outline-none resize-none"
+                      placeholder="Edit your message..."
+                      disabled={editing}
+                    />
+                    <div className="flex items-center justify-between gap-2 pt-1 border-t border-rose-500/20">
+                      <span className="text-[9px] font-mono uppercase tracking-wider text-rose-300/70">
+                        Editing → creates a new branch
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={cancelEdit}
+                          disabled={editing}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-bold uppercase tracking-wider text-slate-400 hover:text-slate-200 hover:bg-white/5 disabled:opacity-40 transition-colors"
+                        >
+                          <X className="h-3 w-3" />
+                          Cancel
+                        </button>
+                        <button
+                          onClick={() => void commitEdit()}
+                          disabled={editing || !editDraft.trim()}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-[10px] font-black uppercase tracking-wider bg-rose-500/20 text-rose-200 hover:bg-rose-500/30 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                        >
+                          <Check className="h-3 w-3" />
+                          {editing ? 'Sending…' : 'Save & Send'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <SmartDataCard
                     role={m.role as any}
                     content={m.parts?.filter((p: any) => p.type === 'text').map((p: any) => p.text).join('') || (m as any).content || ''}
                     timestamp={formatMessageTime((m as any).createdAt)}
                     senderName={isAssistant ? (characterName ?? 'SYSTEM_RESPONSE') : 'Sensei'}
                     isStreaming={showStreamingCursor}
-                />
+                  />
+                )}
 
                 {/* Branch selector + action buttons */}
-                {messageTree && messageTree.length > 0 && (
+                {messageTree && messageTree.length > 0 && editingMessageId !== m.id && (
                   <MessageActions
                     message={m}
                     messageTree={messageTree}
@@ -200,6 +284,8 @@ export function ChatList({ messages, isLoading, status, messageTree, onRegenerat
                     isStreaming={showStreamingCursor}
                     onRegenerate={onRegenerate}
                     regenerating={regenerating}
+                    onStartEdit={onEditMessage ? () => startEdit(m) : undefined}
+                    pulseCarousel={pulseCarouselForId === m.id}
                     selectBranch={selectBranch}
                     nextBranch={nextBranch}
                     prevBranch={prevBranch}
@@ -273,6 +359,10 @@ interface MessageActionsProps {
   isStreaming: boolean
   onRegenerate?: (userMessageId: string) => void
   regenerating?: boolean
+  /** Enter edit mode for this message (user messages only). */
+  onStartEdit?: () => void
+  /** Pulse the `< N/M >` carousel for ~1.5s to draw post-edit attention. */
+  pulseCarousel?: boolean
   selectBranch: (parentId: string, childId: string) => void
   nextBranch: (parentId: string, siblings: MessageNode[]) => void
   prevBranch: (parentId: string, siblings: MessageNode[]) => void
@@ -285,6 +375,8 @@ function MessageActions({
   isStreaming,
   onRegenerate,
   regenerating,
+  onStartEdit,
+  pulseCarousel,
   selectBranch,
   nextBranch,
   prevBranch,
@@ -303,9 +395,12 @@ function MessageActions({
       "flex items-center gap-2 mt-1.5 min-h-[24px]",
       isAssistant ? "justify-start" : "justify-end",
     )}>
-      {/* Branch selector: < 1/3 > */}
+      {/* Branch selector: < 1/3 >  — pulses briefly after an edit creates a new sibling */}
       {hasBranches && (
-        <div className="flex items-center gap-0.5 select-none">
+        <div className={cn(
+          "flex items-center gap-0.5 select-none rounded-md transition-all",
+          pulseCarousel && "animate-pulse ring-2 ring-rose-500/70 bg-rose-500/10 px-1",
+        )}>
           <button
             onClick={(e) => { e.stopPropagation(); prevBranch(node.parentId!, siblings!) }}
             disabled={node.siblingIndex === 0}
@@ -314,7 +409,10 @@ function MessageActions({
           >
             <ChevronLeft className="h-3.5 w-3.5" />
           </button>
-          <span className="text-[10px] font-bold text-slate-500 tabular-nums min-w-[28px] text-center">
+          <span className={cn(
+            "text-[10px] font-bold tabular-nums min-w-[28px] text-center",
+            pulseCarousel ? "text-rose-300" : "text-slate-500",
+          )}>
             {node.siblingIndex + 1}/{node.siblingCount}
           </span>
           <button
@@ -341,6 +439,18 @@ function MessageActions({
           title="Regenerate response"
         >
           <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
+
+      {/* Edit button (on user messages, when not streaming) — creates a new branch */}
+      {!isAssistant && !isStreaming && onStartEdit && (
+        <button
+          onClick={onStartEdit}
+          className="p-1 rounded-lg transition-all text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100"
+          title="Edit message — creates a new branch"
+          aria-label="Edit message"
+        >
+          <Pencil className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

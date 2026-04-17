@@ -9,7 +9,7 @@ import { ConversationTreeView } from "@/features/chat/components/ConversationTre
 import { useChat } from '@ai-sdk/react'
 import type { ChatRequestOptions, UIMessage } from 'ai'
 import { useUIStore } from '@/shared/store/ui-store'
-import { apiGetThreadMessages, apiRegenerateMessage, MessageRecord } from '@/features/chat/api'
+import { apiGetThreadMessages, apiRegenerateMessage, apiEditMessage, MessageRecord } from '@/features/chat/api'
 import { createSidebarTransport } from '@/features/chat/lib/chat-transport'
 import { buildMessageTree, getActivePath, type BranchSelections } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
@@ -333,6 +333,10 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   }, [branchSelections, messageTree, setMessages])
 
   const [regenerating, setRegenerating] = useState(false)
+  const [editing, setEditing] = useState(false)
+  // Message id whose carousel should pulse briefly to draw attention
+  // after an edit creates a new sibling branch.
+  const [pulseCarouselForId, setPulseCarouselForId] = useState<string | null>(null)
 
   const handleRegenerate = useCallback(async (userMessageId: string) => {
     if (!effectiveThreadId || regenerating) return
@@ -357,6 +361,42 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
       setRegenerating(false)
     }
   }, [effectiveThreadId, regenerating, activeCharacterId, loadMessagesIntoChat])
+
+  const handleEditMessage = useCallback(async (messageId: string, newContent: string) => {
+    if (!effectiveThreadId || editing) return
+    setEditing(true)
+    try {
+      const res = await apiEditMessage(effectiveThreadId, messageId, newContent, activeCharacterId)
+      if (!res.ok) throw new Error('Edit failed')
+      // Drain the SSE stream to completion
+      const reader = res.body?.getReader()
+      if (reader) {
+        while (true) {
+          const { done } = await reader.read()
+          if (done) break
+        }
+      }
+      // Reload to pick up both the new sibling user message and its assistant reply
+      const { messages: records } = await apiGetThreadMessages(effectiveThreadId)
+      loadMessagesIntoChat(records)
+      // Auto-select the new branch: find the most recently-added user-sibling
+      // by scanning records for one matching our newContent. This makes the
+      // active path swap to the edit's branch on success.
+      const newUserMsg = [...records].reverse().find(
+        (r) => r.role === 'user' && r.content === newContent.trim(),
+      )
+      if (newUserMsg?.parent_id) {
+        useBranchStore.getState().selectBranch(newUserMsg.parent_id, newUserMsg.id)
+      }
+      // Pulse the carousel on the edited (original) message for ~1.5s
+      setPulseCarouselForId(messageId)
+      setTimeout(() => setPulseCarouselForId(null), 1500)
+    } catch {
+      // silently fail
+    } finally {
+      setEditing(false)
+    }
+  }, [effectiveThreadId, editing, activeCharacterId, loadMessagesIntoChat])
 
   // ── Tree view toggle ──────────────────────────────────────────────
   const [treeView, setTreeView] = useState(false)
@@ -397,6 +437,9 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
               messageTree={messageTree}
               onRegenerate={handleRegenerate}
               regenerating={regenerating}
+              onEditMessage={handleEditMessage}
+              editing={editing}
+              pulseCarouselForId={pulseCarouselForId}
             />
 
             <ChatInput

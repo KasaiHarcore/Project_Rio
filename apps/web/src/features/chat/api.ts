@@ -97,3 +97,28 @@ export async function apiRegenerateMessage(
     body: JSON.stringify({ message_id: messageId, character }),
   });
 }
+
+/**
+ * Edit a previously-sent user message. Creates a new sibling branch:
+ * the edited content becomes a new user message (sibling of the original),
+ * and the streamed assistant response is its child.
+ * Returns a raw Response so the caller can read the SSE stream.
+ */
+export async function apiEditMessage(
+  threadId: string,
+  messageId: string,
+  newContent: string,
+  character = 'rio',
+): Promise<Response> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  return fetch(`${baseUrl}/api/v1/chat/threads/${threadId}/edit`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({
+      message_id: messageId,
+      new_content: newContent,
+      character,
+    }),
+  });
+}
