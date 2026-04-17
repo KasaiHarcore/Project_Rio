@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react'
 import { UIMessage } from 'ai'
 import { cn } from '@/shared/lib/utils'
-import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, GitBranch } from 'lucide-react'
+import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { MessageNode } from '@/features/chat/lib/message-tree'
 import { findNode, getSiblings } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
@@ -278,15 +278,6 @@ interface MessageActionsProps {
   prevBranch: (parentId: string, siblings: MessageNode[]) => void
 }
 
-function getMessagePreview(msg: UIMessage, max: number): string {
-  const text = msg.parts
-    ?.filter((p: any) => p.type === 'text')
-    .map((p: any) => p.text)
-    .join('') || (msg as any).content || ''
-  const clean = text.replace(/\s+/g, ' ').trim()
-  return clean.length > max ? clean.slice(0, max) + '…' : clean
-}
-
 function MessageActions({
   message,
   messageTree,
@@ -298,9 +289,6 @@ function MessageActions({
   nextBranch,
   prevBranch,
 }: MessageActionsProps) {
-  const setPendingBranchParent = useBranchStore((s) => s.setPendingBranchParent)
-  const pendingBranchParent = useBranchStore((s) => s.pendingBranchParent)
-
   const node = findNode(messageTree, message.id)
   if (!node) return null
 
@@ -309,20 +297,6 @@ function MessageActions({
 
   // Find the user message that this assistant message responds to (its parent)
   const userMessageId = isAssistant ? node.parentId : message.id
-
-  const isPendingBranchTarget = pendingBranchParent?.messageId === message.id
-
-  const handleBranchFromHere = () => {
-    if (isPendingBranchTarget) {
-      setPendingBranchParent(null)
-      return
-    }
-    setPendingBranchParent({
-      messageId: message.id,
-      preview: getMessagePreview(message, 80),
-      role: message.role,
-    })
-  }
 
   return (
     <div className={cn(
@@ -367,24 +341,6 @@ function MessageActions({
           title="Regenerate response"
         >
           <RefreshCw className="h-3.5 w-3.5" />
-        </button>
-      )}
-
-      {/* Branch-from-here button — explicit fork action on any message */}
-      {!isStreaming && (
-        <button
-          onClick={handleBranchFromHere}
-          className={cn(
-            "p-1 rounded-lg transition-all hover:bg-white/5",
-            isPendingBranchTarget
-              ? "text-rose-400 opacity-100"
-              : "text-slate-500 hover:text-slate-300 opacity-0 group-hover:opacity-100",
-          )}
-          title={isPendingBranchTarget ? "Cancel branch" : "Branch from here — next message forks off this one"}
-          aria-label={isPendingBranchTarget ? "Cancel branch" : "Branch from here"}
-          aria-pressed={isPendingBranchTarget}
-        >
-          <GitBranch className="h-3.5 w-3.5" />
         </button>
       )}
     </div>

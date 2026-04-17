@@ -96,18 +96,13 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   const transport = useMemo(
     () =>
       createSidebarTransport(
-        () => {
-          // Fork intent (from "Branch from here"): apply once, then clear.
-          const pending = useBranchStore.getState().consumePendingBranchParent()
-          return {
-            ...(effectiveThreadIdRef.current
-              ? { thread_id: effectiveThreadIdRef.current }
-              : {}),
-            mode: agentModeRef.current,
-            character: characterRef.current,
-            ...(pending ? { parent_message_id: pending.messageId } : {}),
-          }
-        },
+        () => ({
+          ...(effectiveThreadIdRef.current
+            ? { thread_id: effectiveThreadIdRef.current }
+            : {}),
+          mode: agentModeRef.current,
+          character: characterRef.current,
+        }),
         (id) => { capturedThreadIdRef.current = id },
       ),
     [],
@@ -404,8 +399,6 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
               regenerating={regenerating}
             />
 
-            <PendingBranchBanner />
-
             <ChatInput
               input={input}
               handleInputChange={handleInputChange}
@@ -418,45 +411,6 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
 
       {/* Right Sidebar (Chat details) */}
       <ChatSidebar messages={messages} status={hudStatus} threadId={effectiveThreadId ?? null} treeView={treeView} onToggleTreeView={toggleTreeView} />
-    </div>
-  )
-}
-
-/**
- * PendingBranchBanner — shows above ChatInput when the user has clicked
- * "Branch from here" on a message. Indicates that the next sent message
- * will fork off that parent. Clicking Cancel clears the intent.
- */
-function PendingBranchBanner() {
-  const pending = useBranchStore((s) => s.pendingBranchParent)
-  const setPendingBranchParent = useBranchStore((s) => s.setPendingBranchParent)
-
-  if (!pending) return null
-
-  const roleLabel = pending.role === 'assistant' ? 'Rio' : pending.role === 'user' ? 'Sensei' : pending.role
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="mx-auto max-w-5xl px-4 lg:px-0 pb-2"
-    >
-      <div className="flex items-center gap-3 rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-xs">
-        <span className="font-mono text-[9px] font-bold uppercase tracking-wider text-rose-400 flex-shrink-0">
-          Branching
-        </span>
-        <span className="flex-1 min-w-0 truncate text-rose-100/90">
-          <span className="text-rose-300/70">From {roleLabel}:</span>{' '}
-          <span>{pending.preview || '(empty message)'}</span>
-        </span>
-        <button
-          onClick={() => setPendingBranchParent(null)}
-          className="flex-shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase text-rose-300 hover:text-rose-100 hover:bg-rose-500/20 transition-colors"
-          aria-label="Cancel branch"
-        >
-          Cancel
-        </button>
-      </div>
     </div>
   )
 }

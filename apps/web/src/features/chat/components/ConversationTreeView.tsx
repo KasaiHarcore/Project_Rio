@@ -25,7 +25,7 @@ import {
   User as UserIcon, Bot, Brain, Route, Wrench, Info,
   X, Loader2, ChevronLeft, ChevronRight,
   Database, Globe, Code2, Sparkles,
-  GitBranch, Check, Compass, Target,
+  Check, Compass, Target,
 } from 'lucide-react'
 import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
 import { buildMessageTree, getActivePath, getBranchRoot, type MessageNode } from '@/features/chat/lib/message-tree'
@@ -957,11 +957,10 @@ function EdgeLegend() {
    ConversationTreeView — React Flow canvas
    ═══════════════════════════════════════════════════════════════════ */
 
-export function ConversationTreeView({ allMessages, messages, status, onExitTreeView }: ConversationTreeViewProps) {
+export function ConversationTreeView({ allMessages, messages, status }: ConversationTreeViewProps) {
   const logicEntries = useSidebarStore((s) => s.logicEntries)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const branchSelections = useBranchStore((s) => s.branchSelections)
-  const setPendingBranchParent = useBranchStore((s) => s.setPendingBranchParent)
   const { selectBranch, nextBranch, prevBranch } = useBranchStore()
 
   // ReactFlow instance — captured on mount so scroll-to-HEAD can drive the viewport.
@@ -1107,26 +1106,6 @@ export function ConversationTreeView({ allMessages, messages, status, onExitTree
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY, messageId: node.id })
   }, [])
-
-  const handleBranchFromHere = useCallback((messageId: string) => {
-    const msg = allMessages.find((m) => m.id === messageId)
-    if (!msg) return
-    const preview = (() => {
-      const text = msg.parts
-        ?.filter((p: any) => p.type === 'text')
-        .map((p: any) => p.text)
-        .join('') || (msg as any).content || ''
-      const clean = text.replace(/\s+/g, ' ').trim()
-      return clean.length > 80 ? clean.slice(0, 80) + '…' : clean
-    })()
-    setPendingBranchParent({
-      messageId,
-      preview,
-      role: msg.role,
-    })
-    setContextMenu(null)
-    onExitTreeView?.()
-  }, [allMessages, setPendingBranchParent, onExitTreeView])
 
   const handleSwitchToBranch = useCallback((messageId: string) => {
     const findNodeLocal = (nodes: MessageNode[], id: string): MessageNode | null => {
@@ -1293,14 +1272,6 @@ export function ConversationTreeView({ allMessages, messages, status, onExitTree
                 {targetNode?.role === 'assistant' ? 'Assistant' : 'User'} · {contextMenu.messageId.slice(0, 8)}
               </p>
             </div>
-            <button
-              role="menuitem"
-              onClick={() => handleBranchFromHere(contextMenu.messageId)}
-              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-200 hover:bg-rose-500/15 hover:text-rose-200 transition-colors"
-            >
-              <GitBranch className="h-3.5 w-3.5 text-rose-400" />
-              <span className="flex-1 text-left">Branch from here</span>
-            </button>
             {canSwitch && (
               <button
                 role="menuitem"
