@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import { UIMessage } from 'ai'
 import { cn } from '@/shared/lib/utils'
-import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, X, Check, Clock } from 'lucide-react'
+import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, X, Check, Clock, Database, Globe, Code2, Wrench, ExternalLink } from 'lucide-react'
 import type { MessageNode } from '@/features/chat/lib/message-tree'
 import { findNode, getSiblings } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
+import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
 import { AgentAvatar, AgentMessageAvatar } from '@/components/ui/agent-avatar'
 import { agentConfig, userConfig } from '@/shared/lib/agent-config'
 import { SmartDataCard } from './SmartDataCard'
@@ -66,6 +67,7 @@ export function ChatList({
   const { mood, fetchState } = useEmotionalStore()
   const router = useRouter()
   const { selectBranch, nextBranch, prevBranch, branchSelections } = useBranchStore()
+  const logicEntries = useSidebarStore((s) => s.logicEntries)
 
   // Inline-edit state: only one user message can be in edit mode at a time.
   const [editingMessageId, setEditingMessageId] = useState<string | null>(null)
@@ -276,6 +278,18 @@ export function ChatList({
                   />
                 )}
 
+                {/* Source preview cards — rendered under assistant messages.
+                    Derived from tool-call logic entries in the turn's time
+                    window. Shows RAG / Web / SQL / other tool outputs as
+                    compact cards with worker icon + title + detail excerpt. */}
+                {isAssistant && !showStreamingCursor && editingMessageId !== m.id && (
+                  <SourcePreviewRow
+                    message={m}
+                    nextMessage={messages[idx + 1] ?? null}
+                    logicEntries={logicEntries}
+                  />
+                )}
+
                 {/* Branch selector + action buttons */}
                 {messageTree && messageTree.length > 0 && editingMessageId !== m.id && (
                   <MessageActions
@@ -477,6 +491,129 @@ function MessageActions({
         </button>
       )}
 
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SourcePreviewRow — rich cards for RAG / Web / tool outputs
+ *
+ * Renders the tool-call logic entries that happened DURING the
+ * assistant's turn (time window between the parent user message and
+ * the next message). Each card shows:
+ *   - Worker-appropriate icon (Database for rag/knowledge,
+ *     Globe for web/search, Code2 for sql, Wrench for generic tools).
+ *   - Worker name as the card title (e.g. "RAG", "WEB").
+ *   - Detail excerpt (content_preview from the SSE event, truncated).
+ *   - Linkified URLs inside the detail — first URL becomes the card's
+ *     primary action (ExternalLink icon + open-in-new-tab).
+ *
+ * NOTE: This uses existing logic_entries data so no backend schema
+ * change is required. True OG unfurling (favicon, og:image) still
+ * needs backend work and is queued for a future round.
+ * ═══════════════════════════════════════════════════════════════════ */
+
+const WORKER_META: Record<string, { icon: React.ComponentType<{ className?: string }>; label: string; tone: string }> = {
+  rag:       { icon: Database, label: 'RAG',       tone: 'cyan' },
+  knowledge: { icon: Database, label: 'KB',        tone: 'cyan' },
+  kb:        { icon: Database, label: 'KB',        tone: 'cyan' },
+  retrieval: { icon: Database, label: 'DOC',       tone: 'cyan' },
+  web:       { icon: Globe,    label: 'WEB',       tone: 'sky' },
+  search:    { icon: Globe,    label: 'SEARCH',    tone: 'sky' },
+  sql:       { icon: Code2,    label: 'SQL',       tone: 'emerald' },
+}
+function toneClasses(tone: string): { icon: string; border: string; bg: string; label: string } {
+  switch (tone) {
+    case 'cyan':    return { icon: 'text-cyan-300', border: 'border-cyan-500/30', bg: 'bg-cyan-500/5 hover:bg-cyan-500/10', label: 'text-cyan-300' }
+    case 'sky':     return { icon: 'text-sky-300', border: 'border-sky-500/30', bg: 'bg-sky-500/5 hover:bg-sky-500/10', label: 'text-sky-300' }
+    case 'emerald': return { icon: 'text-emerald-300', border: 'border-emerald-500/30', bg: 'bg-emerald-500/5 hover:bg-emerald-500/10', label: 'text-emerald-300' }
+    default:        return { icon: 'text-violet-300', border: 'border-violet-500/30', bg: 'bg-violet-500/5 hover:bg-violet-500/10', label: 'text-violet-300' }
+  }
+}
+
+function extractFirstUrl(s: string | null | undefined): string | null {
+  if (!s) return null
+  const match = s.match(/https?:\/\/[^\s)\]'"]+/)
+  return match ? match[0] : null
+}
+
+function extractWorkerName(title: string): string {
+  const m = title.match(/^([A-Za-z][\w-]*)/)
+  return m ? m[1].toLowerCase() : 'tool'
+}
+
+interface SourcePreviewRowProps {
+  message: UIMessage
+  nextMessage: UIMessage | null
+  logicEntries: LogicEntry[]
+}
+
+function SourcePreviewRow({ message, nextMessage, logicEntries }: SourcePreviewRowProps) {
+  const msgAt = ((message as any).createdAt as Date | undefined)?.getTime() ?? 0
+  const nextAt = nextMessage
+    ? ((nextMessage as any).createdAt as Date | undefined)?.getTime() ?? Infinity
+    : Infinity
+
+  // Tool-call entries within the assistant's turn window.
+  const tools = logicEntries.filter(
+    (e) => e.kind === 'tool-call' && e.timestamp >= msgAt && e.timestamp < nextAt,
+  )
+  if (tools.length === 0) return null
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">
+        Sources · {tools.length}
+      </p>
+      <div className="flex flex-col gap-1.5">
+        {tools.map((entry) => {
+          const worker = extractWorkerName(entry.title)
+          const meta = WORKER_META[worker] ?? { icon: Wrench, label: worker.toUpperCase().slice(0, 6), tone: 'violet' }
+          const tones = toneClasses(meta.tone)
+          const Icon = meta.icon
+          const url = extractFirstUrl(entry.detail)
+          const inner = (
+            <div className={cn(
+              "flex items-start gap-2 rounded-lg border px-2.5 py-1.5 transition-colors",
+              tones.border, tones.bg,
+            )}>
+              <div className={cn("flex-shrink-0 mt-0.5", tones.icon)}>
+                <Icon className="h-3.5 w-3.5" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-1.5">
+                  <span className={cn("text-[8px] font-black uppercase tracking-wider", tones.label)}>
+                    {meta.label}
+                  </span>
+                  <span className="text-[10px] font-bold text-slate-200 truncate flex-1">
+                    {entry.title}
+                  </span>
+                  {url && <ExternalLink className="h-2.5 w-2.5 text-slate-500 flex-shrink-0" />}
+                </div>
+                {entry.detail && (
+                  <p className="text-[10px] text-slate-400 mt-0.5 line-clamp-2 break-words">
+                    {entry.detail}
+                  </p>
+                )}
+              </div>
+            </div>
+          )
+          return url ? (
+            <a
+              key={entry.id}
+              href={url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block"
+              title={url}
+            >
+              {inner}
+            </a>
+          ) : (
+            <div key={entry.id}>{inner}</div>
+          )
+        })}
+      </div>
     </div>
   )
 }
