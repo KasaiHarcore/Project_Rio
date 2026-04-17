@@ -31,10 +31,12 @@ from protocols.sse_stream import (
 )
 from schemas.chat import (
     ChatRequest,
+    EditRequest,
     MemoryListResponse,
     MemoryResponse,
     MessageListResponse,
     MessageResponse,
+    RegenerateRequest,
     ThreadListResponse,
     ThreadPatchRequest,
     ThreadResponse,
@@ -95,6 +97,7 @@ async def chat_stream(
         text_part_id = uuid4().hex[:12]
         text_started = False
         had_error = False
+        logic_entries: list[dict] = []
 
         yield start_message()
         yield start_step()
@@ -127,28 +130,63 @@ async def chat_stream(
                         "thread_id": event.get("thread_id"),
                         "character": prep.config.character,
                     })
+                    logic_entries.append({
+                        "title": "Workflow started",
+                        "detail": f"Agent: {prep.config.character}" if prep.config.character else None,
+                        "kind": "info",
+                    })
 
                 elif event_type == "supervisor":
                     decision = event.get("decision", {})
+                    action = decision.get("action")
+                    worker = decision.get("worker") or decision.get("next_worker")
+                    reasoning = decision.get("reasoning", "")
+                    confidence = decision.get("confidence")
                     yield data_event("supervisor-decision", {
-                        "action": decision.get("action"),
-                        "worker": decision.get("worker") or decision.get("next_worker"),
-                        "reasoning": decision.get("reasoning", ""),
-                        "confidence": decision.get("confidence"),
+                        "action": action,
+                        "worker": worker,
+                        "reasoning": reasoning,
+                        "confidence": confidence,
                         "iteration": event.get("iteration", 0),
+                    })
+                    conf_str = f" ({round(confidence * 100)}%)" if isinstance(confidence, (int, float)) else ""
+                    if action == "respond":
+                        title = "Responding directly"
+                    elif action == "clarify":
+                        title = "Asking for clarification"
+                    else:
+                        title = f"Routing → {worker}"
+                    logic_entries.append({
+                        "title": title,
+                        "detail": f"{reasoning}{conf_str}" if reasoning else None,
+                        "kind": "decision",
                     })
 
                 elif event_type == "worker":
+                    worker_name = event.get("worker", "unknown")
+                    success = event.get("success", True)
                     yield data_event("worker-result", {
-                        "worker": event.get("worker"),
-                        "success": event.get("success"),
+                        "worker": worker_name,
+                        "success": success,
                         "content_preview": event.get("content_preview", ""),
+                    })
+                    logic_entries.append({
+                        "title": f"{worker_name} completed" if success else f"{worker_name} failed",
+                        "detail": str(event.get("content_preview", ""))[:200] or None,
+                        "kind": "tool-call",
                     })
 
                 elif event_type == "planning":
+                    content = event.get("content", "")
                     yield data_event("planning", {
-                        "content": event.get("content", ""),
+                        "content": content,
                     })
+                    if content:
+                        logic_entries.append({
+                            "title": "Execution plan",
+                            "detail": content[:200],
+                            "kind": "thinking",
+                        })
 
                 elif event_type == "note_result":
                     yield data_event("note-result", {
@@ -242,6 +280,20 @@ async def chat_stream(
                         "timing": result.get("timing", {}),
                     })
 
+                    timing = result.get("timing", {})
+                    iterations = result.get("iterations", 0)
+                    parts: list[str] = []
+                    if iterations > 0:
+                        parts.append(f"{iterations} iteration(s)")
+                    total_ms = timing.get("total_ms")
+                    if isinstance(total_ms, (int, float)):
+                        parts.append(f"{total_ms / 1000:.1f}s")
+                    logic_entries.append({
+                        "title": "Workflow complete",
+                        "detail": " · ".join(parts) if parts else None,
+                        "kind": "info",
+                    })
+
                 elif event_type == "error":
                     error_msg = event.get("error", "Unknown error")
                     had_error = True
@@ -261,6 +313,11 @@ async def chat_stream(
 
         full_answer = "".join(answer_parts)
 
+        # Build metadata with logic entries for persistence
+        msg_metadata = None
+        if logic_entries:
+            msg_metadata = {"logic_entries": logic_entries}
+
         try:
             if full_answer:
                 svc.persist_assistant_message(
@@ -269,6 +326,9 @@ async def chat_stream(
                     content=full_answer,
                     run_id=run_id,
                     character_id=prep.config.character,
+                    parent_id=body.parent_message_id,
+                    user_message_id=prep.user_message_id,
+                    metadata=msg_metadata,
                 )
         except Exception as persist_err:
             log_error(f"Failed to persist assistant message: {persist_err}")
@@ -286,6 +346,309 @@ async def chat_stream(
                     yield data_event("contextual-notes", {"notes": ctx_notes})
             except Exception:
                 pass
+
+        finish_reason = "error" if had_error else "stop"
+        yield finish_step()
+        yield finish_message(finish_reason)
+        yield done()
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "X-Thread-Id": prep.thread_id,
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/threads/{thread_id}/regenerate")
+async def regenerate_response(
+    thread_id: str,
+    body: RegenerateRequest,
+    user: User = Depends(get_current_user),
+    svc: ChatService = Depends(get_chat_service),
+):
+    """Regenerate an assistant response for a user message, creating a new branch."""
+    prep = svc.prepare_regeneration(
+        user=user,
+        thread_id=thread_id,
+        message_id=body.message_id,
+        character=body.character,
+    )
+
+    # The parent of the new assistant message is the target user message
+    parent_msg_id = body.message_id
+
+    def _generate():
+        answer_parts: list[str] = []
+        run_id = None
+        final_stats = None
+        text_part_id = uuid4().hex[:12]
+        text_started = False
+        had_error = False
+
+        yield start_message()
+        yield start_step()
+
+        try:
+            for event in AgentService().stream_query(
+                question=prep.effective_question,
+                config=prep.config,
+                history=prep.history,
+                thread_id=prep.thread_id,
+                user_id=str(prep.user_id),
+                user_api_key=prep.user_api_key,
+                user_model_params=prep.user_model_params,
+                user_api_keys=prep.user_api_keys,
+            ):
+                event_type = event.get("type")
+
+                if event_type == "token":
+                    chunk = event.get("content", "")
+                    if not text_started:
+                        yield text_start(text_part_id)
+                        text_started = True
+                    answer_parts.append(chunk)
+                    yield text_delta(text_part_id, chunk)
+
+                elif event_type == "run_started":
+                    run_id = event.get("run_id")
+                    yield data_event("run-started", {
+                        "run_id": run_id,
+                        "thread_id": event.get("thread_id"),
+                        "character": prep.config.character,
+                    })
+
+                elif event_type == "supervisor":
+                    decision = event.get("decision", {})
+                    yield data_event("supervisor-decision", {
+                        "action": decision.get("action"),
+                        "worker": decision.get("worker") or decision.get("next_worker"),
+                        "reasoning": decision.get("reasoning", ""),
+                        "confidence": decision.get("confidence"),
+                        "iteration": event.get("iteration", 0),
+                    })
+
+                elif event_type == "worker":
+                    yield data_event("worker-result", {
+                        "worker": event.get("worker"),
+                        "success": event.get("success"),
+                        "content_preview": event.get("content_preview", ""),
+                    })
+
+                elif event_type == "planning":
+                    yield data_event("planning", {
+                        "content": event.get("content", ""),
+                    })
+
+                elif event_type == "final":
+                    result = event.get("result", {})
+                    run_id = event.get("run_id") or run_id
+                    final_stats = result.get("stats")
+
+                    final_answer = result.get("answer", "")
+                    if not answer_parts and final_answer:
+                        if not text_started:
+                            yield text_start(text_part_id)
+                            text_started = True
+                        answer_parts.append(final_answer)
+                        yield text_delta(text_part_id, final_answer)
+
+                    yield data_event("final", {
+                        "run_id": run_id,
+                        "stats": _safe_stats(final_stats),
+                        "worker_results": result.get("worker_results", []),
+                        "iterations": result.get("iterations", 0),
+                        "timing": result.get("timing", {}),
+                    })
+
+                elif event_type == "error":
+                    error_msg = event.get("error", "Unknown error")
+                    had_error = True
+                    yield error_event(error_msg)
+
+        except GeneratorExit:
+            log_info("Client disconnected mid-stream (regenerate)")
+            return
+        except Exception as exc:
+            log_error(f"Regeneration streaming error: {exc}")
+            had_error = True
+            yield error_event(str(exc))
+
+        if text_started:
+            yield text_end(text_part_id)
+
+        full_answer = "".join(answer_parts)
+
+        try:
+            if full_answer:
+                svc.persist_assistant_message(
+                    user_id=prep.user_id,
+                    thread_id=prep.thread_id,
+                    content=full_answer,
+                    run_id=run_id,
+                    character_id=prep.config.character,
+                    parent_id=parent_msg_id,
+                )
+        except Exception as persist_err:
+            log_error(f"Failed to persist regenerated message: {persist_err}")
+
+        finish_reason = "error" if had_error else "stop"
+        yield finish_step()
+        yield finish_message(finish_reason)
+        yield done()
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream; charset=utf-8",
+        headers={
+            "X-Thread-Id": prep.thread_id,
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+@router.post("/threads/{thread_id}/edit")
+async def edit_message(
+    thread_id: str,
+    body: EditRequest,
+    user: User = Depends(get_current_user),
+    svc: ChatService = Depends(get_chat_service),
+):
+    """Edit a previously-sent user message, creating a new sibling branch.
+
+    The edit produces a new user message (sibling of the original via
+    shared parent_id) plus a streamed assistant response as its child.
+    The original branch stays intact; the frontend's branch carousel
+    lets users flip between the two.
+    """
+    prep = svc.prepare_edit(
+        user=user,
+        thread_id=thread_id,
+        message_id=body.message_id,
+        new_content=body.new_content,
+        character=body.character,
+    )
+
+    # The assistant reply's parent is the new user message we just created.
+    parent_msg_id = prep.user_message_id
+
+    def _generate():
+        answer_parts: list[str] = []
+        run_id = None
+        final_stats = None
+        text_part_id = uuid4().hex[:12]
+        text_started = False
+        had_error = False
+
+        yield start_message()
+        yield start_step()
+
+        try:
+            for event in AgentService().stream_query(
+                question=prep.effective_question,
+                config=prep.config,
+                history=prep.history,
+                thread_id=prep.thread_id,
+                user_id=str(prep.user_id),
+                user_api_key=prep.user_api_key,
+                user_model_params=prep.user_model_params,
+                user_api_keys=prep.user_api_keys,
+            ):
+                event_type = event.get("type")
+
+                if event_type == "token":
+                    chunk = event.get("content", "")
+                    if not text_started:
+                        yield text_start(text_part_id)
+                        text_started = True
+                    answer_parts.append(chunk)
+                    yield text_delta(text_part_id, chunk)
+
+                elif event_type == "run_started":
+                    run_id = event.get("run_id")
+                    yield data_event("run-started", {
+                        "run_id": run_id,
+                        "thread_id": event.get("thread_id"),
+                        "character": prep.config.character,
+                    })
+
+                elif event_type == "supervisor":
+                    decision = event.get("decision", {})
+                    yield data_event("supervisor-decision", {
+                        "action": decision.get("action"),
+                        "worker": decision.get("worker") or decision.get("next_worker"),
+                        "reasoning": decision.get("reasoning", ""),
+                        "confidence": decision.get("confidence"),
+                        "iteration": event.get("iteration", 0),
+                    })
+
+                elif event_type == "worker":
+                    yield data_event("worker-result", {
+                        "worker": event.get("worker"),
+                        "success": event.get("success"),
+                        "content_preview": event.get("content_preview", ""),
+                    })
+
+                elif event_type == "planning":
+                    yield data_event("planning", {
+                        "content": event.get("content", ""),
+                    })
+
+                elif event_type == "final":
+                    result = event.get("result", {})
+                    run_id = event.get("run_id") or run_id
+                    final_stats = result.get("stats")
+
+                    final_answer = result.get("answer", "")
+                    if not answer_parts and final_answer:
+                        if not text_started:
+                            yield text_start(text_part_id)
+                            text_started = True
+                        answer_parts.append(final_answer)
+                        yield text_delta(text_part_id, final_answer)
+
+                    yield data_event("final", {
+                        "run_id": run_id,
+                        "stats": _safe_stats(final_stats),
+                        "worker_results": result.get("worker_results", []),
+                        "iterations": result.get("iterations", 0),
+                        "timing": result.get("timing", {}),
+                    })
+
+                elif event_type == "error":
+                    error_msg = event.get("error", "Unknown error")
+                    had_error = True
+                    yield error_event(error_msg)
+
+        except GeneratorExit:
+            log_info("Client disconnected mid-stream (edit)")
+            return
+        except Exception as exc:
+            log_error(f"Edit streaming error: {exc}")
+            had_error = True
+            yield error_event(str(exc))
+
+        if text_started:
+            yield text_end(text_part_id)
+
+        full_answer = "".join(answer_parts)
+
+        try:
+            if full_answer:
+                svc.persist_assistant_message(
+                    user_id=prep.user_id,
+                    thread_id=prep.thread_id,
+                    content=full_answer,
+                    run_id=run_id,
+                    character_id=prep.config.character,
+                    parent_id=parent_msg_id,
+                )
+        except Exception as persist_err:
+            log_error(f"Failed to persist edited-branch message: {persist_err}")
 
         finish_reason = "error" if had_error else "stop"
         yield finish_step()
@@ -366,6 +729,8 @@ async def get_thread_messages(
                     content=m.content,
                     created_at=m.created_at.isoformat() if m.created_at else "",
                     character_id=getattr(m, "character_id", None),
+                    parent_id=str(m.parent_id) if getattr(m, "parent_id", None) else None,
+                    metadata=getattr(m, "metadata_", None),
                 )
                 for m in messages
             ]

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from core.exceptions import AuthorizationError, ValidationError
 from core.settings import AgentConfig
@@ -36,6 +36,7 @@ class ChatPrepResult:
     user_api_key: Optional[str] = None
     user_model_params: Optional[Dict] = None
     user_api_keys: Optional[Dict[str, Optional[str]]] = None
+    user_message_id: Optional[str] = None
 
 
 class ChatService:
@@ -199,11 +200,21 @@ class ChatService:
 
         log_info(f"[REST] chat_stream: user={user.username} thread={resolved_thread_id} q={last_user_msg[:80]}")
 
+        # Generate a stable UUID for the user message so the assistant
+        # message can reference it as parent_id (conversation chaining).
+        user_msg_id = str(uuid4())
+
+        # Find the latest message in the thread to use as parent for the
+        # new user message (chains user→assistant→user→assistant…).
+        parent_for_user = self._history.get_latest_message_id(resolved_thread_id)
+
         self._history.append_message_async(
             user_id=user_id,
             thread_id=resolved_thread_id,
             role=MessageRole.USER,
             content=last_user_msg,
+            message_id=user_msg_id,
+            parent_id=parent_for_user,
         )
 
         return ChatPrepResult(
@@ -216,6 +227,234 @@ class ChatService:
             user_api_key=user_api_key,
             user_model_params=user_model_params,
             user_api_keys=all_user_api_keys,
+            user_message_id=user_msg_id,
+        )
+
+    def prepare_regeneration(
+        self,
+        user: User,
+        thread_id: str,
+        message_id: str,
+        character: Optional[str] = None,
+    ) -> ChatPrepResult:
+        """Build a ChatPrepResult for regenerating a response to a specific user message.
+
+        Fetches all messages in the thread up to and including the target user
+        message, then constructs the same prep structure as prepare_chat.
+        """
+        from uuid import UUID as _UUID
+
+        user_id = user.id
+        thread_uuid = _UUID(thread_id)
+        message_uuid = _UUID(message_id)
+
+        # Verify thread ownership
+        thread = self._history.get_thread_if_owned(thread_uuid, user_id)
+        if not thread:
+            raise ValidationError("Thread not found or not owned by user")
+
+        # Fetch all messages and find the target
+        all_messages = self._history.get_messages(thread_id=thread_uuid, limit=500)
+        target_msg = None
+        history_messages = []
+        for msg in all_messages:
+            if msg.id == message_uuid:
+                target_msg = msg
+                break
+            history_messages.append(msg)
+
+        if not target_msg or target_msg.role.value != "user":
+            raise ValidationError("Target message not found or is not a user message")
+
+        history = [
+            {"role": m.role.value, "content": m.content}
+            for m in history_messages
+        ]
+
+        config = AgentConfig(
+            mode="chat",
+            character=character or "rio",
+            user_role=user.role.value,
+        )
+
+        # Load user settings for model config
+        user_model_params = None
+        user_api_key = None
+        all_user_api_keys = None
+        try:
+            user_settings = self._settings.get_or_create_settings(user.id)
+            if user_settings.model_name:
+                config.model_name = user_settings.model_name
+            config.enable_input_guardrail = user_settings.enable_input_guardrail
+            config.enable_output_guardrail = user_settings.enable_output_guardrail
+
+            api_resolver = ApiKeyResolver(user_settings)
+            from infrastructure.llm import form
+            from infrastructure.llm.openrouter_client import OpenRouterModel
+
+            model_name = config.model_name or user_settings.model_name
+            if model_name:
+                try:
+                    form.set_model(model_name)
+                except ValueError:
+                    pass
+
+            if isinstance(form.SELECTED_MODEL, OpenRouterModel):
+                user_api_key = api_resolver.get_openrouter_key()
+            elif form.SELECTED_MODEL is not None:
+                user_api_key = api_resolver.get_openai_key()
+
+            all_user_api_keys = {
+                "tavily": api_resolver.get_tavily_key(),
+                "cohere": api_resolver.get_cohere_key(),
+            }
+
+            user_model_params = {
+                "temperature": user_settings.temperature,
+                "max_tokens": user_settings.max_tokens,
+                "top_p": user_settings.top_p,
+                "frequency_penalty": user_settings.frequency_penalty,
+                "presence_penalty": user_settings.presence_penalty,
+            }
+        except Exception as e:
+            log_error(f"Failed to load user settings for regeneration: {e}")
+
+        return ChatPrepResult(
+            thread_id=thread_id,
+            user_id=user_id,
+            last_user_msg=target_msg.content,
+            effective_question=target_msg.content,
+            history=history,
+            config=config,
+            user_api_key=user_api_key,
+            user_model_params=user_model_params,
+            user_api_keys=all_user_api_keys,
+        )
+
+    def prepare_edit(
+        self,
+        user: User,
+        thread_id: str,
+        message_id: str,
+        new_content: str,
+        character: Optional[str] = None,
+    ) -> ChatPrepResult:
+        """Build a ChatPrepResult for editing a previously-sent user message.
+
+        The edit creates a NEW user message as a sibling of the original
+        (shares ``parent_id``). History sent to the agent ends right before
+        the original target — the new edited message replaces it on the
+        new branch. The caller persists the assistant response as a child
+        of the new user message.
+        """
+        user_id = user.id
+        thread_uuid = UUID(thread_id)
+        message_uuid = UUID(message_id)
+
+        thread = self._history.get_thread_if_owned(thread_uuid, user_id)
+        if not thread:
+            raise ValidationError("Thread not found or not owned by user")
+
+        cleaned = (new_content or "").strip()
+        if not cleaned:
+            raise ValidationError("new_content cannot be empty")
+
+        all_messages = self._history.get_messages(thread_id=thread_uuid, limit=500)
+        target_msg = None
+        history_messages: list = []
+        for msg in all_messages:
+            if msg.id == message_uuid:
+                target_msg = msg
+                break
+            history_messages.append(msg)
+
+        if not target_msg or target_msg.role.value != "user":
+            raise ValidationError("Target message not found or is not a user message")
+
+        # History = everything strictly before the original user message.
+        history = [
+            {"role": m.role.value, "content": m.content}
+            for m in history_messages
+        ]
+
+        config = AgentConfig(
+            mode="chat",
+            character=character or "rio",
+            user_role=user.role.value,
+        )
+
+        # Load user settings (mirrors prepare_regeneration) so edits pick
+        # up the same model + guardrail + API-key configuration.
+        user_model_params = None
+        user_api_key = None
+        all_user_api_keys = None
+        try:
+            user_settings = self._settings.get_or_create_settings(user.id)
+            if user_settings.model_name:
+                config.model_name = user_settings.model_name
+            config.enable_input_guardrail = user_settings.enable_input_guardrail
+            config.enable_output_guardrail = user_settings.enable_output_guardrail
+
+            api_resolver = ApiKeyResolver(user_settings)
+            from infrastructure.llm import form
+            from infrastructure.llm.openrouter_client import OpenRouterModel
+
+            model_name = config.model_name or user_settings.model_name
+            if model_name:
+                try:
+                    form.set_model(model_name)
+                except ValueError:
+                    pass
+
+            if isinstance(form.SELECTED_MODEL, OpenRouterModel):
+                user_api_key = api_resolver.get_openrouter_key()
+            elif form.SELECTED_MODEL is not None:
+                user_api_key = api_resolver.get_openai_key()
+
+            all_user_api_keys = {
+                "tavily": api_resolver.get_tavily_key(),
+                "cohere": api_resolver.get_cohere_key(),
+            }
+
+            user_model_params = {
+                "temperature": user_settings.temperature,
+                "max_tokens": user_settings.max_tokens,
+                "top_p": user_settings.top_p,
+                "frequency_penalty": user_settings.frequency_penalty,
+                "presence_penalty": user_settings.presence_penalty,
+            }
+        except Exception as e:
+            log_error(f"Failed to load user settings for edit: {e}")
+
+        # Persist the NEW sibling user message (parent_id = original's parent)
+        new_user_msg_id = str(uuid4())
+        sibling_parent_id = str(target_msg.parent_id) if target_msg.parent_id else None
+
+        self._history.append_message_async(
+            user_id=user_id,
+            thread_id=thread_id,
+            role=MessageRole.USER,
+            content=cleaned,
+            message_id=new_user_msg_id,
+            parent_id=sibling_parent_id,
+        )
+
+        log_info(
+            f"[REST] chat edit: user={user.username} thread={thread_id} "
+            f"edited_msg={message_id[:8]} new_msg={new_user_msg_id[:8]} q={cleaned[:80]}"
+        )
+
+        return ChatPrepResult(
+            thread_id=thread_id,
+            user_id=user_id,
+            last_user_msg=cleaned,
+            effective_question=cleaned,
+            history=history,
+            config=config,
+            user_api_key=user_api_key,
+            user_model_params=user_model_params,
+            user_api_keys=all_user_api_keys,
+            user_message_id=new_user_msg_id,
         )
 
     def persist_assistant_message(
@@ -225,9 +464,18 @@ class ChatService:
         content: str,
         run_id: Optional[str] = None,
         character_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        user_message_id: Optional[str] = None,
+        metadata: Optional[Dict] = None,
     ) -> None:
-        """Persist the assistant's response after streaming completes."""
+        """Persist the assistant's response after streaming completes.
+
+        ``parent_id`` from the request body takes precedence (explicit
+        branching).  Falls back to ``user_message_id`` so every assistant
+        message chains to the user message that triggered it.
+        """
         if content:
+            effective_parent = parent_id or user_message_id
             self._history.append_message_async(
                 user_id=user_id,
                 thread_id=thread_id,
@@ -235,4 +483,6 @@ class ChatService:
                 content=content,
                 run_id=run_id,
                 character_id=character_id,
+                parent_id=effective_parent,
+                metadata=metadata,
             )

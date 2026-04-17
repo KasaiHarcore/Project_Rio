@@ -73,6 +73,7 @@ class ChatRequest(BaseModel):
     top_p: Optional[float] = Field(None, ge=0, le=1, description="Nucleus sampling (0-1)")
     frequency_penalty: Optional[float] = Field(None, ge=-2, le=2, description="Frequency penalty (-2 to 2)")
     presence_penalty: Optional[float] = Field(None, ge=-2, le=2, description="Presence penalty (-2 to 2)")
+    parent_message_id: Optional[str] = Field(None, description="Parent message ID for linking in branching conversations")
 
 
 class ThreadResponse(BaseModel):
@@ -96,6 +97,8 @@ class MessageResponse(BaseModel):
     content: str
     created_at: str
     character_id: Optional[str] = None
+    parent_id: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 class MessageListResponse(BaseModel):
@@ -124,3 +127,21 @@ class ThreadPatchRequest(BaseModel):
     status: Optional[str] = Field(None, description="active | archived")
     is_starred: Optional[bool] = None
     is_pinned: Optional[bool] = None
+
+
+class RegenerateRequest(BaseModel):
+    """Request to regenerate an assistant response, creating a new branch."""
+    message_id: str = Field(..., description="The user message ID to regenerate a response for")
+    character: Optional[str] = Field("rio", description="Persona ID")
+
+
+class EditRequest(BaseModel):
+    """Request to edit a previously-sent user message, creating a new branch.
+
+    The new content becomes a sibling user message (shares ``parent_id``
+    with the original); the assistant's streamed response becomes a child
+    of the sibling, producing a new branch alongside the original.
+    """
+    message_id: str = Field(..., description="The user message ID to edit")
+    new_content: str = Field(..., min_length=1, max_length=64_000, description="The edited message content")
+    character: Optional[str] = Field("rio", description="Persona ID")
