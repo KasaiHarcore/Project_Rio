@@ -228,6 +228,7 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
       setResolvedThreadId(null)
       loadedThreadRef.current = null
       capturedThreadIdRef.current = null
+      useBranchStore.getState().setActiveThread(null)
       return
     }
 
@@ -238,6 +239,10 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
 
     let cancelled = false
     setHistoryLoading(true)
+
+    // Load persisted branch selections for this thread BEFORE rendering history
+    // so getActivePath walks the correct branches on first paint.
+    useBranchStore.getState().setActiveThread(threadId)
 
     apiGetThreadMessages(threadId).then(({ messages: records }) => {
       if (cancelled) return
@@ -255,6 +260,14 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolvedThreadId excluded intentionally (see comment above)
   }, [threadId, setMessages, loadMessagesIntoChat])
+
+  // Sync active thread in branch store when a new thread is created mid-conversation
+  // (e.g. __new__ → UUID after first message). Ensures new selections persist to the
+  // correct thread-scoped storage key.
+  useEffect(() => {
+    if (!resolvedThreadId) return
+    useBranchStore.getState().setActiveThread(resolvedThreadId)
+  }, [resolvedThreadId])
 
   // Load persisted notes when opening an existing thread
   useEffect(() => {
