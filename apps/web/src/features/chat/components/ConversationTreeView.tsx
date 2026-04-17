@@ -252,8 +252,98 @@ function classifyEdge(
   return { kind: 'direct', tools: [] }
 }
 
-/* ─── Dagre layout ───────────────────────────────────────────────── */
+/* ─── Lane-based layout (git log --graph style) ─────────────────── */
+// Replaces dagre. Each branch gets its own vertical column ("lane") so
+// sibling branches never cross. The "preferred" child at each fork — the
+// one on the active path — keeps the parent's lane; others get new
+// lanes to the right. Lanes are reclaimed after a subtree finishes so
+// the graph stays narrow.
 
+const LANE_WIDTH = 280   // horizontal distance between lanes
+const ROW_HEIGHT = 120   // vertical distance between depth rows
+
+interface LanePosition { lane: number; depth: number }
+
+function assignLanes(
+  roots: MessageNode[],
+  activePathIds: Set<string>,
+): Map<string, LanePosition> {
+  const positions = new Map<string, LanePosition>()
+  const occupiedLanes = new Set<number>()
+
+  const nextFreeLane = (): number => {
+    for (let i = 0; i < 1000; i++) {
+      if (!occupiedLanes.has(i)) return i
+    }
+    return occupiedLanes.size
+  }
+
+  const walk = (node: MessageNode, lane: number, depth: number): void => {
+    positions.set(node.message.id, { lane, depth })
+    if (node.children.length === 0) return
+    // Preferred child first: the one on the active path (if any), else the
+    // last sibling (latest by createdAt — matches getActivePath's default).
+    const children = [...node.children]
+    const activeIdx = children.findIndex((c) => activePathIds.has(c.message.id))
+    let preferred: MessageNode
+    let others: MessageNode[]
+    if (activeIdx >= 0) {
+      preferred = children[activeIdx]
+      others = children.filter((_, i) => i !== activeIdx)
+    } else {
+      preferred = children[children.length - 1]
+      others = children.slice(0, -1)
+    }
+    // Preferred child keeps parent's lane — the trunk stays straight.
+    walk(preferred, lane, depth + 1)
+    // Other siblings each get their own lane, released after their subtree.
+    for (const child of others) {
+      const newLane = nextFreeLane()
+      occupiedLanes.add(newLane)
+      walk(child, newLane, depth + 1)
+      occupiedLanes.delete(newLane)
+    }
+  }
+
+  roots.forEach((root, rootIdx) => {
+    let laneForRoot: number
+    if (rootIdx === 0) {
+      laneForRoot = 0
+      occupiedLanes.add(0)
+    } else {
+      laneForRoot = nextFreeLane()
+      occupiedLanes.add(laneForRoot)
+    }
+    walk(root, laneForRoot, 0)
+    occupiedLanes.delete(laneForRoot)
+  })
+
+  return positions
+}
+
+function applyLaneLayout(
+  nodes: MessageFlowNode[],
+  roots: MessageNode[],
+  activePathIds: Set<string>,
+): MessageFlowNode[] {
+  const positions = assignLanes(roots, activePathIds)
+  // Collapsed synthetic nodes use the position of their run-start.
+  return nodes.map((node) => {
+    const id = node.id
+    const key = id.startsWith('collapsed:') ? id.slice('collapsed:'.length).split(':')[0] : id
+    const pos = positions.get(key) ?? { lane: 0, depth: 0 }
+    return {
+      ...node,
+      position: {
+        x: pos.lane * LANE_WIDTH,
+        y: pos.depth * ROW_HEIGHT,
+      },
+    }
+  })
+}
+
+// Legacy dagre helper kept for reference but no longer called; marked
+// unused so the linter prunes if it wants. Remove in a follow-up.
 function layoutWithDagre(nodes: MessageFlowNode[], edges: Edge[]): MessageFlowNode[] {
   const g = new dagre.graphlib.Graph()
   g.setDefaultEdgeLabel(() => ({}))
@@ -457,7 +547,7 @@ function treeToFlow(
               id: `e-${syntheticId}-${targetId}`,
               source: syntheticId,
               target: targetId,
-              type: 'smoothstep',
+              type: 'step',
               animated: isActiveEdge,
               style: {
                 stroke: isActiveEdge ? TRUNK_COLOR : childBranchColor,
@@ -552,7 +642,7 @@ function treeToFlow(
         id: `e-${msg.id}-${targetId}`,
         source: msg.id,
         target: targetId,
-        type: 'smoothstep',
+        type: 'step',
         animated: isActiveBranch && kind !== 'direct',
         style: {
           stroke: strokeColor,
@@ -1069,14 +1159,15 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
 
   const isStreaming = status === 'streaming' || status === 'submitted'
 
-  // Convert tree → React Flow elements with dagre layout
+  // Convert tree → React Flow elements with lane-based layout
+  // (each branch in its own vertical column, `git log --graph` style)
   const { flowNodes, flowEdges } = useMemo(() => {
     if (tree.length === 0) return { flowNodes: [], flowEdges: [] }
     const { nodes, edges } = treeToFlow(
       tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming,
       compactMode, expandedRunKeys,
     )
-    const laid = layoutWithDagre(nodes, edges)
+    const laid = applyLaneLayout(nodes, tree, activePathIds)
     return { flowNodes: laid, flowEdges: edges }
   }, [tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming, compactMode, expandedRunKeys])
 
