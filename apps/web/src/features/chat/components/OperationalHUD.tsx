@@ -1,7 +1,7 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react'
 import { cn } from '@/shared/lib/utils'
 import { motion, AnimatePresence } from 'framer-motion'
-import { Database, Search, ArrowLeft, PanelRightOpen, PanelRightClose, X } from 'lucide-react'
+import { Database, Search, ArrowLeft, PanelRightOpen, PanelRightClose, X, GitBranch } from 'lucide-react'
 import { useUIStore } from '@/shared/store/ui-store'
 import type { UIMessage } from 'ai'
 
@@ -10,6 +10,10 @@ interface OperationalHUDProps {
   title?: string
   onBack?: () => void
   messages?: UIMessage[]
+  /** Whether tree view is currently active */
+  treeView?: boolean
+  /** Toggle between chat and tree view */
+  onToggleTreeView?: () => void
 }
 
 // Status messages mapping
@@ -20,7 +24,7 @@ const STATUS_MESSAGES: Record<string, string> = {
   error: "Connection disrupted. Retrying..."
 }
 
-export function OperationalHUD({ status, title = "OPERATIONAL_MODE", onBack, messages = [] }: OperationalHUDProps) {
+export function OperationalHUD({ status, title = "OPERATIONAL_MODE", onBack, messages = [], treeView, onToggleTreeView }: OperationalHUDProps) {
   const [searchOpen, setSearchOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const searchInputRef = useRef<HTMLInputElement>(null)
@@ -111,6 +115,22 @@ export function OperationalHUD({ status, title = "OPERATIONAL_MODE", onBack, mes
                 </motion.div>
               )}
             </AnimatePresence>
+
+            {/* Tree view toggle */}
+            {onToggleTreeView && (
+              <button
+                onClick={onToggleTreeView}
+                aria-label={treeView ? "Switch to chat view" : "Switch to tree view"}
+                className={cn(
+                  "p-2 rounded-lg transition-colors",
+                  treeView
+                    ? "text-rose-400 bg-rose-500/10"
+                    : "text-[var(--hud-back-text)] hover:bg-[var(--hud-back-hover)] hover:text-[var(--hud-back-hover-text)]"
+                )}
+              >
+                <GitBranch size={16} />
+              </button>
+            )}
 
             <button
               onClick={() => { setSearchOpen((o) => !o); if (searchOpen) setSearchQuery('') }}

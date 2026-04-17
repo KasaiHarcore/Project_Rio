@@ -24,6 +24,8 @@ interface ChatSidebarProps {
   messages: UIMessage[]
   status: HudStatus
   threadId: string | null
+  treeView?: boolean
+  onToggleTreeView?: () => void
 }
 
 /* ─── Tab definitions ────────────────────────────────────────────── */
@@ -52,7 +54,7 @@ function formatDuration(ms: number): string {
    Component
    ═══════════════════════════════════════════════════════════════════ */
 
-export function ChatSidebar({ messages, status, threadId }: ChatSidebarProps) {
+export function ChatSidebar({ messages, status, threadId, treeView, onToggleTreeView }: ChatSidebarProps) {
   const activeTab = useSidebarStore((s) => s.activeTab)
   const setActiveTab = useSidebarStore((s) => s.setActiveTab)
   const character = CHARACTERS[0]
@@ -155,7 +157,7 @@ export function ChatSidebar({ messages, status, threadId }: ChatSidebarProps) {
 
         {/* ───── Tab content ───── */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden custom-scrollbar">
-          {activeTab === 'agents' && <AgentsTab />}
+          {activeTab === 'agents' && <AgentsTab treeView={treeView} onToggleTreeView={onToggleTreeView} />}
           {activeTab === 'workspace' && <WorkspaceTab />}
           {activeTab === 'memory' && <MemoryTab threadId={threadId} />}
         </div>

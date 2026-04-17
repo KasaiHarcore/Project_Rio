@@ -5,11 +5,14 @@ import { ChatList } from "@/features/chat/components/ChatList"
 import { ChatInput } from "@/features/chat/components/ChatInput"
 import { ChatSidebar } from "@/features/chat/components/ChatSidebar"
 import { OperationalHUD } from "@/features/chat/components/OperationalHUD"
+import { ConversationTreeView } from "@/features/chat/components/ConversationTreeView"
 import { useChat } from '@ai-sdk/react'
 import type { ChatRequestOptions, UIMessage } from 'ai'
 import { useUIStore } from '@/shared/store/ui-store'
-import { apiGetThreadMessages, MessageRecord } from '@/features/chat/api'
+import { apiGetThreadMessages, apiRegenerateMessage, MessageRecord } from '@/features/chat/api'
 import { createSidebarTransport } from '@/features/chat/lib/chat-transport'
+import { buildMessageTree, getActivePath, type BranchSelections } from '@/features/chat/lib/message-tree'
+import { useBranchStore } from '@/features/chat/stores/branch-store'
 import { useStreamSidebarReset } from '@/features/chat/hooks/use-stream-sidebar'
 import { useSidebarStore } from '@/features/chat/store'
 import { useAffinityTracker } from '@/features/emotional/hooks/use-affinity-tracker'
@@ -43,6 +46,10 @@ function toUIMessages(records: MessageRecord[]): UIMessage[] {
     // Attach persona so ChatList can render the correct avatar
     if (r.character_id) {
       (msg as any).character_id = r.character_id;
+    }
+    // Attach parent_id for branching tree
+    if (r.parent_id) {
+      (msg as any).parentId = r.parent_id;
     }
     return msg;
   })
@@ -152,6 +159,57 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     })
   }, [rawMessages, activeCharacterId])
 
+  // ── All messages (all branches) for tree building ──
+  // useChat only holds the ACTIVE PATH so the agent doesn't see conflicting
+  // branches.  The full message set is stored here for the tree UI.
+  const [allBranchMessages, setAllBranchMessages] = useState<UIMessage[]>([])
+
+  // Keep allBranchMessages in sync with live messages from useChat.
+  // During a conversation, new user/assistant messages arrive via the stream
+  // and are added to `messages` but NOT to `allBranchMessages`.  This effect
+  // merges them so the tree view updates in real-time.
+  const allBranchRef = useRef(allBranchMessages)
+  allBranchRef.current = allBranchMessages
+  useEffect(() => {
+    if (messages.length === 0) return
+    const existingIds = new Set(allBranchRef.current.map((m) => m.id))
+    const newMsgs = messages.filter((m) => !existingIds.has(m.id))
+    if (newMsgs.length > 0) {
+      setAllBranchMessages((prev) => [...prev, ...newMsgs])
+    }
+  }, [messages])
+
+  // Helper: given all records, build tree, compute active path, set into useChat.
+  // Also restores persisted logic entries (agent process info) into the sidebar store.
+  const loadMessagesIntoChat = useCallback((records: MessageRecord[], selections?: BranchSelections) => {
+    const allUIMessages = toUIMessages(records)
+    setAllBranchMessages(allUIMessages)
+    // Build tree and extract active path for useChat
+    const tree = buildMessageTree(allUIMessages)
+    const sel = selections ?? useBranchStore.getState().branchSelections
+    const activePath = tree.length > 0 ? getActivePath(tree, sel) : allUIMessages
+    setMessages(activePath)
+
+    // Restore persisted logic entries from message metadata
+    const sidebar = useSidebarStore.getState()
+    sidebar.clearLogicEntries()
+    for (const rec of records) {
+      const entries = rec.metadata?.logic_entries
+      if (Array.isArray(entries)) {
+        for (let i = 0; i < entries.length; i++) {
+          const e = entries[i]
+          if (e?.title) {
+            sidebar.addLogicEntry({
+              title: e.title,
+              detail: e.detail ?? undefined,
+              kind: e.kind ?? 'info',
+            })
+          }
+        }
+      }
+    }
+  }, [setMessages])
+
   // Load message history when threadId points to an existing thread.
   // IMPORTANT: In AI SDK v6 the `messages` prop in useChat is only read
   // once (when the Chat instance is created).  To load history into an
@@ -166,6 +224,7 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   useEffect(() => {
     if (!threadId || threadId === '__new__') {
       setMessages([])
+      setAllBranchMessages([])
       setResolvedThreadId(null)
       loadedThreadRef.current = null
       capturedThreadIdRef.current = null
@@ -184,18 +243,40 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
       if (cancelled) return
       loadedThreadRef.current = threadId
       setResolvedThreadId(threadId)
-      setMessages(toUIMessages(records))
+      loadMessagesIntoChat(records)
     }).catch(() => {
       if (cancelled) return
       setMessages([])
+      setAllBranchMessages([])
     }).finally(() => {
       if (!cancelled) setHistoryLoading(false)
     })
 
     return () => { cancelled = true }
   // eslint-disable-next-line react-hooks/exhaustive-deps -- resolvedThreadId excluded intentionally (see comment above)
-  }, [threadId, setMessages])
+  }, [threadId, setMessages, loadMessagesIntoChat])
 
+  // Load persisted notes when opening an existing thread
+  useEffect(() => {
+    if (!threadId || threadId === '__new__') return
+    let cancelled = false
+    fetch(`/api/notes?thread_id=${threadId}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((notes: Array<{ id: string; content: string; todos?: { text: string; done: boolean }[]; pinned: boolean; source: string }>) => {
+        if (cancelled || !notes?.length) return
+        const store = useSidebarStore.getState()
+        for (const n of notes) {
+          store.addStickyNote({
+            content: n.content,
+            todos: n.todos,
+            author: n.source === 'agent' ? 'agent' : 'user',
+            dbId: n.id,
+          })
+        }
+      })
+      .catch(() => { })
+    return () => { cancelled = true }
+  }, [threadId])
 
   // Map AI status to HUD status types
   const hudStatus = status === 'ready' ? 'ready' : status === 'error' ? 'error' : status === 'streaming' ? 'streaming' : 'submitted'
@@ -216,6 +297,54 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
 
   const handleBack = onBack ?? endMission
 
+  // ── Message tree for branching ──────────────────────────────────
+  // Tree is built from ALL messages (all branches). The active path
+  // (already set into useChat) is what gets displayed, but we need the
+  // full tree for the branch selector UI.
+  const branchSelections = useBranchStore((s) => s.branchSelections)
+  const messageTree = useMemo(() => buildMessageTree(allBranchMessages), [allBranchMessages])
+
+  // When the user switches branches, recompute the active path and
+  // update useChat so the agent only sees the selected branch.
+  const prevSelectionsRef = useRef(branchSelections)
+  useEffect(() => {
+    if (prevSelectionsRef.current === branchSelections) return
+    prevSelectionsRef.current = branchSelections
+    if (messageTree.length === 0) return
+    const activePath = getActivePath(messageTree, branchSelections)
+    setMessages(activePath)
+  }, [branchSelections, messageTree, setMessages])
+
+  const [regenerating, setRegenerating] = useState(false)
+
+  const handleRegenerate = useCallback(async (userMessageId: string) => {
+    if (!effectiveThreadId || regenerating) return
+    setRegenerating(true)
+    try {
+      const res = await apiRegenerateMessage(effectiveThreadId, userMessageId, activeCharacterId)
+      if (!res.ok) throw new Error('Regeneration failed')
+      // Wait for stream to finish, then reload messages with new branch
+      const reader = res.body?.getReader()
+      if (reader) {
+        while (true) {
+          const { done } = await reader.read()
+          if (done) break
+        }
+      }
+      // Reload all messages to pick up the new branch
+      const { messages: records } = await apiGetThreadMessages(effectiveThreadId)
+      loadMessagesIntoChat(records)
+    } catch {
+      // silently fail
+    } finally {
+      setRegenerating(false)
+    }
+  }, [effectiveThreadId, regenerating, activeCharacterId, loadMessagesIntoChat])
+
+  // ── Tree view toggle ──────────────────────────────────────────────
+  const [treeView, setTreeView] = useState(false)
+  const toggleTreeView = useCallback(() => setTreeView((v) => !v), [])
+
   const hudTitle = effectiveThreadId
     ? `OP: ${effectiveThreadId.substring(0, 8).toUpperCase()}`
     : 'NEW_OPERATION'
@@ -231,24 +360,39 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
           title={hudTitle}
           onBack={handleBack}
           messages={messages}
+          treeView={treeView}
+          onToggleTreeView={toggleTreeView}
         />
 
-        <ChatList
-          messages={messages}
-          isLoading={isLoading || historyLoading}
-          status={hudStatus}
-        />
+        {treeView ? (
+          <ConversationTreeView
+            allMessages={allBranchMessages}
+            messages={messages}
+            status={hudStatus}
+          />
+        ) : (
+          <>
+            <ChatList
+              messages={messages}
+              isLoading={isLoading || historyLoading}
+              status={hudStatus}
+              messageTree={messageTree}
+              onRegenerate={handleRegenerate}
+              regenerating={regenerating}
+            />
 
-        <ChatInput
-          input={input}
-          handleInputChange={handleInputChange}
-          handleSubmit={handleSubmit}
-          isLoading={isLoading}
-        />
+            <ChatInput
+              input={input}
+              handleInputChange={handleInputChange}
+              handleSubmit={handleSubmit}
+              isLoading={isLoading}
+            />
+          </>
+        )}
       </div>
 
       {/* Right Sidebar (Chat details) */}
-      <ChatSidebar messages={messages} status={hudStatus} threadId={effectiveThreadId ?? null} />
+      <ChatSidebar messages={messages} status={hudStatus} threadId={effectiveThreadId ?? null} treeView={treeView} onToggleTreeView={toggleTreeView} />
     </div>
   )
 }

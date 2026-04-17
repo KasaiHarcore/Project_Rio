@@ -1,7 +1,10 @@
-import React, { useEffect, useRef } from 'react'
+import React, { useEffect, useRef, useCallback } from 'react'
 import { UIMessage } from 'ai'
 import { cn } from '@/shared/lib/utils'
-import { User, ArrowRight, Target, Upload } from 'lucide-react'
+import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
+import type { MessageNode } from '@/features/chat/lib/message-tree'
+import { findNode, getSiblings } from '@/features/chat/lib/message-tree'
+import { useBranchStore } from '@/features/chat/stores/branch-store'
 import { AgentAvatar, AgentMessageAvatar } from '@/components/ui/agent-avatar'
 import { agentConfig, userConfig } from '@/shared/lib/agent-config'
 import { SmartDataCard } from './SmartDataCard'
@@ -26,6 +29,12 @@ interface ChatListProps {
   isLoading?: boolean
   /** Chat status from useChat: ready | streaming | submitted | error */
   status?: 'ready' | 'streaming' | 'submitted' | 'error'
+  /** Full message tree for branch navigation */
+  messageTree?: MessageNode[]
+  /** Callback to regenerate an assistant response for a user message */
+  onRegenerate?: (userMessageId: string) => void
+  /** Whether a regeneration is currently in progress */
+  regenerating?: boolean
 }
 
 // ── Mood-Aware Greetings ────────────────────────────────────────────────
@@ -41,11 +50,12 @@ function getMoodGreeting(mood: Mood): string {
   return greetings[mood] || "Neural link established."
 }
 
-export function ChatList({ messages, isLoading, status }: ChatListProps) {
+export function ChatList({ messages, isLoading, status, messageTree, onRegenerate, regenerating }: ChatListProps) {
   const scrollRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const { mood, fetchState } = useEmotionalStore()
   const router = useRouter()
+  const { selectBranch, nextBranch, prevBranch, branchSelections } = useBranchStore()
 
   useEffect(() => {
     fetchState('rio')
@@ -180,6 +190,21 @@ export function ChatList({ messages, isLoading, status }: ChatListProps) {
                     senderName={isAssistant ? (characterName ?? 'SYSTEM_RESPONSE') : 'Sensei'}
                     isStreaming={showStreamingCursor}
                 />
+
+                {/* Branch selector + action buttons */}
+                {messageTree && messageTree.length > 0 && (
+                  <MessageActions
+                    message={m}
+                    messageTree={messageTree}
+                    isAssistant={isAssistant}
+                    isStreaming={showStreamingCursor}
+                    onRegenerate={onRegenerate}
+                    regenerating={regenerating}
+                    selectBranch={selectBranch}
+                    nextBranch={nextBranch}
+                    prevBranch={prevBranch}
+                  />
+                )}
             </div>
           </div>
         )
@@ -233,6 +258,91 @@ function NoteConfirmationCardWrapper() {
   return (
     <div className="py-3">
       <NoteConfirmationCard />
+    </div>
+  )
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+ * MessageActions — Branch selector + regenerate/edit buttons
+ * ═══════════════════════════════════════════════════════════════════ */
+
+interface MessageActionsProps {
+  message: UIMessage
+  messageTree: MessageNode[]
+  isAssistant: boolean
+  isStreaming: boolean
+  onRegenerate?: (userMessageId: string) => void
+  regenerating?: boolean
+  selectBranch: (parentId: string, childId: string) => void
+  nextBranch: (parentId: string, siblings: MessageNode[]) => void
+  prevBranch: (parentId: string, siblings: MessageNode[]) => void
+}
+
+function MessageActions({
+  message,
+  messageTree,
+  isAssistant,
+  isStreaming,
+  onRegenerate,
+  regenerating,
+  selectBranch,
+  nextBranch,
+  prevBranch,
+}: MessageActionsProps) {
+  const node = findNode(messageTree, message.id)
+  if (!node) return null
+
+  const siblings = node.parentId ? getSiblings(messageTree, message.id) : null
+  const hasBranches = siblings && siblings.length > 1
+
+  // Find the user message that this assistant message responds to (its parent)
+  const userMessageId = isAssistant ? node.parentId : message.id
+
+  return (
+    <div className={cn(
+      "flex items-center gap-2 mt-1.5 min-h-[24px]",
+      isAssistant ? "justify-start" : "justify-end",
+    )}>
+      {/* Branch selector: < 1/3 > */}
+      {hasBranches && (
+        <div className="flex items-center gap-0.5 select-none">
+          <button
+            onClick={(e) => { e.stopPropagation(); prevBranch(node.parentId!, siblings!) }}
+            disabled={node.siblingIndex === 0}
+            className="p-0.5 rounded transition-colors text-slate-500 hover:text-slate-300 disabled:opacity-20 disabled:cursor-default"
+            aria-label="Previous branch"
+          >
+            <ChevronLeft className="h-3.5 w-3.5" />
+          </button>
+          <span className="text-[10px] font-bold text-slate-500 tabular-nums min-w-[28px] text-center">
+            {node.siblingIndex + 1}/{node.siblingCount}
+          </span>
+          <button
+            onClick={(e) => { e.stopPropagation(); nextBranch(node.parentId!, siblings!) }}
+            disabled={node.siblingIndex === node.siblingCount - 1}
+            className="p-0.5 rounded transition-colors text-slate-500 hover:text-slate-300 disabled:opacity-20 disabled:cursor-default"
+            aria-label="Next branch"
+          >
+            <ChevronRight className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Regenerate button (on assistant messages, when not streaming) */}
+      {isAssistant && !isStreaming && onRegenerate && userMessageId && (
+        <button
+          onClick={() => onRegenerate(userMessageId)}
+          disabled={regenerating}
+          className={cn(
+            "p-1 rounded-lg transition-all text-slate-500 hover:text-slate-300 hover:bg-white/5",
+            "opacity-0 group-hover:opacity-100",
+            regenerating && "animate-spin opacity-100 text-rose-400",
+          )}
+          title="Regenerate response"
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+        </button>
+      )}
     </div>
   )
 }

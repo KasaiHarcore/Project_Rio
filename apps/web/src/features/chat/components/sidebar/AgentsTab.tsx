@@ -5,34 +5,24 @@ import { cn } from '@/shared/lib/utils'
 import { useSidebarStore } from '@/features/chat/store'
 import { SIDEBAR_LIMITS } from '@/features/chat/store'
 import {
-  Brain, Lightbulb, Route, Wrench, Info,
+  GitBranch,
   StickyNote, Pin, PinOff, X, Plus,
   CheckSquare, Square, ChevronDown, ChevronRight,
-  ExternalLink, FileSearch,
+  ExternalLink,
 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import { useNoteStore, noteUid, blockUid } from '@/features/notes/store'
 import { apiDeleteNote } from '@/features/notes/api'
 
-const LOGIC_ICONS: Record<string, React.ComponentType<Record<string, unknown>>> = {
-  thinking: Brain,
-  decision: Route,
-  'tool-call': Wrench,
-  info: Info,
-}
-
-const LOGIC_COLORS: Record<string, string> = {
-  thinking: 'text-amber-400',
-  decision: 'text-emerald-400',
-  'tool-call': 'text-violet-400',
-  info: 'text-sky-400',
-}
-
 /* ═══════════════════════════════════════════════════════════════════ */
 
-export function AgentsTab() {
+interface AgentsTabProps {
+  treeView?: boolean
+  onToggleTreeView?: () => void
+}
+
+export function AgentsTab({ treeView, onToggleTreeView }: AgentsTabProps) {
   const logicEntries = useSidebarStore((s) => s.logicEntries)
-  const clearLogicEntries = useSidebarStore((s) => s.clearLogicEntries)
   const stickyNotes = useSidebarStore((s) => s.stickyNotes)
   const addStickyNote = useSidebarStore((s) => s.addStickyNote)
   const removeStickyNote = useSidebarStore((s) => s.removeStickyNote)
@@ -51,7 +41,6 @@ export function AgentsTab() {
   const clearContextualNotes = useSidebarStore((s) => s.clearContextualNotes)
   const router = useRouter()
 
-  const [logicExpanded, setLogicExpanded] = useState(true)
   const [contextualExpanded, setContextualExpanded] = useState(true)
   const [notesExpanded, setNotesExpanded] = useState(true)
   const [newNoteOpen, setNewNoteOpen] = useState(false)
@@ -179,71 +168,42 @@ export function AgentsTab() {
         </div>
       )}
 
-      {/* ───── Logic Feed ───── */}
-      <div className="border-b border-[var(--chat-sidebar-section-border)]">
-        <div
-          onClick={() => setLogicExpanded(!logicExpanded)}
-          className="flex w-full items-center justify-between p-4 pb-2 text-left group cursor-pointer select-none"
-          role="button"
-          tabIndex={0}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLogicExpanded(!logicExpanded) } }}
-        >
-          <div className="flex items-center gap-2">
-            {logicExpanded ? <ChevronDown className="h-3 w-3 text-[var(--chat-sidebar-stat-label)]" /> : <ChevronRight className="h-3 w-3 text-[var(--chat-sidebar-stat-label)]" />}
-            <h3 className="text-[10px] font-black tracking-[0.25em] uppercase text-[var(--chat-sidebar-heading)]">
-              Logic
-            </h3>
+      {/* ───── Tree View Toggle ───── */}
+      {onToggleTreeView && (
+        <div className="border-b border-[var(--chat-sidebar-section-border)]">
+          <button
+            onClick={onToggleTreeView}
+            className={cn(
+              "w-full flex items-center gap-3 p-4 text-left transition-all group",
+              treeView
+                ? "bg-[var(--chat-sidebar-stat-text)]/5"
+                : "hover:bg-[var(--chat-sidebar-artifact-bg)]"
+            )}
+          >
+            <div className={cn(
+              "w-8 h-8 rounded-lg flex items-center justify-center transition-colors flex-shrink-0",
+              treeView
+                ? "bg-[var(--chat-sidebar-stat-text)]/15 text-[var(--chat-sidebar-stat-text)]"
+                : "bg-[var(--chat-sidebar-artifact-bg)] text-[var(--chat-sidebar-stat-label)] group-hover:text-[var(--chat-sidebar-stat-text)]"
+            )}>
+              <GitBranch className="h-4 w-4" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <h3 className="text-[10px] font-black tracking-[0.25em] uppercase text-[var(--chat-sidebar-heading)]">
+                Tree View
+              </h3>
+              <p className="text-[8px] text-[var(--chat-sidebar-stat-label)] mt-0.5">
+                {treeView ? 'Viewing conversation tree' : 'View conversation flow & branches'}
+              </p>
+            </div>
             {logicEntries.length > 0 && (
-              <span className="ml-1 rounded-full px-1.5 py-0.5 text-[8px] font-bold bg-[var(--chat-sidebar-stat-text)]/20 text-[var(--chat-sidebar-stat-text)]">
+              <span className="rounded-full px-1.5 py-0.5 text-[8px] font-bold bg-[var(--chat-sidebar-stat-text)]/20 text-[var(--chat-sidebar-stat-text)] flex-shrink-0">
                 {logicEntries.length}
               </span>
             )}
-          </div>
-          {logicEntries.length > 0 && (
-            <button
-              onClick={(e) => { e.stopPropagation(); clearLogicEntries() }}
-              className="text-[8px] font-bold uppercase tracking-wider text-[var(--chat-sidebar-stat-label)] hover:text-[var(--chat-sidebar-stat-text)] transition-colors"
-            >
-              Clear
-            </button>
-          )}
+          </button>
         </div>
-
-        {logicExpanded && (
-          <div className="px-4 pb-4 space-y-1.5 max-h-48 overflow-y-auto custom-scrollbar">
-            {logicEntries.length === 0 ? (
-              <div className="rounded-xl border border-dashed p-3 text-center border-[var(--chat-sidebar-artifact-border)]">
-                <Lightbulb className="h-4 w-4 mx-auto mb-1 text-[var(--chat-sidebar-stat-label)]" />
-                <p className="text-[9px] text-[var(--chat-sidebar-stat-label)]">
-                  Agent thinking & decisions appear here
-                </p>
-              </div>
-            ) : (
-              logicEntries.slice().reverse().map((entry) => {
-                const Icon = LOGIC_ICONS[entry.kind] ?? Info
-                const color = LOGIC_COLORS[entry.kind] ?? 'text-slate-400'
-                return (
-                  <div
-                    key={entry.id}
-                    className="flex items-start gap-2 rounded-lg px-2.5 py-2 bg-[var(--chat-sidebar-artifact-bg)]/60 border border-[var(--chat-sidebar-artifact-border)]/50"
-                  >
-                    <Icon className={cn('h-3 w-3 mt-0.5 flex-shrink-0', color)} />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[10px] font-bold text-[var(--chat-sidebar-value)] leading-tight truncate">{entry.title}</p>
-                      {entry.detail && (
-                        <p className="text-[8px] text-[var(--chat-sidebar-stat-label)] mt-0.5 leading-snug line-clamp-2 break-words">{entry.detail}</p>
-                      )}
-                      <p className="text-[7px] font-mono text-[var(--chat-sidebar-stat-label)]/60 mt-0.5">
-                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })
-            )}
-          </div>
-        )}
-      </div>
+      )}
 
       {/* ───── Contextual / Related Notes ───── */}
       {contextualNotes.length > 0 && (

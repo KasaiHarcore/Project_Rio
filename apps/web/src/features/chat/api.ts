@@ -25,6 +25,14 @@ export interface MessageRecord {
   content: string;
   created_at: string;
   character_id?: string;
+  parent_id?: string | null;
+  metadata?: {
+    logic_entries?: Array<{
+      title: string;
+      detail?: string | null;
+      kind: 'thinking' | 'decision' | 'tool-call' | 'info';
+    }>;
+  } | null;
 }
 
 export interface MemoryRecord {
@@ -70,4 +78,22 @@ export async function apiGetThreadMemories(
   limit = 50,
 ): Promise<{ success: boolean; memories: MemoryRecord[]; thread_id: string }> {
   return apiFetch(`/chat/threads/${threadId}/memories?limit=${limit}`);
+}
+
+/**
+ * Trigger a regeneration of the assistant response for a given user message.
+ * Returns a raw Response so the caller can read the SSE stream.
+ */
+export async function apiRegenerateMessage(
+  threadId: string,
+  messageId: string,
+  character = 'rio',
+): Promise<Response> {
+  const baseUrl = process.env.NEXT_PUBLIC_API_URL || '';
+  return fetch(`${baseUrl}/api/v1/chat/threads/${threadId}/regenerate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+    body: JSON.stringify({ message_id: messageId, character }),
+  });
 }
