@@ -442,15 +442,18 @@ function MessageActions({
         </button>
       )}
 
-      {/* Edit button (on user messages, when not streaming) — creates a new branch */}
+      {/* Edit button (on user messages, when not streaming) — creates a new branch.
+          Kept visible (not opacity-0) because editing IS the canonical branching path;
+          users need to see it without having to discover a hover affordance. */}
       {!isAssistant && !isStreaming && onStartEdit && (
         <button
           onClick={onStartEdit}
-          className="p-1 rounded-lg transition-all text-slate-500 hover:text-rose-300 hover:bg-rose-500/10 opacity-0 group-hover:opacity-100"
-          title="Edit message — creates a new branch"
-          aria-label="Edit message"
+          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-all text-[10px] font-bold uppercase tracking-wider text-rose-400/80 hover:text-rose-200 hover:bg-rose-500/15 border border-rose-500/30 hover:border-rose-400"
+          title="Edit this message — creates a new branch"
+          aria-label="Edit message to create a new branch"
         >
-          <Pencil className="h-3.5 w-3.5" />
+          <Pencil className="h-3 w-3" />
+          <span>Edit</span>
         </button>
       )}
     </div>
