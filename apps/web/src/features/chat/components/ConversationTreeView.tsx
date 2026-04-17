@@ -24,6 +24,7 @@ import {
   User as UserIcon, Bot, Brain, Route, Wrench, Info,
   X, Loader2, ChevronLeft, ChevronRight,
   Database, Globe, Code2, Sparkles,
+  GitBranch, Check, Compass,
 } from 'lucide-react'
 import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
 import { buildMessageTree, getActivePath, type MessageNode } from '@/features/chat/lib/message-tree'
@@ -35,6 +36,8 @@ interface ConversationTreeViewProps {
   allMessages: UIMessage[]
   messages: UIMessage[]
   status: 'ready' | 'streaming' | 'submitted' | 'error'
+  /** Called when user picks "Branch from here" so the parent can exit tree view. */
+  onExitTreeView?: () => void
 }
 
 /**
@@ -524,11 +527,30 @@ function EdgeLegend() {
    ConversationTreeView — React Flow canvas
    ═══════════════════════════════════════════════════════════════════ */
 
-export function ConversationTreeView({ allMessages, messages, status }: ConversationTreeViewProps) {
+export function ConversationTreeView({ allMessages, messages, status, onExitTreeView }: ConversationTreeViewProps) {
   const logicEntries = useSidebarStore((s) => s.logicEntries)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const branchSelections = useBranchStore((s) => s.branchSelections)
+  const setPendingBranchParent = useBranchStore((s) => s.setPendingBranchParent)
   const { selectBranch, nextBranch, prevBranch } = useBranchStore()
+
+  // Right-click context menu state for git-style "travel back" actions.
+  const [contextMenu, setContextMenu] = useState<{
+    x: number
+    y: number
+    messageId: string
+  } | null>(null)
+
+  React.useEffect(() => {
+    if (!contextMenu) return
+    const close = () => setContextMenu(null)
+    window.addEventListener('click', close)
+    window.addEventListener('keydown', close)
+    return () => {
+      window.removeEventListener('click', close)
+      window.removeEventListener('keydown', close)
+    }
+  }, [contextMenu])
 
   const tree = useMemo(() => buildMessageTree(allMessages), [allMessages])
   const activePathIds = useMemo(() => {
@@ -592,6 +614,47 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
     }
   }, [selectBranch])
 
+  // Handle right-click → open context menu for git-style travel-back actions
+  const onNodeContextMenu = useCallback((e: React.MouseEvent, node: Node) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, messageId: node.id })
+  }, [])
+
+  const handleBranchFromHere = useCallback((messageId: string) => {
+    const msg = allMessages.find((m) => m.id === messageId)
+    if (!msg) return
+    const preview = (() => {
+      const text = msg.parts
+        ?.filter((p: any) => p.type === 'text')
+        .map((p: any) => p.text)
+        .join('') || (msg as any).content || ''
+      const clean = text.replace(/\s+/g, ' ').trim()
+      return clean.length > 80 ? clean.slice(0, 80) + '…' : clean
+    })()
+    setPendingBranchParent({
+      messageId,
+      preview,
+      role: msg.role,
+    })
+    setContextMenu(null)
+    onExitTreeView?.()
+  }, [allMessages, setPendingBranchParent, onExitTreeView])
+
+  const handleSwitchToBranch = useCallback((messageId: string) => {
+    const findNodeLocal = (nodes: MessageNode[], id: string): MessageNode | null => {
+      for (const n of nodes) {
+        if (n.message.id === id) return n
+        const r = findNodeLocal(n.children, id)
+        if (r) return r
+      }
+      return null
+    }
+    const node = findNodeLocal(tree, messageId)
+    if (node?.parentId) selectBranch(node.parentId, messageId)
+    setContextMenu(null)
+  }, [tree, selectBranch])
+
   // Selected message for detail panel
   const selectedMsg = selectedNodeId ? allMessages.find((m) => m.id === selectedNodeId) ?? null : null
   const selectedLogic = useMemo(() => {
@@ -615,6 +678,7 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
           nodeTypes={nodeTypes}
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
+          onNodeContextMenu={onNodeContextMenu}
           fitView
           fitViewOptions={{ padding: 0.3 }}
           minZoom={0.2}
@@ -650,6 +714,64 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
           onClose={() => setSelectedNodeId(null)}
         />
       )}
+
+      {/* Node context menu — git-style travel-back actions */}
+      {contextMenu && (() => {
+        const targetNode = allMessages.find((m) => m.id === contextMenu.messageId)
+        const isActive = activePathIds.has(contextMenu.messageId)
+        const findNodeLocal = (nodes: MessageNode[], id: string): MessageNode | null => {
+          for (const n of nodes) {
+            if (n.message.id === id) return n
+            const r = findNodeLocal(n.children, id)
+            if (r) return r
+          }
+          return null
+        }
+        const treeNode = findNodeLocal(tree, contextMenu.messageId)
+        const canSwitch = !!treeNode?.parentId && !isActive
+        return (
+          <div
+            role="menu"
+            onClick={(e) => e.stopPropagation()}
+            onContextMenu={(e) => e.preventDefault()}
+            className="fixed z-50 min-w-[180px] rounded-lg border border-rose-900/50 bg-[#0d1520]/98 backdrop-blur-xl shadow-2xl py-1"
+            style={{
+              left: Math.min(contextMenu.x, window.innerWidth - 200),
+              top: Math.min(contextMenu.y, window.innerHeight - 120),
+            }}
+          >
+            <div className="px-3 py-1.5 border-b border-slate-800/60">
+              <p className="text-[8px] font-black uppercase tracking-[0.2em] text-slate-500">
+                {targetNode?.role === 'assistant' ? 'Assistant' : 'User'} · {contextMenu.messageId.slice(0, 8)}
+              </p>
+            </div>
+            <button
+              role="menuitem"
+              onClick={() => handleBranchFromHere(contextMenu.messageId)}
+              className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-200 hover:bg-rose-500/15 hover:text-rose-200 transition-colors"
+            >
+              <GitBranch className="h-3.5 w-3.5 text-rose-400" />
+              <span className="flex-1 text-left">Branch from here</span>
+            </button>
+            {canSwitch && (
+              <button
+                role="menuitem"
+                onClick={() => handleSwitchToBranch(contextMenu.messageId)}
+                className="w-full flex items-center gap-2 px-3 py-2 text-[11px] text-slate-200 hover:bg-sky-500/15 hover:text-sky-200 transition-colors"
+              >
+                <Compass className="h-3.5 w-3.5 text-sky-400" />
+                <span className="flex-1 text-left">Switch to this branch</span>
+              </button>
+            )}
+            {isActive && (
+              <div className="flex items-center gap-2 px-3 py-2 text-[11px] text-emerald-300/70">
+                <Check className="h-3.5 w-3.5" />
+                <span>Currently on this path</span>
+              </div>
+            )}
+          </div>
+        )
+      })()}
     </div>
   )
 }

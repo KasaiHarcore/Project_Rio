@@ -391,6 +391,7 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
             allMessages={allBranchMessages}
             messages={messages}
             status={hudStatus}
+            onExitTreeView={toggleTreeView}
           />
         ) : (
           <>
