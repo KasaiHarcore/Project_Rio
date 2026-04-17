@@ -27,9 +27,11 @@ import {
   Database, Globe, Code2, Sparkles,
   Check, Compass, Target,
 } from 'lucide-react'
-import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
+import { useSidebarStore, type LogicEntry, type MessageSource } from '@/features/chat/store'
 import { buildMessageTree, getActivePath, getBranchRoot, type MessageNode } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
+import { SourcePreviewCard } from '@/features/chat/components/SourcePreviewCard'
+import { deriveMockSources } from '@/features/chat/lib/derive-sources'
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 
@@ -1223,6 +1225,19 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
     return getLogicForMessage(msg, nextMsg, logicEntries)
   }, [selectedNodeId, allMessages, logicEntries])
 
+  // Sources for the selected assistant turn. Real sources (when emitted by
+  // the backend `source` SSE event) take precedence; otherwise fall back to
+  // mock sources derived from tool-call logic entries so the card UI is
+  // visible during development.
+  const messageSourcesMap = useSidebarStore((s) => s.messageSources)
+  const selectedSources = useMemo<MessageSource[]>(() => {
+    if (!selectedNodeId || !selectedMsg) return []
+    if (selectedMsg.role !== 'assistant') return []
+    const fromStore = messageSourcesMap[selectedNodeId]
+    if (fromStore && fromStore.length > 0) return fromStore
+    return deriveMockSources(selectedLogic)
+  }, [selectedNodeId, selectedMsg, messageSourcesMap, selectedLogic])
+
   // ── Scroll-to-HEAD ────────────────────────────────────────────────
   // HEAD = the last message on the active path. Pressing `h` (or the
   // button next to the legend) re-centers the viewport on that node.
@@ -1329,6 +1344,7 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
         <DetailPanel
           message={selectedMsg}
           logicEntries={selectedLogic}
+          sources={selectedSources}
           onClose={() => setSelectedNodeId(null)}
         />
       )}
@@ -1393,13 +1409,15 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
 interface DetailPanelProps {
   message: UIMessage
   logicEntries: LogicEntry[]
+  sources: MessageSource[]
   onClose: () => void
 }
 
-function DetailPanel({ message, logicEntries, onClose }: DetailPanelProps) {
+function DetailPanel({ message, logicEntries, sources, onClose }: DetailPanelProps) {
   const isAssistant = message.role === 'assistant'
   const text = getMsgText(message)
   const sorted = [...logicEntries].sort((a, b) => a.timestamp - b.timestamp)
+  const sortedSources = [...sources].sort((a, b) => a.timestamp - b.timestamp)
 
   return (
     <div className="w-80 border-l border-rose-900/20 bg-[#0d1520]/95 backdrop-blur-xl flex flex-col overflow-hidden flex-shrink-0">
@@ -1421,7 +1439,24 @@ function DetailPanel({ message, logicEntries, onClose }: DetailPanelProps) {
         <p className="text-[11px] text-slate-300 leading-relaxed line-clamp-6 break-words">{text}</p>
       </div>
 
-      <div className="flex-1 overflow-y-auto custom-scrollbar p-4">
+      <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-5">
+        {sortedSources.length > 0 && (
+          <section>
+            <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
+              Sources ({sortedSources.length})
+            </h4>
+            <div className="space-y-3">
+              {sortedSources.map((src, idx) => (
+                <SourcePreviewCard
+                  key={src.kind === 'web' ? `${src.kind}:${src.url}:${src.timestamp}:${idx}` : `${src.kind}:${src.filename}:${src.timestamp}:${idx}`}
+                  source={src}
+                />
+              ))}
+            </div>
+          </section>
+        )}
+
+        <section>
         <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
           Thinking Steps ({sorted.length})
         </h4>
@@ -1449,6 +1484,7 @@ function DetailPanel({ message, logicEntries, onClose }: DetailPanelProps) {
             })}
           </div>
         )}
+        </section>
       </div>
     </div>
   )
