@@ -42,12 +42,27 @@ function saveToStorage(threadId: string | null, selections: Map<string, string>)
   }
 }
 
+export interface PendingBranchParent {
+  /** Message ID that will serve as parent_id for the NEXT sent message */
+  messageId: string
+  /** Short text preview of the parent message, for UI display */
+  preview: string
+  /** Role of the parent message, for UI styling */
+  role: 'user' | 'assistant' | string
+}
+
 interface BranchState {
   /** Thread whose selections are currently loaded. null = no thread active. */
   activeThreadId: string | null
 
   /** Map of parentId (or "root") → selected child message ID for the active thread */
   branchSelections: Map<string, string>
+
+  /**
+   * Fork intent for the next user message. When set, the transport sends
+   * `parent_message_id` on the next POST and this is cleared.
+   */
+  pendingBranchParent: PendingBranchParent | null
 
   /** Load selections for a thread (or clear when null). Called on thread switch. */
   setActiveThread: (threadId: string | null) => void
@@ -69,17 +84,28 @@ interface BranchState {
 
   /** Reset all branch selections for the active thread (returns to latest-branch defaults) */
   resetSelections: () => void
+
+  /** Mark the next sent message as a branch from this parent. Pass null to cancel. */
+  setPendingBranchParent: (parent: PendingBranchParent | null) => void
+
+  /**
+   * Read and atomically clear the pending branch parent. Called by the transport
+   * when a new message is dispatched so the fork intent applies once only.
+   */
+  consumePendingBranchParent: () => PendingBranchParent | null
 }
 
 export const useBranchStore = create<BranchState>((set, get) => ({
   activeThreadId: null,
   branchSelections: new Map(),
+  pendingBranchParent: null,
 
   setActiveThread: (threadId) => {
     if (get().activeThreadId === threadId) return
     set({
       activeThreadId: threadId,
       branchSelections: loadFromStorage(threadId),
+      pendingBranchParent: null, // clear fork intent on thread switch
     })
   },
 
@@ -132,4 +158,12 @@ export const useBranchStore = create<BranchState>((set, get) => ({
       saveToStorage(state.activeThreadId, new Map())
       return { branchSelections: new Map() }
     }),
+
+  setPendingBranchParent: (parent) => set({ pendingBranchParent: parent }),
+
+  consumePendingBranchParent: () => {
+    const current = get().pendingBranchParent
+    if (current) set({ pendingBranchParent: null })
+    return current
+  },
 }))
