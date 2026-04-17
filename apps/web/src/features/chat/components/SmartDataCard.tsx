@@ -3,7 +3,7 @@ import { cn } from '@/shared/lib/utils'
 import { motion } from 'framer-motion'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
-import { Copy, Check, Terminal, Cpu, RefreshCw, Trash2 } from 'lucide-react'
+import { Copy, Check, Terminal, Cpu, RefreshCw, Trash2, Pencil } from 'lucide-react'
 import { useState } from 'react'
 import { toast } from '@/shared/hooks/use-toast'
 import { ContextMenu, type ContextMenuEntry } from '@/components/ui/context-menu'
@@ -16,9 +16,15 @@ interface SmartDataCardProps {
   senderName?: string
   /** When true, appends a blinking cursor after the content */
   isStreaming?: boolean
+  /**
+   * When provided, renders a pencil button next to Copy (user cards only).
+   * Clicking fires this callback — the caller enters inline edit mode.
+   * Hover-reveal behavior mirrors the regenerate button on assistant cards.
+   */
+  onEdit?: () => void
 }
 
-export function SmartDataCard({ role, content, timestamp, senderName, isStreaming }: SmartDataCardProps) {
+export function SmartDataCard({ role, content, timestamp, senderName, isStreaming, onEdit }: SmartDataCardProps) {
   const isAssistant = role === 'assistant'
   const [copied, setCopied] = useState(false)
 
@@ -93,6 +99,19 @@ export function SmartDataCard({ role, content, timestamp, senderName, isStreamin
 
         {/* Actions */}
         <div className="flex items-center gap-1">
+            {/* Edit — user cards only. Hover-reveal (opacity-0 → opacity-100) so
+                it matches the retry button's behavior. Click enters inline edit
+                mode in ChatList; saving creates a new sibling branch. */}
+            {onEdit && role === 'user' && (
+                <button
+                    onClick={onEdit}
+                    className="p-1 rounded transition-all text-[var(--msg-copy-text)] hover:bg-[var(--msg-copy-hover)] hover:text-rose-300 opacity-0 group-hover:opacity-100"
+                    aria-label="Edit message to create a new branch"
+                    title="Edit — creates a new branch"
+                >
+                    <Pencil size={12} />
+                </button>
+            )}
             <button
                 onClick={handleCopy}
                 className="p-1 rounded transition-colors text-[var(--msg-copy-text)] hover:bg-[var(--msg-copy-hover)]"

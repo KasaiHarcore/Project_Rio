@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useCallback, useState } from 'react'
 import { UIMessage } from 'ai'
 import { cn } from '@/shared/lib/utils'
-import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, X, Check } from 'lucide-react'
+import { User, ArrowRight, Target, Upload, RefreshCw, Pencil, ChevronLeft, ChevronRight, X, Check, Clock } from 'lucide-react'
 import type { MessageNode } from '@/features/chat/lib/message-tree'
 import { findNode, getSiblings } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
@@ -272,6 +272,7 @@ export function ChatList({
                     timestamp={formatMessageTime((m as any).createdAt)}
                     senderName={isAssistant ? (characterName ?? 'SYSTEM_RESPONSE') : 'Sensei'}
                     isStreaming={showStreamingCursor}
+                    onEdit={!isAssistant && !showStreamingCursor && onEditMessage ? () => startEdit(m) : undefined}
                   />
                 )}
 
@@ -359,13 +360,25 @@ interface MessageActionsProps {
   isStreaming: boolean
   onRegenerate?: (userMessageId: string) => void
   regenerating?: boolean
-  /** Enter edit mode for this message (user messages only). */
-  onStartEdit?: () => void
+  /** Enter edit mode for a given user message id. */
+  onStartEdit?: (userMessageId: string) => void
   /** Pulse the `< N/M >` carousel for ~1.5s to draw post-edit attention. */
   pulseCarousel?: boolean
   selectBranch: (parentId: string, childId: string) => void
   nextBranch: (parentId: string, siblings: MessageNode[]) => void
   prevBranch: (parentId: string, siblings: MessageNode[]) => void
+}
+
+/** Format ms-diff as a compact query-time badge, e.g. "1.4s" / "23s" / "2m 05s". */
+function formatQueryTime(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return ''
+  if (ms < 1000) return `${ms}ms`
+  if (ms < 10_000) return `${(ms / 1000).toFixed(1)}s`
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`
+  const totalSec = Math.round(ms / 1000)
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}m ${s.toString().padStart(2, '0')}s`
 }
 
 function MessageActions({
@@ -426,6 +439,27 @@ function MessageActions({
         </div>
       )}
 
+      {/* Query-time badge (on assistant messages) — how long the response took,
+          computed as createdAt(assistant) − createdAt(parent user message). */}
+      {isAssistant && !isStreaming && (() => {
+        const assistantAt = ((message as any).createdAt as Date | undefined)?.getTime()
+        const parent = node.parentId ? findNode(messageTree, node.parentId) : null
+        const userAt = parent?.message ? ((parent.message as any).createdAt as Date | undefined)?.getTime() : undefined
+        if (!assistantAt || !userAt || assistantAt <= userAt) return null
+        const label = formatQueryTime(assistantAt - userAt)
+        if (!label) return null
+        return (
+          <span
+            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-mono text-slate-500 border border-slate-700/50 bg-slate-800/30"
+            title="Time to process this query"
+            aria-label={`Query processed in ${label}`}
+          >
+            <Clock className="h-2.5 w-2.5" />
+            {label}
+          </span>
+        )
+      })()}
+
       {/* Regenerate button (on assistant messages, when not streaming) */}
       {isAssistant && !isStreaming && onRegenerate && userMessageId && (
         <button
@@ -437,25 +471,12 @@ function MessageActions({
             regenerating && "animate-spin opacity-100 text-rose-400",
           )}
           title="Regenerate response"
+          aria-label="Regenerate response"
         >
           <RefreshCw className="h-3.5 w-3.5" />
         </button>
       )}
 
-      {/* Edit button (on user messages, when not streaming) — creates a new branch.
-          Kept visible (not opacity-0) because editing IS the canonical branching path;
-          users need to see it without having to discover a hover affordance. */}
-      {!isAssistant && !isStreaming && onStartEdit && (
-        <button
-          onClick={onStartEdit}
-          className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md transition-all text-[10px] font-bold uppercase tracking-wider text-rose-400/80 hover:text-rose-200 hover:bg-rose-500/15 border border-rose-500/30 hover:border-rose-400"
-          title="Edit this message — creates a new branch"
-          aria-label="Edit message to create a new branch"
-        >
-          <Pencil className="h-3 w-3" />
-          <span>Edit</span>
-        </button>
-      )}
     </div>
   )
 }
