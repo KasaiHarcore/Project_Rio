@@ -194,38 +194,63 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
   const d = data as unknown as MessageNodeData
   const isAssistant = d.role === 'assistant'
 
+  const handlePrev = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    // Dispatch a custom event that the tree view listens for; this keeps node
+    // code free of tree-wide state.
+    window.dispatchEvent(new CustomEvent('rio:branch-nav', {
+      detail: { direction: 'prev', messageId: d.messageId, parentId: d.parentId },
+    }))
+  }
+
+  const handleNext = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    window.dispatchEvent(new CustomEvent('rio:branch-nav', {
+      detail: { direction: 'next', messageId: d.messageId, parentId: d.parentId },
+    }))
+  }
+
+  // Role-specific styling so user vs assistant is distinguishable at a glance.
+  const roleIconBg = isAssistant ? 'bg-rose-500/20' : 'bg-sky-500/20'
+  const roleIconColor = isAssistant ? 'text-rose-400' : 'text-sky-400'
+  const roleLabelColor = isAssistant ? 'text-rose-400' : 'text-sky-400'
+  const accentBorder = d.isActive
+    ? isAssistant ? 'border-rose-500/80' : 'border-sky-500/80'
+    : isAssistant ? 'border-rose-900/30' : 'border-sky-900/30'
+
   return (
     <>
       <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
       <div
+        data-active={d.isActive ? '1' : '0'}
         className={cn(
-          "w-[240px] rounded-lg border-2 px-3 py-2.5 shadow-md transition-all cursor-pointer",
+          "w-[240px] rounded-lg border-2 px-3 py-2.5 transition-all cursor-pointer",
           d.isSelected
-            ? "ring-2 ring-rose-500 border-rose-500 bg-[#1a1520]"
+            ? "ring-2 ring-rose-500 border-rose-500 bg-[#1a1520] shadow-[0_0_20px_rgba(244,63,94,0.55)]"
             : d.isActive
-              ? "border-rose-500/70 bg-[#1a1520]/95"
-              : "border-rose-900/30 bg-[#1a1520]/50 opacity-50",
+              ? cn(accentBorder, "bg-[#1a1520]/95 shadow-[0_0_12px_rgba(244,63,94,0.35)]")
+              : cn(accentBorder, "bg-[#1a1520]/40 opacity-30 hover:opacity-70"),
         )}
       >
         {/* Role header */}
         <div className="flex items-center gap-1.5 mb-1.5">
           <div className={cn(
             "w-4 h-4 rounded flex items-center justify-center flex-shrink-0",
-            isAssistant ? "bg-rose-500/20" : "bg-rose-500/20",
+            roleIconBg,
           )}>
             {isAssistant
-              ? <Bot className="h-2.5 w-2.5 text-rose-400" />
-              : <UserIcon className="h-2.5 w-2.5 text-rose-400" />
+              ? <Bot className={cn("h-2.5 w-2.5", roleIconColor)} />
+              : <UserIcon className={cn("h-2.5 w-2.5", roleIconColor)} />
             }
           </div>
-          <span className="text-[9px] font-bold text-rose-400 tracking-wider">
+          <span className={cn("text-[9px] font-bold tracking-wider", roleLabelColor)}>
             {isAssistant ? 'Assistant' : 'User'}
           </span>
           {d.time && (
             <span className="text-[8px] text-slate-500 font-mono ml-auto">[{d.time}]</span>
           )}
           {d.isActive && (
-            <div className="w-1.5 h-1.5 rounded-full bg-rose-400 ml-1 flex-shrink-0" />
+            <div className="w-1.5 h-1.5 rounded-full bg-rose-400 ml-1 flex-shrink-0 animate-pulse" />
           )}
         </div>
 
@@ -246,11 +271,25 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
           <div className="flex items-center justify-between mt-1.5 pt-1 border-t border-slate-700/30">
             {d.siblingCount > 1 && (
               <div className="flex items-center gap-1">
-                <ChevronLeft className="h-2.5 w-2.5 text-rose-500/50 cursor-pointer hover:text-rose-400 transition-colors" />
-                <span className="text-[8px] font-bold text-rose-500/70">
+                <button
+                  onClick={handlePrev}
+                  disabled={d.siblingIndex === 0}
+                  className="nodrag rounded p-0.5 text-rose-500/60 hover:text-rose-400 hover:bg-rose-500/10 disabled:opacity-30 disabled:cursor-default transition-colors"
+                  aria-label="Previous sibling"
+                >
+                  <ChevronLeft className="h-2.5 w-2.5" />
+                </button>
+                <span className="text-[8px] font-bold text-rose-500/70 tabular-nums">
                   {d.siblingIndex + 1}/{d.siblingCount}
                 </span>
-                <ChevronRight className="h-2.5 w-2.5 text-rose-500/50 cursor-pointer hover:text-rose-400 transition-colors" />
+                <button
+                  onClick={handleNext}
+                  disabled={d.siblingIndex === d.siblingCount - 1}
+                  className="nodrag rounded p-0.5 text-rose-500/60 hover:text-rose-400 hover:bg-rose-500/10 disabled:opacity-30 disabled:cursor-default transition-colors"
+                  aria-label="Next sibling"
+                >
+                  <ChevronRight className="h-2.5 w-2.5" />
+                </button>
               </div>
             )}
             {d.logicCount > 0 && (
@@ -280,13 +319,39 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
   const logicEntries = useSidebarStore((s) => s.logicEntries)
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const branchSelections = useBranchStore((s) => s.branchSelections)
-  const { selectBranch } = useBranchStore()
+  const { selectBranch, nextBranch, prevBranch } = useBranchStore()
 
   const tree = useMemo(() => buildMessageTree(allMessages), [allMessages])
   const activePathIds = useMemo(() => {
     const path = tree.length > 0 ? getActivePath(tree, branchSelections) : messages
     return new Set(path.map((m) => m.id))
   }, [tree, branchSelections, messages])
+
+  // Listen for in-node carousel clicks dispatched by MessageNodeComponent.
+  // The custom-event bridge keeps node rendering free of tree-wide state.
+  React.useEffect(() => {
+    function handleBranchNav(e: Event) {
+      const detail = (e as CustomEvent<{ direction: 'prev' | 'next'; messageId: string; parentId: string | null }>).detail
+      if (!detail?.parentId) return
+      const findNodeLocal = (nodes: MessageNode[], id: string): MessageNode | null => {
+        for (const n of nodes) {
+          if (n.message.id === id) return n
+          const r = findNodeLocal(n.children, id)
+          if (r) return r
+        }
+        return null
+      }
+      const node = findNodeLocal(tree, detail.messageId)
+      if (!node) return
+      const parent = findNodeLocal(tree, detail.parentId)
+      const siblings = parent ? parent.children : null
+      if (!siblings || siblings.length <= 1) return
+      if (detail.direction === 'prev') prevBranch(detail.parentId, siblings)
+      else nextBranch(detail.parentId, siblings)
+    }
+    window.addEventListener('rio:branch-nav', handleBranchNav)
+    return () => window.removeEventListener('rio:branch-nav', handleBranchNav)
+  }, [tree, nextBranch, prevBranch])
 
   const isStreaming = status === 'streaming' || status === 'submitted'
 
