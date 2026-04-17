@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useMemo, useCallback } from 'react'
+import React, { useState, useMemo, useCallback, useRef, useEffect } from 'react'
 import {
   ReactFlow,
   Controls,
@@ -15,6 +15,7 @@ import {
   type Edge,
   type NodeProps,
   type NodeTypes,
+  type ReactFlowInstance,
 } from '@xyflow/react'
 import '@xyflow/react/dist/style.css'
 import dagre from 'dagre'
@@ -24,10 +25,10 @@ import {
   User as UserIcon, Bot, Brain, Route, Wrench, Info,
   X, Loader2, ChevronLeft, ChevronRight,
   Database, Globe, Code2, Sparkles,
-  GitBranch, Check, Compass,
+  GitBranch, Check, Compass, Target,
 } from 'lucide-react'
 import { useSidebarStore, type LogicEntry } from '@/features/chat/store'
-import { buildMessageTree, getActivePath, type MessageNode } from '@/features/chat/lib/message-tree'
+import { buildMessageTree, getActivePath, getBranchRoot, type MessageNode } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
 
 /* ─── Types ──────────────────────────────────────────────────────── */
@@ -66,6 +67,28 @@ type MessageNodeData = {
   messageId: string
   /** Tool tags derived from logic_entries in the preceding user→assistant turn */
   toolTags: string[]
+  /** Branch-root message ID — nodes on the same branch share this. */
+  branchRootId: string
+  /** Tailwind-compatible hex color chosen from BRANCH_PALETTE. */
+  branchColor: string
+  /** True when this node has no children — renders a branch-tip label chip. */
+  isLeaf: boolean
+  /** True when this branch root IS the trunk (main branch). */
+  isTrunk: boolean
+  /** Raw text of the branch root message — used as a fallback label. */
+  branchRootText: string
+  /**
+   * When set, this is a synthetic "… N messages …" stand-in for a collapsed
+   * linear run. Click to expand.
+   */
+  collapsed?: {
+    /** Stable key for this run — used by expandedRunKeys to track state. */
+    key: string
+    /** How many real messages are collapsed inside. */
+    count: number
+    /** First-message preview for the pill label. */
+    sampleText: string
+  }
 }
 
 type MessageFlowNode = Node<MessageNodeData, 'messageNode'>
@@ -84,6 +107,43 @@ const LOGIC_COLORS: Record<string, string> = {
 
 /** Worker names that represent retrieval sources (RAG / web search / KB). */
 const SOURCE_WORKERS = new Set(['rag', 'web', 'search', 'knowledge', 'kb', 'retrieval'])
+
+/**
+ * Branch color palette — each branch in the tree gets one of these colors
+ * assigned by hashing its branch-root message id. Chosen for dark-mode
+ * contrast against the `#0c1524` canvas background, following the 8-color
+ * cycling convention used by GitLens / Git Graph / JetBrains.
+ *
+ * The active path always wins: its edges stay rose (per EDGE_STYLES). Branch
+ * color tints the NON-active sibling branches so users can tell them apart
+ * at a glance.
+ */
+const BRANCH_PALETTE = [
+  '#22d3ee', // cyan
+  '#f59e0b', // amber
+  '#a78bfa', // violet
+  '#10b981', // emerald
+  '#fb7185', // rose-lite
+  '#fb923c', // orange
+  '#2dd4bf', // teal
+  '#f472b6', // pink
+] as const
+
+function hashStringToIndex(s: string, modulo: number): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) {
+    h = (h * 31 + s.charCodeAt(i)) | 0
+  }
+  return Math.abs(h) % modulo
+}
+
+/** Return a stable hex color for a branch-root message id. */
+function branchColorFor(branchRootId: string): string {
+  return BRANCH_PALETTE[hashStringToIndex(branchRootId, BRANCH_PALETTE.length)]
+}
+
+/** Trunk color — the main branch (whichever branch root anchors the tree root) stays rose. */
+const TRUNK_COLOR = '#f43f5e'
 
 const EDGE_STYLES: Record<EdgeKind, {
   stroke: string
@@ -222,6 +282,9 @@ function layoutWithDagre(nodes: MessageFlowNode[], edges: Edge[]): MessageFlowNo
 
 /* ─── Tree → React Flow conversion ──────────────────────────────── */
 
+/** Minimum consecutive single-sibling single-child nodes that trigger collapse. */
+const COMPACT_MIN_RUN = 4
+
 function treeToFlow(
   roots: MessageNode[],
   activePathIds: Set<string>,
@@ -229,6 +292,8 @@ function treeToFlow(
   logicEntries: LogicEntry[],
   allMessages: UIMessage[],
   isStreaming: boolean,
+  compactMode: boolean,
+  expandedRunKeys: Set<string>,
 ): { nodes: MessageFlowNode[]; edges: Edge[] } {
   const nodes: MessageFlowNode[] = []
   const edges: Edge[] = []
@@ -244,8 +309,171 @@ function treeToFlow(
   }
   for (const root of roots) indexParents(root)
 
+  // ── Compact mode: identify collapsible linear runs ──
+  // A run is a chain of nodes where each has siblingCount === 1 and ≤ 1
+  // children. Runs with ≥ COMPACT_MIN_RUN length and whose key is not in
+  // expandedRunKeys render as a single synthetic "… N messages …" node.
+  type RunInfo = { key: string; run: MessageNode[]; index: number }
+  const runByNodeId = new Map<string, RunInfo>()
+  if (compactMode) {
+    const seenStart = new Set<string>()
+    const tryStartRun = (node: MessageNode) => {
+      if (seenStart.has(node.message.id)) return
+      const parent = parentById.get(node.message.id)
+      const parentIsCollapsible =
+        parent && parent.siblingCount === 1 && parent.children.length <= 1
+      if (parentIsCollapsible) return  // not the start
+      // Walk down the chain
+      const run: MessageNode[] = []
+      let cur: MessageNode | null = node
+      while (cur && cur.siblingCount === 1 && cur.children.length <= 1) {
+        run.push(cur)
+        seenStart.add(cur.message.id)
+        cur = cur.children[0] ?? null
+      }
+      if (run.length >= COMPACT_MIN_RUN) {
+        const key = `run:${run[0].message.id}:${run[run.length - 1].message.id}`
+        run.forEach((n, i) => runByNodeId.set(n.message.id, { key, run, index: i }))
+      }
+    }
+    function scanForRuns(node: MessageNode) {
+      tryStartRun(node)
+      for (const child of node.children) scanForRuns(child)
+    }
+    for (const root of roots) scanForRuns(root)
+  }
+
+  /** Does `nodeId` belong to a collapse run that's not currently expanded? */
+  function inCollapsedRun(nodeId: string): RunInfo | null {
+    const info = runByNodeId.get(nodeId)
+    if (!info) return null
+    if (expandedRunKeys.has(info.key)) return null
+    return info
+  }
+
+  /** When an edge would point at a collapsed node, re-target it to the synthetic. */
+  function collapsedTargetId(nodeId: string): string {
+    const info = inCollapsedRun(nodeId)
+    return info ? `collapsed:${info.key}` : nodeId
+  }
+
+  // Pre-compute branch root for every node by walking parents. Trunk branches
+  // (i.e. paths descending from the tree root with no fork above them) get a
+  // special color; other branches pick from BRANCH_PALETTE via hash.
+  const branchRootById = new Map<string, string>()
+  const computeBranchRoot = (start: MessageNode): string => {
+    let current: MessageNode | null = start
+    while (current) {
+      if (current.siblingCount > 1) return current.message.id
+      const parent: MessageNode | null = parentById.get(current.message.id) ?? null
+      if (!parent) return current.message.id
+      current = parent
+    }
+    return start.message.id
+  }
+  function indexBranchRoots(node: MessageNode) {
+    branchRootById.set(node.message.id, computeBranchRoot(node))
+    for (const child of node.children) indexBranchRoots(child)
+  }
+  for (const root of roots) indexBranchRoots(root)
+
+  // Trunk = branch root of the first tree root. All nodes with that branchRootId
+  // are on the trunk and keep the rose color as their branch color.
+  const trunkRootId = roots.length > 0 ? branchRootById.get(roots[0].message.id) : null
+
+  const colorForBranch = (branchRootId: string): string => {
+    if (branchRootId === trunkRootId) return TRUNK_COLOR
+    return branchColorFor(branchRootId)
+  }
+
+  /** Nodes already emitted, to avoid duplicating synthetic collapsed nodes. */
+  const emittedNodeIds = new Set<string>()
+
   function walk(node: MessageNode) {
     const msg = node.message
+
+    // Compact-mode handling: if this node is inside a collapsed run...
+    const runInfo = inCollapsedRun(msg.id)
+    if (runInfo) {
+      if (runInfo.index === 0) {
+        // Emit ONE synthetic node representing the whole run, then walk the
+        // children of the last node in the run so traversal continues past it.
+        const syntheticId = `collapsed:${runInfo.key}`
+        if (!emittedNodeIds.has(syntheticId)) {
+          emittedNodeIds.add(syntheticId)
+
+          const firstMsg = runInfo.run[0].message
+          const lastNode = runInfo.run[runInfo.run.length - 1]
+          const lastMsg = lastNode.message
+          const runFullyActive = runInfo.run.every((n) => activePathIds.has(n.message.id))
+
+          const firstBranchRootId = branchRootById.get(firstMsg.id) ?? firstMsg.id
+          const firstBranchColor = colorForBranch(firstBranchRootId)
+          const firstBranchRootMsg = allMessages.find((m) => m.id === firstBranchRootId)
+          const firstBranchRootText = firstBranchRootMsg ? getMsgText(firstBranchRootMsg) : ''
+
+          nodes.push({
+            id: syntheticId,
+            type: 'messageNode',
+            position: { x: 0, y: 0 },
+            data: {
+              label: `${runInfo.run.length} messages`,
+              role: 'assistant',
+              text: '',
+              time: '',
+              isActive: runFullyActive,
+              isSelected: false,
+              logicCount: 0,
+              siblingIndex: 0,
+              siblingCount: 1,
+              isStreaming: false,
+              parentId: runInfo.run[0].parentId,
+              messageId: syntheticId,
+              toolTags: [],
+              branchRootId: firstBranchRootId,
+              branchColor: firstBranchColor,
+              isLeaf: lastNode.children.length === 0,
+              isTrunk: firstBranchRootId === trunkRootId,
+              branchRootText: firstBranchRootText,
+              collapsed: {
+                key: runInfo.key,
+                count: runInfo.run.length,
+                sampleText: getMsgText(firstMsg),
+              },
+            },
+          })
+
+          // Walk children of the LAST in-run node so the tree continues past
+          // the collapsed segment. Each child edge is sourced from the
+          // synthetic node, not from the real last-in-run node.
+          for (const child of lastNode.children) {
+            const isActiveEdge =
+              activePathIds.has(lastMsg.id) && activePathIds.has(child.message.id)
+            const childBranchRootId = branchRootById.get(child.message.id) ?? child.message.id
+            const childBranchColor = colorForBranch(childBranchRootId)
+            const targetId = collapsedTargetId(child.message.id)
+
+            edges.push({
+              id: `e-${syntheticId}-${targetId}`,
+              source: syntheticId,
+              target: targetId,
+              type: 'smoothstep',
+              animated: isActiveEdge,
+              style: {
+                stroke: isActiveEdge ? TRUNK_COLOR : childBranchColor,
+                strokeWidth: 2,
+                opacity: isActiveEdge ? 1 : 0.35,
+              },
+              data: { kind: 'direct' as EdgeKind, branchRootId: childBranchRootId },
+            })
+            walk(child)
+          }
+        }
+      }
+      // Mid-run nodes are represented by the synthetic — skip emission.
+      return
+    }
+
     const msgIdx = allMessages.findIndex((m) => m.id === msg.id)
     const nextMsg = msgIdx >= 0 && msgIdx + 1 < allMessages.length ? allMessages[msgIdx + 1] : null
     const relatedLogic = getLogicForMessage(msg, nextMsg, logicEntries)
@@ -260,6 +488,13 @@ function treeToFlow(
       }
     }
 
+    const branchRootId = branchRootById.get(msg.id) ?? msg.id
+    const branchColor = colorForBranch(branchRootId)
+    const isTrunk = branchRootId === trunkRootId
+    const branchRootMsg = allMessages.find((m) => m.id === branchRootId)
+    const branchRootText = branchRootMsg ? getMsgText(branchRootMsg) : ''
+
+    emittedNodeIds.add(msg.id)
     nodes.push({
       id: msg.id,
       type: 'messageNode',
@@ -278,6 +513,11 @@ function treeToFlow(
         parentId: node.parentId,
         messageId: msg.id,
         toolTags,
+        branchRootId,
+        branchColor,
+        isLeaf: node.children.length === 0,
+        isTrunk,
+        branchRootText,
       },
     })
 
@@ -292,19 +532,35 @@ function treeToFlow(
         : 'direct'
       const base = EDGE_STYLES[kind]
 
+      // Edge stroke: on the active path OR for retrieval edges, keep the
+      // kind-specific color (source = cyan, thinking = amber, etc). For
+      // inactive `direct` edges, tint toward the child's branch color so
+      // sibling branches read as visually distinct lanes.
+      const childBranchRootId = branchRootById.get(child.message.id) ?? child.message.id
+      const childBranchColor = colorForBranch(childBranchRootId)
+      const strokeColor = isActiveBranch
+        ? base.stroke
+        : kind === 'direct'
+          ? childBranchColor
+          : base.stroke
+
+      // If the child starts a collapsed run, re-target the edge to the
+      // synthetic node so we don't create a dangling edge to a hidden node.
+      const targetId = collapsedTargetId(child.message.id)
+
       edges.push({
-        id: `e-${msg.id}-${child.message.id}`,
+        id: `e-${msg.id}-${targetId}`,
         source: msg.id,
-        target: child.message.id,
+        target: targetId,
         type: 'smoothstep',
         animated: isActiveBranch && kind !== 'direct',
         style: {
-          stroke: base.stroke,
+          stroke: strokeColor,
           strokeWidth: isActiveBranch ? base.strokeWidth + 0.5 : base.strokeWidth,
           strokeDasharray: base.dasharray,
-          opacity: isActiveBranch ? 1 : 0.3,
+          opacity: isActiveBranch ? 1 : 0.35,
         },
-        data: { kind },
+        data: { kind, branchRootId: childBranchRootId },
       })
       walk(child)
     }
@@ -322,6 +578,51 @@ function treeToFlow(
 function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
   const d = data as unknown as MessageNodeData
   const isAssistant = d.role === 'assistant'
+
+  // Collapsed-run variant — renders a single "… N messages …" pill in place
+  // of a straight chain of single-child messages. Click to expand.
+  if (d.collapsed) {
+    const handleExpand = (e: React.MouseEvent) => {
+      e.stopPropagation()
+      window.dispatchEvent(new CustomEvent('rio:expand-run', {
+        detail: { key: d.collapsed!.key },
+      }))
+    }
+    return (
+      <>
+        <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
+        <button
+          onClick={handleExpand}
+          className={cn(
+            "nodrag w-[240px] rounded-lg border-2 border-dashed px-3 py-2.5 text-left transition-all cursor-pointer",
+            "flex items-center gap-2",
+            d.isActive
+              ? "border-slate-600 bg-[#1a1520]/80 hover:bg-[#1a1520]"
+              : "border-slate-800 bg-[#0c1524]/60 opacity-50 hover:opacity-90",
+          )}
+          title={`Click to expand ${d.collapsed.count} messages`}
+        >
+          <div className="flex-shrink-0 flex flex-col items-center gap-0.5">
+            <div className="w-1 h-1 rounded-full bg-slate-500" />
+            <div className="w-1 h-1 rounded-full bg-slate-500" />
+            <div className="w-1 h-1 rounded-full bg-slate-500" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[9px] font-black uppercase tracking-[0.15em] text-slate-400">
+              {d.collapsed.count} messages
+            </p>
+            <p className="text-[10px] text-slate-500 truncate italic">
+              {truncate(d.collapsed.sampleText, 48)}
+            </p>
+          </div>
+          <span className="text-[8px] font-bold uppercase tracking-wider text-slate-500">
+            Expand
+          </span>
+        </button>
+        <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
+      </>
+    )
+  }
 
   const handlePrev = (e: React.MouseEvent) => {
     e.stopPropagation()
@@ -347,20 +648,35 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
     ? isAssistant ? 'border-rose-500/80' : 'border-sky-500/80'
     : isAssistant ? 'border-rose-900/30' : 'border-sky-900/30'
 
+  // Branch lane indicator: a 3px vertical strip along the left edge of the
+  // card, tinted with the branch color. This gives every branch a visible
+  // "lane" identity (GitLens / Git Graph convention) without overwriting the
+  // role-based accents used elsewhere.
+  const showLaneMarker = d.branchColor !== TRUNK_COLOR
+
   return (
     <>
       <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
       <div
         data-active={d.isActive ? '1' : '0'}
         className={cn(
-          "w-[240px] rounded-lg border-2 px-3 py-2.5 transition-all cursor-pointer",
+          "relative w-[240px] rounded-lg border-2 px-3 py-2.5 transition-all cursor-pointer overflow-hidden",
           d.isSelected
             ? "ring-2 ring-rose-500 border-rose-500 bg-[#1a1520] shadow-[0_0_20px_rgba(244,63,94,0.55)]"
             : d.isActive
               ? cn(accentBorder, "bg-[#1a1520]/95 shadow-[0_0_12px_rgba(244,63,94,0.35)]")
-              : cn(accentBorder, "bg-[#1a1520]/40 opacity-30 hover:opacity-70"),
+              : cn(accentBorder, "bg-[#1a1520]/40 opacity-35 hover:opacity-80"),
         )}
       >
+        {/* Branch lane marker — left-edge stripe in the branch color */}
+        {showLaneMarker && (
+          <div
+            aria-hidden
+            className="absolute top-0 left-0 bottom-0 w-[3px]"
+            style={{ backgroundColor: d.branchColor, opacity: d.isActive ? 0.95 : 0.6 }}
+          />
+        )}
+
         {/* Role header */}
         <div className="flex items-center gap-1.5 mb-1.5">
           <div className={cn(
@@ -375,6 +691,16 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
           <span className={cn("text-[9px] font-bold tracking-wider", roleLabelColor)}>
             {isAssistant ? 'Assistant' : 'User'}
           </span>
+          {/* Branch color dot — tiny indicator next to the role label so users
+              can associate the card with its edge / lane color at a glance. */}
+          {showLaneMarker && (
+            <span
+              aria-hidden
+              className="inline-block w-1.5 h-1.5 rounded-full flex-shrink-0"
+              style={{ backgroundColor: d.branchColor, opacity: d.isActive ? 1 : 0.7 }}
+              title="Branch color"
+            />
+          )}
           {d.time && (
             <span className="text-[8px] text-slate-500 font-mono ml-auto">[{d.time}]</span>
           )}
@@ -457,9 +783,113 @@ function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
             )}
           </div>
         )}
+
+        {/* Branch-tip label — shown on leaf nodes, editable in-place. */}
+        {d.isLeaf && (
+          <BranchTipChip
+            branchRootId={d.branchRootId}
+            branchColor={d.branchColor}
+            isActive={d.isActive}
+            isTrunk={d.isTrunk}
+            branchRootText={d.branchRootText}
+          />
+        )}
       </div>
       <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
     </>
+  )
+}
+
+/* ─── BranchTipChip — editable branch name anchored to leaf nodes ────────── */
+
+interface BranchTipChipProps {
+  branchRootId: string
+  branchColor: string
+  isActive: boolean
+  isTrunk: boolean
+  branchRootText: string
+}
+
+function deriveBranchLabel(isTrunk: boolean, text: string): string {
+  if (isTrunk) return 'main'
+  const clean = text.replace(/\s+/g, ' ').trim()
+  if (!clean) return 'branch'
+  // First ~4 words, capped at 28 chars.
+  const words = clean.split(' ').slice(0, 4).join(' ')
+  return words.length > 28 ? words.slice(0, 28) + '…' : words
+}
+
+function BranchTipChip({
+  branchRootId,
+  branchColor,
+  isActive,
+  isTrunk,
+  branchRootText,
+}: BranchTipChipProps) {
+  const branchNames = useBranchStore((s) => s.branchNames)
+  const setBranchName = useBranchStore((s) => s.setBranchName)
+  const [editing, setEditing] = useState(false)
+  const [draft, setDraft] = useState('')
+
+  const customName = branchNames.get(branchRootId)
+  const fallback = deriveBranchLabel(isTrunk, branchRootText)
+  const displayName = customName || fallback
+
+  const handleStartEdit = (e: React.MouseEvent) => {
+    e.stopPropagation()
+    setDraft(customName ?? '')
+    setEditing(true)
+  }
+
+  const commit = () => {
+    setBranchName(branchRootId, draft)
+    setEditing(false)
+  }
+
+  return (
+    <div
+      className="nodrag absolute left-1/2 -translate-x-1/2"
+      style={{ bottom: -22 }}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onContextMenu={(e) => e.stopPropagation()}
+    >
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') commit()
+            else if (e.key === 'Escape') setEditing(false)
+          }}
+          placeholder={fallback}
+          className="text-[9px] font-bold tracking-wider px-2 py-0.5 rounded-full border bg-[#0d1520] text-slate-100 outline-none focus:ring-1"
+          style={{
+            borderColor: branchColor,
+            boxShadow: `0 0 0 1px ${branchColor}55`,
+          }}
+        />
+      ) : (
+        <button
+          onClick={handleStartEdit}
+          className={cn(
+            "inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[9px] font-bold tracking-wider transition-all",
+            isActive ? "shadow-md" : "opacity-70 hover:opacity-100",
+          )}
+          style={{
+            backgroundColor: isActive ? branchColor : 'transparent',
+            color: isActive ? '#0d1520' : branchColor,
+            border: `1.5px solid ${branchColor}`,
+          }}
+          title={customName ? `${customName} — click to rename` : `Click to name this branch`}
+        >
+          {isActive && <Check className="h-2.5 w-2.5" />}
+          <span>{displayName}</span>
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -478,7 +908,7 @@ const LEGEND_ITEMS: { kind: EdgeKind; label: string }[] = [
 function EdgeLegend() {
   const [open, setOpen] = useState(false)
   return (
-    <div className="absolute top-3 left-3 z-10">
+    <div>
       {open ? (
         <div className="rounded-lg border border-slate-700/50 bg-[#0d1520]/95 backdrop-blur-md px-3 py-2 shadow-xl">
           <div className="flex items-center justify-between mb-1.5">
@@ -533,6 +963,60 @@ export function ConversationTreeView({ allMessages, messages, status, onExitTree
   const branchSelections = useBranchStore((s) => s.branchSelections)
   const setPendingBranchParent = useBranchStore((s) => s.setPendingBranchParent)
   const { selectBranch, nextBranch, prevBranch } = useBranchStore()
+
+  // ReactFlow instance — captured on mount so scroll-to-HEAD can drive the viewport.
+  const flowRef = useRef<ReactFlowInstance<MessageFlowNode, Edge> | null>(null)
+
+  // Compact mode: collapses straight runs of ≥4 single-child messages into a
+  // "… N messages …" pill. Persists per-thread (via localStorage); expand
+  // state is session-local (resets on thread switch).
+  const activeThreadId = useBranchStore((s) => s.activeThreadId)
+  const COMPACT_STORAGE_PREFIX = 'rio:tree-compact:'
+  const [compactMode, setCompactMode] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false
+    try {
+      return activeThreadId
+        ? window.localStorage.getItem(COMPACT_STORAGE_PREFIX + activeThreadId) === '1'
+        : false
+    } catch { return false }
+  })
+  useEffect(() => {
+    if (typeof window === 'undefined' || !activeThreadId) return
+    try {
+      const key = COMPACT_STORAGE_PREFIX + activeThreadId
+      const stored = window.localStorage.getItem(key)
+      setCompactMode(stored === '1')
+    } catch {}
+  }, [activeThreadId])
+  const toggleCompact = useCallback(() => {
+    setCompactMode((prev) => {
+      const next = !prev
+      if (typeof window !== 'undefined' && activeThreadId) {
+        try {
+          window.localStorage.setItem(COMPACT_STORAGE_PREFIX + activeThreadId, next ? '1' : '0')
+        } catch {}
+      }
+      return next
+    })
+  }, [activeThreadId])
+  const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(new Set())
+  // Clear expanded runs when thread changes
+  useEffect(() => { setExpandedRunKeys(new Set()) }, [activeThreadId])
+
+  // Listen for click-to-expand dispatched by collapsed MessageNode variant.
+  useEffect(() => {
+    function handleExpand(e: Event) {
+      const key = (e as CustomEvent<{ key: string }>).detail?.key
+      if (!key) return
+      setExpandedRunKeys((prev) => {
+        const next = new Set(prev)
+        next.add(key)
+        return next
+      })
+    }
+    window.addEventListener('rio:expand-run', handleExpand)
+    return () => window.removeEventListener('rio:expand-run', handleExpand)
+  }, [])
 
   // Right-click context menu state for git-style "travel back" actions.
   const [contextMenu, setContextMenu] = useState<{
@@ -589,10 +1073,13 @@ export function ConversationTreeView({ allMessages, messages, status, onExitTree
   // Convert tree → React Flow elements with dagre layout
   const { flowNodes, flowEdges } = useMemo(() => {
     if (tree.length === 0) return { flowNodes: [], flowEdges: [] }
-    const { nodes, edges } = treeToFlow(tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming)
+    const { nodes, edges } = treeToFlow(
+      tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming,
+      compactMode, expandedRunKeys,
+    )
     const laid = layoutWithDagre(nodes, edges)
     return { flowNodes: laid, flowEdges: edges }
-  }, [tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming])
+  }, [tree, activePathIds, selectedNodeId, logicEntries, allMessages, isStreaming, compactMode, expandedRunKeys])
 
   const [nodes, setNodes, onNodesChange] = useNodesState(flowNodes)
   const [edges, setEdges, onEdgesChange] = useEdgesState(flowEdges)
@@ -666,16 +1153,77 @@ export function ConversationTreeView({ allMessages, messages, status, onExitTree
     return getLogicForMessage(msg, nextMsg, logicEntries)
   }, [selectedNodeId, allMessages, logicEntries])
 
+  // ── Scroll-to-HEAD ────────────────────────────────────────────────
+  // HEAD = the last message on the active path. Pressing `h` (or the
+  // button next to the legend) re-centers the viewport on that node.
+  const activeTipId = messages.length > 0 ? messages[messages.length - 1].id : null
+
+  const scrollToHead = useCallback(() => {
+    const instance = flowRef.current
+    if (!instance || !activeTipId) return
+    const target = nodes.find((n) => n.id === activeTipId)
+    if (!target) return
+    instance.setCenter(
+      target.position.x + NODE_WIDTH / 2,
+      target.position.y + NODE_HEIGHT / 2,
+      { zoom: 1, duration: 400 },
+    )
+  }, [nodes, activeTipId])
+
+  // Bare `h` shortcut — guarded against editable fields and modifier keys.
+  // Only active while the tree view is mounted.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key !== 'h' && e.key !== 'H') return
+      if (e.metaKey || e.ctrlKey || e.altKey) return
+      const target = e.target instanceof HTMLElement ? e.target : null
+      const tag = target?.tagName
+      const isEditable =
+        tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable ||
+        target?.closest('.monaco-editor') != null
+      if (isEditable) return
+      e.preventDefault()
+      scrollToHead()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [scrollToHead])
+
   return (
     <div className="flex-1 flex overflow-hidden relative">
       <div className="flex-1 relative" style={{ height: '100%' }}>
-        <EdgeLegend />
+        <div className="absolute top-3 left-3 z-10 flex items-center gap-2">
+          <EdgeLegend />
+          <button
+            onClick={scrollToHead}
+            disabled={!activeTipId}
+            className="rounded-lg border border-rose-500/40 bg-[#1a1520]/90 backdrop-blur-md px-2 py-1 shadow-md hover:border-rose-400 text-[8px] font-black uppercase tracking-[0.2em] text-rose-300 hover:text-rose-200 disabled:opacity-40 disabled:cursor-default transition-colors flex items-center gap-1"
+            title="Scroll to HEAD — press H"
+          >
+            <Target className="h-2.5 w-2.5" />
+            HEAD
+          </button>
+          <button
+            onClick={toggleCompact}
+            className={cn(
+              "rounded-lg border bg-[#1a1520]/90 backdrop-blur-md px-2 py-1 shadow-md text-[8px] font-black uppercase tracking-[0.2em] transition-colors",
+              compactMode
+                ? "border-cyan-500/60 text-cyan-200 hover:border-cyan-400"
+                : "border-slate-700/50 text-slate-400 hover:border-slate-600 hover:text-slate-200",
+            )}
+            title={compactMode ? "Compact mode ON — click to expand all runs" : "Compact mode OFF — collapse long linear runs"}
+            aria-pressed={compactMode}
+          >
+            Compact
+          </button>
+        </div>
         <ReactFlow
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           nodeTypes={nodeTypes}
+          onInit={(instance) => { flowRef.current = instance }}
           onNodeClick={onNodeClick}
           onNodeDoubleClick={onNodeDoubleClick}
           onNodeContextMenu={onNodeContextMenu}

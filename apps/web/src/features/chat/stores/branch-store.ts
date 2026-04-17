@@ -10,15 +10,20 @@ import { create } from 'zustand'
 import type { MessageNode } from '@/features/chat/lib/message-tree'
 
 const STORAGE_KEY_PREFIX = 'rio:branch-selections:'
+const NAMES_STORAGE_KEY_PREFIX = 'rio:branch-names:'
 
 function storageKey(threadId: string): string {
   return STORAGE_KEY_PREFIX + threadId
 }
 
-function loadFromStorage(threadId: string | null): Map<string, string> {
-  if (!threadId || typeof window === 'undefined') return new Map()
+function namesStorageKey(threadId: string): string {
+  return NAMES_STORAGE_KEY_PREFIX + threadId
+}
+
+function loadMapFromStorage(key: string): Map<string, string> {
+  if (typeof window === 'undefined') return new Map()
   try {
-    const raw = window.localStorage.getItem(storageKey(threadId))
+    const raw = window.localStorage.getItem(key)
     if (!raw) return new Map()
     const entries = JSON.parse(raw) as [string, string][]
     if (!Array.isArray(entries)) return new Map()
@@ -28,18 +33,37 @@ function loadFromStorage(threadId: string | null): Map<string, string> {
   }
 }
 
-function saveToStorage(threadId: string | null, selections: Map<string, string>): void {
-  if (!threadId || typeof window === 'undefined') return
+function saveMapToStorage(key: string, m: Map<string, string>): void {
+  if (typeof window === 'undefined') return
   try {
-    if (selections.size === 0) {
-      window.localStorage.removeItem(storageKey(threadId))
+    if (m.size === 0) {
+      window.localStorage.removeItem(key)
       return
     }
-    const entries = Array.from(selections.entries())
-    window.localStorage.setItem(storageKey(threadId), JSON.stringify(entries))
+    window.localStorage.setItem(key, JSON.stringify(Array.from(m.entries())))
   } catch {
     // localStorage may be unavailable (private mode, quota, disabled) — non-fatal
   }
+}
+
+function loadFromStorage(threadId: string | null): Map<string, string> {
+  if (!threadId) return new Map()
+  return loadMapFromStorage(storageKey(threadId))
+}
+
+function saveToStorage(threadId: string | null, selections: Map<string, string>): void {
+  if (!threadId) return
+  saveMapToStorage(storageKey(threadId), selections)
+}
+
+function loadNamesFromStorage(threadId: string | null): Map<string, string> {
+  if (!threadId) return new Map()
+  return loadMapFromStorage(namesStorageKey(threadId))
+}
+
+function saveNamesToStorage(threadId: string | null, names: Map<string, string>): void {
+  if (!threadId) return
+  saveMapToStorage(namesStorageKey(threadId), names)
 }
 
 export interface PendingBranchParent {
@@ -57,6 +81,12 @@ interface BranchState {
 
   /** Map of parentId (or "root") → selected child message ID for the active thread */
   branchSelections: Map<string, string>
+
+  /**
+   * User-supplied names for branches, keyed by the branch-root message id.
+   * Scoped per-thread; persisted to localStorage alongside branchSelections.
+   */
+  branchNames: Map<string, string>
 
   /**
    * Fork intent for the next user message. When set, the transport sends
@@ -93,11 +123,15 @@ interface BranchState {
    * when a new message is dispatched so the fork intent applies once only.
    */
   consumePendingBranchParent: () => PendingBranchParent | null
+
+  /** Set (or clear, with empty string) a user-supplied name for a branch. */
+  setBranchName: (branchRootId: string, name: string) => void
 }
 
 export const useBranchStore = create<BranchState>((set, get) => ({
   activeThreadId: null,
   branchSelections: new Map(),
+  branchNames: new Map(),
   pendingBranchParent: null,
 
   setActiveThread: (threadId) => {
@@ -105,6 +139,7 @@ export const useBranchStore = create<BranchState>((set, get) => ({
     set({
       activeThreadId: threadId,
       branchSelections: loadFromStorage(threadId),
+      branchNames: loadNamesFromStorage(threadId),
       pendingBranchParent: null, // clear fork intent on thread switch
     })
   },
@@ -166,4 +201,17 @@ export const useBranchStore = create<BranchState>((set, get) => ({
     if (current) set({ pendingBranchParent: null })
     return current
   },
+
+  setBranchName: (branchRootId, name) =>
+    set((state) => {
+      const next = new Map(state.branchNames)
+      const trimmed = name.trim()
+      if (trimmed.length === 0) {
+        next.delete(branchRootId)
+      } else {
+        next.set(branchRootId, trimmed)
+      }
+      saveNamesToStorage(state.activeThreadId, next)
+      return { branchNames: next }
+    }),
 }))

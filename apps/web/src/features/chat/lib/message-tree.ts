@@ -188,3 +188,107 @@ export function getSiblings(roots: MessageNode[], messageId: string): MessageNod
   const parentNode = findNode(roots, node.parentId)
   return parentNode ? parentNode.children : null
 }
+
+/* ─── Branch identity ───────────────────────────────────────────── */
+
+/**
+ * Return the "branch root" message ID for a given node. A branch root is the
+ * deepest ancestor (or the node itself) that is part of a sibling set larger
+ * than one — i.e. the node at which its branch diverged from another branch.
+ * If the node's whole path has no forks, the branch root is the tree root.
+ *
+ * This is the natural key for assigning per-branch colors in a git-graph UI:
+ * every node descending from the same fork shares a branch color.
+ *
+ * Example:
+ *   user1 → asst1 → user2 → asst2A
+ *                         → asst2B → user3 → asst3
+ * branchRoot(user1)   = user1
+ * branchRoot(asst1)   = user1
+ * branchRoot(asst2A)  = asst2A    (it's one of two siblings)
+ * branchRoot(asst2B)  = asst2B
+ * branchRoot(user3)   = asst2B    (descends from the asst2B fork)
+ * branchRoot(asst3)   = asst2B
+ */
+export function getBranchRoot(roots: MessageNode[], messageId: string): string | null {
+  const parentById = new Map<string, MessageNode>()
+  function index(node: MessageNode) {
+    for (const child of node.children) {
+      parentById.set(child.message.id, node)
+      index(child)
+    }
+  }
+  for (const root of roots) index(root)
+
+  const node = findNode(roots, messageId)
+  if (!node) return null
+
+  // Walk from node → root, remembering the DEEPEST ancestor that had siblings.
+  let branchRoot: MessageNode = node
+  let current: MessageNode | null = node
+  while (current) {
+    if (current.siblingCount > 1) {
+      branchRoot = current
+      break
+    }
+    const parent: MessageNode | null = parentById.get(current.message.id) ?? null
+    if (!parent) {
+      // Reached tree root with no sibling forks — this whole path is one branch.
+      branchRoot = current
+      break
+    }
+    current = parent
+  }
+  return branchRoot.message.id
+}
+
+/* ─── Compact mode (linear-run collapse) ────────────────────────── */
+
+export type CompactSegment =
+  | { kind: 'node'; node: MessageNode }
+  | { kind: 'collapsed'; nodes: MessageNode[] }
+
+/**
+ * Given a linear chain of nodes (e.g. a stretch of an active path), collapse
+ * runs of `minRunLength` or more consecutive single-child nodes into
+ * `CompactSegment`s of kind `'collapsed'`. Nodes adjacent to forks (multiple
+ * children) or to expanded segments are never collapsed.
+ *
+ * Consumers render collapsed segments as a single "… N messages …" pill.
+ * Expanding is per-segment (caller tracks a Set of expanded segment keys).
+ */
+export function collapseLinearRuns(
+  chain: MessageNode[],
+  minRunLength = 4,
+  expandedKeys: Set<string> = new Set(),
+): CompactSegment[] {
+  if (chain.length === 0) return []
+  const segments: CompactSegment[] = []
+  let run: MessageNode[] = []
+
+  const flushRun = () => {
+    if (run.length === 0) return
+    const key = `${run[0].message.id}:${run[run.length - 1].message.id}`
+    if (run.length >= minRunLength && !expandedKeys.has(key)) {
+      segments.push({ kind: 'collapsed', nodes: run })
+    } else {
+      for (const n of run) segments.push({ kind: 'node', node: n })
+    }
+    run = []
+  }
+
+  for (let i = 0; i < chain.length; i++) {
+    const n = chain[i]
+    // A node is "collapsible" if it has exactly one child AND exactly one sibling,
+    // i.e. it's on a straight run with no fork above or below it.
+    const isCollapsible = n.children.length <= 1 && n.siblingCount === 1
+    if (isCollapsible) {
+      run.push(n)
+    } else {
+      flushRun()
+      segments.push({ kind: 'node', node: n })
+    }
+  }
+  flushRun()
+  return segments
+}
