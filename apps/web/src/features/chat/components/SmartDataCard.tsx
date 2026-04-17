@@ -97,28 +97,28 @@ export function SmartDataCard({ role, content, timestamp, senderName, isStreamin
             )}
         </div>
 
-        {/* Actions */}
+        {/* Actions — all hover-reveal (match the assistant retry button).
+            Edit + Copy use identical sizing and class structure so they
+            read as a single button group and stay invisible until the
+            card is hovered. */}
         <div className="flex items-center gap-1">
-            {/* Edit — user cards only. Hover-reveal (opacity-0 → opacity-100) so
-                it matches the retry button's behavior. Click enters inline edit
-                mode in ChatList; saving creates a new sibling branch. */}
             {onEdit && role === 'user' && (
                 <button
                     onClick={onEdit}
-                    className="p-1 rounded transition-all text-[var(--msg-copy-text)] hover:bg-[var(--msg-copy-hover)] hover:text-rose-300 opacity-0 group-hover:opacity-100"
+                    className="p-1 rounded-lg transition-all text-slate-500 hover:text-slate-300 hover:bg-white/5 opacity-0 group-hover:opacity-100"
                     aria-label="Edit message to create a new branch"
                     title="Edit — creates a new branch"
                 >
-                    <Pencil size={12} />
+                    <Pencil className="h-3.5 w-3.5" />
                 </button>
             )}
             <button
                 onClick={handleCopy}
-                className="p-1 rounded transition-colors text-[var(--msg-copy-text)] hover:bg-[var(--msg-copy-hover)]"
+                className="p-1 rounded-lg transition-all text-slate-500 hover:text-slate-300 hover:bg-white/5 opacity-0 group-hover:opacity-100"
                 aria-label={copied ? "Copied" : "Copy message content"}
                 title="Copy content"
             >
-                {copied ? <Check size={12} /> : <Copy size={12} />}
+                {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
             </button>
         </div>
       </div>
