@@ -14,6 +14,7 @@ import { createSidebarTransport } from '@/features/chat/lib/chat-transport'
 import { buildMessageTree, getActivePath, type BranchSelections } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
 import { useStreamSidebarReset } from '@/features/chat/hooks/use-stream-sidebar'
+import { useBranchShortcuts } from '@/features/chat/hooks/use-branch-shortcuts'
 import { useSidebarStore } from '@/features/chat/store'
 import { useAffinityTracker } from '@/features/emotional/hooks/use-affinity-tracker'
 
@@ -321,6 +322,9 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
   // full tree for the branch selector UI.
   const branchSelections = useBranchStore((s) => s.branchSelections)
   const messageTree = useMemo(() => buildMessageTree(allBranchMessages), [allBranchMessages])
+
+  // Keyboard shortcuts [ and ] for navigating branches on the active path.
+  useBranchShortcuts(messages, messageTree)
 
   // When the user switches branches, recompute the active path and
   // update useChat so the agent only sees the selected branch.
