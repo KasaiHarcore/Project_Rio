@@ -14,9 +14,11 @@ import time
 import threading
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
+from urllib.parse import urlparse
 from langchain_tavily import TavilyExtract
 from utils.log import log_success, log_error, log_info, log_warning
 from infrastructure.cache import cache_service
+from services import source_capture
 
 
 class WebExtractTool:
@@ -296,10 +298,13 @@ class WebExtractTool:
             for item in raw_results.get("results", []):
                 if isinstance(item, dict):
                     content = item.get("raw_content", "") or item.get("content", "")
-                    formatted["results"].append({
+                    truncated = self._truncate_content(content)
+                    entry = {
                         "url": item.get("url", ""),
-                        "raw_content": self._truncate_content(content),
-                    })
+                        "raw_content": truncated,
+                    }
+                    formatted["results"].append(entry)
+                    _capture_extract_source(entry["url"], truncated)
             for item in raw_results.get("failed_results", []):
                 if isinstance(item, dict):
                     formatted["failed_results"].append({
@@ -309,26 +314,55 @@ class WebExtractTool:
 
         elif isinstance(raw_results, str):
             # TavilyExtract may return a string directly
+            url = urls[0] if urls else ""
+            truncated = self._truncate_content(raw_results)
             formatted["results"].append({
-                "url": urls[0] if urls else "",
-                "raw_content": self._truncate_content(raw_results),
+                "url": url,
+                "raw_content": truncated,
             })
+            _capture_extract_source(url, truncated)
 
         elif isinstance(raw_results, list):
             for idx, item in enumerate(raw_results):
                 if isinstance(item, dict):
                     content = item.get("raw_content", "") or item.get("content", "")
+                    truncated = self._truncate_content(content)
+                    url = item.get("url", urls[idx] if idx < len(urls) else "")
                     formatted["results"].append({
-                        "url": item.get("url", urls[idx] if idx < len(urls) else ""),
-                        "raw_content": self._truncate_content(content),
+                        "url": url,
+                        "raw_content": truncated,
                     })
+                    _capture_extract_source(url, truncated)
                 elif isinstance(item, str):
+                    url = urls[idx] if idx < len(urls) else ""
+                    truncated = self._truncate_content(item)
                     formatted["results"].append({
-                        "url": urls[idx] if idx < len(urls) else "",
-                        "raw_content": self._truncate_content(item),
+                        "url": url,
+                        "raw_content": truncated,
                     })
+                    _capture_extract_source(url, truncated)
 
         return formatted
+
+
+def _capture_extract_source(url: str, content: str) -> None:
+    """Push a normalized web-source payload from an extract result."""
+    if not url:
+        return
+    try:
+        host = urlparse(url).hostname or url
+        if host.startswith("www."):
+            host = host[4:]
+    except Exception:
+        host = url
+    source_capture.append({
+        "kind": "web",
+        "url": url,
+        "title": host,
+        "snippet": (content or "")[:300],
+        "site_name": host,
+        "timestamp": time.time() * 1000,
+    })
 
 
 web_extract_tool = WebExtractTool()

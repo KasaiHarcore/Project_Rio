@@ -16,9 +16,11 @@ import time
 import threading
 from typing import Optional, List, Dict, Any, Literal
 from datetime import datetime
+from urllib.parse import urlparse
 from langchain_tavily import TavilySearch
 from utils.log import log_success, log_error, log_info, log_warning
 from infrastructure.cache import cache_service
+from services import source_capture
 
 _DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
@@ -397,7 +399,7 @@ class WebSearchTool:
                         "content": result.get("content", ""),
                         "score": result.get("score", 0.0)
                     }
-                    
+
                     # Optional fields
                     if "published_date" in result:
                         formatted_result["published_date"] = result["published_date"]
@@ -406,18 +408,44 @@ class WebSearchTool:
                         formatted_result["raw_content"] = result["raw_content"]
 
                     formatted["results"].append(formatted_result)
+
+                    _capture_web_source(formatted_result)
         
         elif isinstance(raw_results, list):
             for idx, result in enumerate(raw_results, 1):
                 if isinstance(result, dict):
-                    formatted["results"].append({
+                    entry = {
                         "rank": idx,
                         "title": result.get("title", "No title"),
                         "url": result.get("url", ""),
                         "content": result.get("content", "")
-                    })
-        
+                    }
+                    formatted["results"].append(entry)
+                    _capture_web_source(entry)
+
         return formatted
-    
+
+
+def _capture_web_source(result: Dict[str, Any]) -> None:
+    """Push a normalized web-source payload onto the per-stream accumulator."""
+    url = result.get("url") or ""
+    if not url:
+        return
+    try:
+        host = urlparse(url).hostname or url
+        if host.startswith("www."):
+            host = host[4:]
+    except Exception:
+        host = url
+    snippet_raw = result.get("content") or ""
+    source_capture.append({
+        "kind": "web",
+        "url": url,
+        "title": result.get("title") or url,
+        "snippet": snippet_raw[:300],
+        "site_name": host,
+        "timestamp": time.time() * 1000,
+    })
+
 
 web_search_tool = WebSearchTool()

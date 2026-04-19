@@ -1,9 +1,11 @@
 """Retrieval pipeline for vector search and hybrid rerank retrieval."""
 
+import time
 from pathlib import Path
 from typing import List, Optional, TYPE_CHECKING
 
 from utils.log import log_info, log_success, log_error, log_warning
+from services import source_capture
 
 if TYPE_CHECKING:
 	from infrastructure.cache.service import CacheService
@@ -91,6 +93,8 @@ class RetrievalService:
 
 				parts.append(f"{header}\n\n{meta}\n\n{d.page_content}")
 
+				_capture_doc_source(source_name, page, d.page_content)
+
 			result_text = "\n\n---\n\n".join(parts)
 			try:
 				cache_svc = _get_cache_service()
@@ -103,3 +107,20 @@ class RetrievalService:
 			log_error(f"Search failed: {e}")
 			return f"Search error: {str(e)}"
 
+
+def _capture_doc_source(filename: str, page, page_content: str) -> None:
+	"""Push a normalized doc-source payload onto the per-stream accumulator."""
+	if not filename or filename == "Unknown":
+		return
+	stem = Path(filename).stem
+	payload = {
+		"kind": "doc",
+		"filename": filename,
+		"title": stem or filename,
+		"excerpt": (page_content or "")[:400],
+		"source": "KB",
+		"timestamp": time.time() * 1000,
+	}
+	if isinstance(page, int):
+		payload["page"] = page
+	source_capture.append(payload)
