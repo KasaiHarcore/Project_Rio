@@ -1463,6 +1463,36 @@ function DetailPanel({ message, logicEntries, sources, onClose }: DetailPanelPro
       </div>
 
       <div className="flex-1 overflow-y-auto custom-scrollbar p-4 space-y-5">
+        <section>
+          <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
+            Thinking Steps ({sorted.length})
+          </h4>
+          {sorted.length === 0 ? (
+            <p className="text-[10px] text-slate-600 text-center py-4">No thinking steps recorded</p>
+          ) : (
+            <div className="space-y-2">
+              {sorted.map((entry) => {
+                const Icon = LOGIC_ICONS[entry.kind] ?? Info
+                const color = LOGIC_COLORS[entry.kind] ?? 'text-slate-400'
+                return (
+                  <div key={entry.id} className="flex items-start gap-2 rounded-lg px-2.5 py-2 bg-white/[0.02] border border-slate-800/50">
+                    <Icon className={cn('h-3 w-3 mt-0.5 flex-shrink-0', color)} />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-bold text-slate-300 leading-tight">{entry.title}</p>
+                      {entry.detail && (
+                        <p className="text-[9px] text-slate-500 mt-0.5 leading-snug break-words">{entry.detail}</p>
+                      )}
+                      <p className="text-[7px] font-mono text-slate-600 mt-0.5">
+                        {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </section>
+
         {sortedSources.length > 0 && (
           <section>
             <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
@@ -1478,36 +1508,6 @@ function DetailPanel({ message, logicEntries, sources, onClose }: DetailPanelPro
             </div>
           </section>
         )}
-
-        <section>
-        <h4 className="text-[9px] font-black uppercase tracking-[0.2em] text-slate-500 mb-3">
-          Thinking Steps ({sorted.length})
-        </h4>
-        {sorted.length === 0 ? (
-          <p className="text-[10px] text-slate-600 text-center py-4">No thinking steps recorded</p>
-        ) : (
-          <div className="space-y-2">
-            {sorted.map((entry) => {
-              const Icon = LOGIC_ICONS[entry.kind] ?? Info
-              const color = LOGIC_COLORS[entry.kind] ?? 'text-slate-400'
-              return (
-                <div key={entry.id} className="flex items-start gap-2 rounded-lg px-2.5 py-2 bg-white/[0.02] border border-slate-800/50">
-                  <Icon className={cn('h-3 w-3 mt-0.5 flex-shrink-0', color)} />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-[10px] font-bold text-slate-300 leading-tight">{entry.title}</p>
-                    {entry.detail && (
-                      <p className="text-[9px] text-slate-500 mt-0.5 leading-snug break-words">{entry.detail}</p>
-                    )}
-                    <p className="text-[7px] font-mono text-slate-600 mt-0.5">
-                      {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-                    </p>
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )}
-        </section>
       </div>
     </div>
   )
