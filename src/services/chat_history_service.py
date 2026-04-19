@@ -139,6 +139,21 @@ class ChatHistoryService:
             log_debug(f"Created thread {new_thread.id} for user {user_id}")
             return str(new_thread.id)
 
+    def get_latest_message_id(self, thread_id: str) -> Optional[str]:
+        """Return the ID of the most recent message in the thread, or None."""
+        thread_uuid = _parse_uuid(thread_id)
+        if not thread_uuid:
+            return None
+        try:
+            with get_db_context() as session:
+                message_repo = MessageRepository(session)
+                msgs = message_repo.find_by_thread(thread_id=thread_uuid, limit=1, order_asc=False)
+                if msgs:
+                    return str(msgs[0].id)
+        except Exception as e:
+            log_warning(f"get_latest_message_id failed: {e}")
+        return None
+
     def append_message_async(
         self,
         *,
@@ -148,6 +163,10 @@ class ChatHistoryService:
         content: str,
         run_id: Optional[str] = None,
         character_id: Optional[str] = None,
+        parent_id: Optional[str] = None,
+        message_id: Optional[str] = None,
+        metadata: Optional[dict] = None,
+        tool_name: Optional[str] = None,
     ) -> None:
         """Persist a message asynchronously.
 
@@ -155,6 +174,13 @@ class ChatHistoryService:
         before calling this method.  The async task will never create a new
         thread -- it only writes to the existing one.  If the thread cannot be
         found (e.g. deleted between calls) the message is silently dropped.
+
+        ``message_id``: optional pre-generated UUID string.  When provided the
+        message is created with this ID so callers can reference it immediately
+        (e.g. to set it as ``parent_id`` on a subsequent message).
+
+        ``metadata``: optional JSONB dict to store alongside the message
+        (e.g. logic_entries for agent process tracking).
         """
 
         def _task():
@@ -182,13 +208,21 @@ class ChatHistoryService:
                     existing_thread.updated_at = utc_now()
                     thread_repo.flush()
 
-                    message = Message(
-                        thread_id=thread_uuid,
-                        content=content,
-                        role=role,
-                        run_id=run_id,
-                        character_id=character_id,
-                    )
+                    msg_kwargs: dict = {
+                        "thread_id": thread_uuid,
+                        "content": content,
+                        "role": role,
+                        "run_id": run_id,
+                        "character_id": character_id,
+                        "parent_id": _parse_uuid(parent_id),
+                    }
+                    if message_id:
+                        msg_kwargs["id"] = _parse_uuid(message_id)
+                    if metadata:
+                        msg_kwargs["metadata_"] = metadata
+                    if tool_name:
+                        msg_kwargs["tool_name"] = tool_name
+                    message = Message(**msg_kwargs)
                     message_repo.create(message)
 
                     # Write-through to Redis hot window (best-effort).

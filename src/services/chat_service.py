@@ -492,3 +492,35 @@ class ChatService:
                 message_id=message_id,
                 metadata=metadata,
             )
+
+    def persist_tool_message(
+        self,
+        user_id: UUID,
+        thread_id: str,
+        content: str,
+        tool_name: str,
+        message_id: str,
+        parent_id: Optional[str] = None,
+        run_id: Optional[str] = None,
+        metadata: Optional[Dict] = None,
+    ) -> None:
+        """Persist a single tool result as a Message row with role='tool'.
+
+        Each tool invocation produces one row chained via ``parent_id`` so the
+        tree-view can render the worker as its own node. Sources / preview
+        fields belong in ``metadata`` (the same JSONB slot used for
+        assistant ``logic_entries`` / ``sources``).
+        """
+        if not content and not tool_name:
+            return
+        self._history.append_message_async(
+            user_id=user_id,
+            thread_id=thread_id,
+            role=MessageRole.TOOL,
+            content=content or "",
+            run_id=run_id,
+            parent_id=parent_id,
+            message_id=message_id,
+            metadata=metadata,
+            tool_name=tool_name,
+        )

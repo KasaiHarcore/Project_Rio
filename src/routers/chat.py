@@ -104,6 +104,14 @@ async def chat_stream(
         # uses it to flush its in-flight source buffer onto the right
         # UIMessage id (the persistence write is fire-and-forget async).
         assistant_message_id = str(uuid4())
+        # Tail of the message chain inside this turn. Starts at the user
+        # message that triggered the run; advances as we persist tool
+        # rows so each tool's parent_id chains correctly:
+        #   user → tool₁ → tool₂ → … → assistant_final → next_user
+        last_message_id: str | None = prep.user_message_id
+        # Number of sources already accumulated; lets us slice "this
+        # tool's sources" off the tail when persisting per-tool.
+        sources_consumed = 0
 
         yield start_message()
         yield start_step()
@@ -172,19 +180,51 @@ async def chat_stream(
                     worker_name = event.get("worker", "unknown")
                     success = event.get("success", True)
                     sources = event.get("sources") or []
+                    content_preview = event.get("content_preview", "")
                     yield data_event("worker-result", {
                         "worker": worker_name,
                         "success": success,
-                        "content_preview": event.get("content_preview", ""),
+                        "content_preview": content_preview,
                         "sources": sources,
                     })
                     if sources:
                         accumulated_sources.extend(sources)
                     logic_entries.append({
                         "title": f"{worker_name} completed" if success else f"{worker_name} failed",
-                        "detail": str(event.get("content_preview", ""))[:200] or None,
+                        "detail": str(content_preview)[:200] or None,
                         "kind": "tool-call",
                     })
+
+                    # Persist this tool result as its own Message row so the
+                    # tree-view can render it as a first-class node, chained
+                    # off whatever came before it in this turn.
+                    tool_message_id = str(uuid4())
+                    tool_metadata: dict | None = None
+                    if sources:
+                        tool_metadata = {"sources": sources}
+                    try:
+                        svc.persist_tool_message(
+                            user_id=prep.user_id,
+                            thread_id=prep.thread_id,
+                            content=str(content_preview or ""),
+                            tool_name=worker_name,
+                            message_id=tool_message_id,
+                            parent_id=last_message_id,
+                            run_id=run_id,
+                            metadata=tool_metadata,
+                        )
+                    except Exception as tool_persist_err:
+                        log_error(f"Failed to persist tool message: {tool_persist_err}")
+
+                    yield data_event("tool-message-persisted", {
+                        "message_id": tool_message_id,
+                        "parent_id": last_message_id,
+                        "tool_name": worker_name,
+                        "content": content_preview or "",
+                        "sources": sources,
+                    })
+                    sources_consumed += len(sources)
+                    last_message_id = tool_message_id
 
                 elif event_type == "planning":
                     content = event.get("content", "")
@@ -334,13 +374,22 @@ async def chat_stream(
 
         try:
             if full_answer:
+                # Chain parent_id off the LAST tool row (if any tools ran)
+                # so the message tree reads:
+                #   user → tool₁ → tool₂ → … → assistant
+                # Falls back to the original branching path when the user
+                # supplied an explicit parent_message_id (regenerate flow).
+                effective_assistant_parent = (
+                    body.parent_message_id
+                    or (last_message_id if last_message_id != prep.user_message_id else None)
+                )
                 svc.persist_assistant_message(
                     user_id=prep.user_id,
                     thread_id=prep.thread_id,
                     content=full_answer,
                     run_id=run_id,
                     character_id=prep.config.character,
-                    parent_id=body.parent_message_id,
+                    parent_id=effective_assistant_parent,
                     user_message_id=prep.user_message_id,
                     message_id=assistant_message_id,
                     metadata=msg_metadata,
