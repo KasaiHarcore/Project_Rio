@@ -31,7 +31,6 @@ import { useSidebarStore, type LogicEntry, type MessageSource } from '@/features
 import { buildMessageTree, getActivePath, getBranchRoot, type MessageNode } from '@/features/chat/lib/message-tree'
 import { useBranchStore } from '@/features/chat/stores/branch-store'
 import { SourcePreviewCard } from '@/features/chat/components/SourcePreviewCard'
-import { deriveMockSources } from '@/features/chat/lib/derive-sources'
 
 /* ─── Types ──────────────────────────────────────────────────────── */
 
@@ -1225,18 +1224,14 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
     return getLogicForMessage(msg, nextMsg, logicEntries)
   }, [selectedNodeId, allMessages, logicEntries])
 
-  // Sources for the selected assistant turn. Real sources (when emitted by
-  // the backend `source` SSE event) take precedence; otherwise fall back to
-  // mock sources derived from tool-call logic entries so the card UI is
-  // visible during development.
+  // Sources for the selected assistant turn. Populated by the transport
+  // (live stream) and MissionControl.loadMessagesIntoChat (reload).
   const messageSourcesMap = useSidebarStore((s) => s.messageSources)
   const selectedSources = useMemo<MessageSource[]>(() => {
     if (!selectedNodeId || !selectedMsg) return []
     if (selectedMsg.role !== 'assistant') return []
-    const fromStore = messageSourcesMap[selectedNodeId]
-    if (fromStore && fromStore.length > 0) return fromStore
-    return deriveMockSources(selectedLogic)
-  }, [selectedNodeId, selectedMsg, messageSourcesMap, selectedLogic])
+    return messageSourcesMap[selectedNodeId] ?? []
+  }, [selectedNodeId, selectedMsg, messageSourcesMap])
 
   // ── Scroll-to-HEAD ────────────────────────────────────────────────
   // HEAD = the last message on the active path. Pressing `h` (or the
