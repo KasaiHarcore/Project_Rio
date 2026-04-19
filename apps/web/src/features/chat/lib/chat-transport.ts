@@ -1,6 +1,6 @@
 import { DefaultChatTransport } from 'ai'
 import { useMissionStore } from '@/features/mission/store'
-import { useSidebarStore } from '@/features/chat/store'
+import { useSidebarStore, type MessageSource } from '@/features/chat/store'
 import { useSQLApprovalStore } from '@/features/chat/stores/sql-approval-store'
 import { useNoteConfirmationStore } from '@/features/chat/stores/note-confirmation-store'
 import { useEmotionalStore } from '@/features/emotional/store'
@@ -60,6 +60,11 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
   const reader = stream.getReader()
   const decoder = new TextDecoder()
   let buffer = ''
+  // Per-stream source buffer. Backend emits sources on every
+  // `worker-result` event but the assistant UIMessage id is only known
+  // when `message-persisted` arrives (after persistence). Buffer here,
+  // then flush onto the right messageId in one go.
+  const streamSources: MessageSource[] = []
 
   try {
     while (true) {
@@ -210,6 +215,9 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
               detail: d.content_preview ? String(d.content_preview).slice(0, 200) : undefined,
               kind: 'tool-call',
             })
+            if (Array.isArray(d.sources) && d.sources.length > 0) {
+              streamSources.push(...(d.sources as MessageSource[]))
+            }
           } else if (type === 'data-planning') {
             const d = evt.data ?? {}
             const content = typeof d.content === 'string' ? d.content : ''
@@ -337,6 +345,18 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
             if (Array.isArray(notes) && notes.length > 0) {
               useSidebarStore.getState().setContextualNotes(notes)
             }
+          } else if (type === 'data-message-persisted') {
+            const d = evt.data ?? {}
+            const messageId = typeof d.message_id === 'string' ? d.message_id : null
+            // Prefer the authoritative source list from the backend (already
+            // accumulated server-side); fall back to the streamed buffer if
+            // the payload is missing for any reason.
+            const fromBackend = Array.isArray(d.sources) ? (d.sources as MessageSource[]) : []
+            const sources = fromBackend.length > 0 ? fromBackend : streamSources
+            if (messageId && sources.length > 0) {
+              useSidebarStore.getState().setMessageSources(messageId, sources)
+            }
+            streamSources.length = 0
           } else if (type === 'data-final') {
             const d = evt.data ?? {}
             const timing = d.timing ?? {}
