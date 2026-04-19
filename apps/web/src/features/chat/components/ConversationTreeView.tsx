@@ -55,7 +55,9 @@ type EdgeKind = 'direct' | 'thinking' | 'tool' | 'source'
 
 type MessageNodeData = {
   label: string
-  role: 'user' | 'assistant'
+  role: 'user' | 'assistant' | 'tool'
+  /** Worker name when role === 'tool' (e.g. 'web', 'rag', 'sql'). */
+  toolName?: string
   text: string
   time: string
   isActive: boolean
@@ -585,6 +587,14 @@ function treeToFlow(
     const branchRootMsg = allMessages.find((m) => m.id === branchRootId)
     const branchRootText = branchRootMsg ? getMsgText(branchRootMsg) : ''
 
+    // Tool nodes carry their original role + worker name on sidecar fields
+    // (added by MissionControl.toUIMessages). The AI SDK's UIMessage type
+    // can't model 'tool' directly, so we read it off `backendRole`.
+    const backendRole = (msg as any).backendRole as string | undefined
+    const effectiveRole: MessageNodeData['role'] =
+      backendRole === 'tool' ? 'tool' : (msg.role as 'user' | 'assistant')
+    const toolName = (msg as any).toolName as string | undefined
+
     emittedNodeIds.add(msg.id)
     nodes.push({
       id: msg.id,
@@ -592,7 +602,8 @@ function treeToFlow(
       position: { x: 0, y: 0 },
       data: {
         label: getMsgText(msg),
-        role: msg.role as 'user' | 'assistant',
+        role: effectiveRole,
+        toolName,
         text: getMsgText(msg),
         time: getMsgTime(msg),
         isActive: activePathIds.has(msg.id),
@@ -669,6 +680,54 @@ function treeToFlow(
 function MessageNodeComponent({ data }: NodeProps<MessageFlowNode>) {
   const d = data as unknown as MessageNodeData
   const isAssistant = d.role === 'assistant'
+
+  // Tool variant — distinct compact card with worker-specific icon and
+  // tool name. Tools are read-only nodes (no edit, no carousel) — click
+  // opens the DetailPanel, which already renders persisted Sources for
+  // role='tool' rows via the existing messageSources flow.
+  if (d.role === 'tool') {
+    const meta = d.toolName
+      ? TOOL_CHIP_META[d.toolName.toLowerCase()] ?? {
+          ...DEFAULT_TOOL_CHIP,
+          label: d.toolName.toUpperCase().slice(0, 6),
+        }
+      : DEFAULT_TOOL_CHIP
+    const Icon = meta.icon
+    return (
+      <>
+        <Handle type="target" position={Position.Top} className="!bg-transparent !border-0 !w-0 !h-0" />
+        <div
+          className={cn(
+            "relative w-[240px] rounded-lg border-2 px-3 py-2 transition-all cursor-pointer overflow-hidden",
+            d.isSelected
+              ? "ring-2 ring-cyan-400 border-cyan-400 bg-[#0d1c24] shadow-[0_0_18px_rgba(34,211,238,0.45)]"
+              : d.isActive
+                ? "border-cyan-700/70 bg-[#0d1c24]/90 shadow-[0_0_10px_rgba(34,211,238,0.25)]"
+                : "border-cyan-900/40 bg-[#0d1c24]/40 opacity-60 hover:opacity-95",
+          )}
+        >
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className={cn(
+              "w-4 h-4 rounded flex items-center justify-center flex-shrink-0",
+              meta.color,
+            )}>
+              <Icon className="h-2.5 w-2.5" />
+            </div>
+            <span className="text-[9px] font-bold tracking-wider text-cyan-300">
+              TOOL · {meta.label || (d.toolName ?? 'TOOL').toUpperCase()}
+            </span>
+            {d.time && (
+              <span className="text-[8px] text-slate-500 font-mono ml-auto">[{d.time}]</span>
+            )}
+          </div>
+          <p className="text-[10px] text-slate-300 leading-snug line-clamp-2">
+            {truncate(d.text, 90)}
+          </p>
+        </div>
+        <Handle type="source" position={Position.Bottom} className="!bg-transparent !border-0 !w-0 !h-0" />
+      </>
+    )
+  }
 
   // Collapsed-run variant — renders a single "… N messages …" pill in place
   // of a straight chain of single-child messages. Click to expand.
