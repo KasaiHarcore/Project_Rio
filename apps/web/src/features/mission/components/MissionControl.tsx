@@ -191,9 +191,10 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     const activePath = tree.length > 0 ? getActivePath(tree, sel) : allUIMessages
     setMessages(activePath)
 
-    // Restore persisted logic entries from message metadata
+    // Restore persisted logic entries + source citations from message metadata
     const sidebar = useSidebarStore.getState()
     sidebar.clearLogicEntries()
+    sidebar.clearMessageSources()
     for (const rec of records) {
       const entries = rec.metadata?.logic_entries
       if (Array.isArray(entries)) {
@@ -207,6 +208,10 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
             })
           }
         }
+      }
+      const sources = rec.metadata?.sources
+      if (Array.isArray(sources) && sources.length > 0 && rec.id) {
+        sidebar.setMessageSources(rec.id, sources)
       }
     }
   }, [setMessages])

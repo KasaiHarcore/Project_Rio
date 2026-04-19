@@ -1,4 +1,5 @@
 import { apiFetch } from '@/shared/api/client'
+import type { MessageSource } from '@/features/chat/store'
 
 // ── Types ──────────────────────────────────────────────────────────────────
 
@@ -32,6 +33,7 @@ export interface MessageRecord {
       detail?: string | null;
       kind: 'thinking' | 'decision' | 'tool-call' | 'info';
     }>;
+    sources?: MessageSource[];
   } | null;
 }
 
