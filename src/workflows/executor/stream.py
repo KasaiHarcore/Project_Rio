@@ -22,6 +22,7 @@ from infrastructure.cache.redis_cache import redis_tool
 from infrastructure.telemetry.phoenix import (
     workflow_trace,
 )
+from services import source_capture
 from utils.log import log_debug, log_error, log_info, log_warning
 from workflows.checkpointer import (
     build_config_payload,
@@ -93,6 +94,11 @@ def stream_workflow(
     current_stage = "init"
     phase_timings: Dict[str, int] = {}
     answer = ""
+
+    # Initialize the per-stream source accumulator. Tools (web/RAG) push
+    # structured WebSource / DocSource payloads here; the ToolMessage
+    # handler below drains them onto each `worker` event.
+    source_capture.start_capture()
 
     try:
         with workflow_trace(
@@ -308,6 +314,7 @@ def stream_workflow(
                             "worker": display_name,
                             "success": True,
                             "content_preview": content[:TOOL_PREVIEW_LENGTH] if content else "",
+                            "sources": source_capture.drain(),
                         }
 
                 # Flush remaining message buffer

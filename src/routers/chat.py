@@ -98,6 +98,7 @@ async def chat_stream(
         text_started = False
         had_error = False
         logic_entries: list[dict] = []
+        accumulated_sources: list[dict] = []
 
         yield start_message()
         yield start_step()
@@ -165,11 +166,15 @@ async def chat_stream(
                 elif event_type == "worker":
                     worker_name = event.get("worker", "unknown")
                     success = event.get("success", True)
+                    sources = event.get("sources") or []
                     yield data_event("worker-result", {
                         "worker": worker_name,
                         "success": success,
                         "content_preview": event.get("content_preview", ""),
+                        "sources": sources,
                     })
+                    if sources:
+                        accumulated_sources.extend(sources)
                     logic_entries.append({
                         "title": f"{worker_name} completed" if success else f"{worker_name} failed",
                         "detail": str(event.get("content_preview", ""))[:200] or None,
