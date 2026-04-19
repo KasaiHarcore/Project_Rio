@@ -225,10 +225,40 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     // Tree view sees ALL rows (user + assistant + tool); ChatList sees
     // only user / assistant. Tool rows live exclusively in the tree.
     setAllBranchMessages(allUIMessages)
-    const linearMessages = allUIMessages.filter((m) => {
-      const backendRole = (m as any).backendRole as string | undefined
-      return backendRole !== 'tool'
-    })
+
+    // Linear set for ChatList / useChat — drop tool rows AND reparent
+    // each remaining message to its nearest non-tool ancestor. Required
+    // because the persisted assistant.parent_id chains through tool
+    // rows (user → tool → tool → assistant); without this rewrite,
+    // buildMessageTree would orphan the assistant and getActivePath
+    // would return [assistant] alone, hiding the user query.
+    const recordById = new Map(records.map((r) => [r.id, r]))
+    const nearestNonToolAncestorId = (startId: string | null | undefined): string | null => {
+      let cur: string | null = startId ?? null
+      const seen = new Set<string>()
+      while (cur && !seen.has(cur)) {
+        seen.add(cur)
+        const rec = recordById.get(cur)
+        if (!rec) return null
+        if (rec.role !== 'tool') return cur
+        cur = rec.parent_id ?? null
+      }
+      return null
+    }
+    const linearMessages = allUIMessages
+      .filter((m) => (m as any).backendRole !== 'tool')
+      .map((m) => {
+        const originalParent = (m as any).parentId as string | undefined
+        const skipped = nearestNonToolAncestorId(originalParent)
+        if (skipped !== (originalParent ?? null)) {
+          const clone: any = { ...m }
+          if (skipped) clone.parentId = skipped
+          else delete clone.parentId
+          return clone as UIMessage
+        }
+        return m
+      })
+
     // Build tree and extract active path for useChat (from the linear set,
     // so the AI SDK never has to render a tool row).
     const tree = buildMessageTree(linearMessages)
