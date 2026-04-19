@@ -37,6 +37,11 @@ function toUIMessages(records: MessageRecord[]): UIMessage[] {
   return records.map((r) => {
     const msg: UIMessage = {
       id: r.id,
+      // Tool rows are first-class in the tree view but the AI SDK
+      // UIMessage type only models 'user' | 'assistant' — we widen the
+      // cast and stash the original on a sidecar field that the tree
+      // view reads directly. ChatList filters tool rows out (see
+      // setMessages below) so the SDK never has to render them.
       role: r.role as 'user' | 'assistant',
       parts: [{ type: 'text' as const, text: r.content }],
     };
@@ -51,6 +56,12 @@ function toUIMessages(records: MessageRecord[]): UIMessage[] {
     // Attach parent_id for branching tree
     if (r.parent_id) {
       (msg as any).parentId = r.parent_id;
+    }
+    // Attach the original role + tool name so the tree view can pick
+    // the right node variant (user / assistant / tool).
+    (msg as any).backendRole = r.role;
+    if (r.tool_name) {
+      (msg as any).toolName = r.tool_name;
     }
     return msg;
   })
@@ -180,15 +191,49 @@ export function MissionControl({ threadId, onBack, onThreadCreated, onMessageCom
     }
   }, [messages])
 
+  // Merge live tool messages from the in-flight stream into the tree
+  // feed. Backend `data-tool-message-persisted` events push into
+  // `useSidebarStore.liveToolMessages`; the tree view then sees Tool
+  // nodes as soon as their worker finishes — no page reload needed.
+  const liveToolMessages = useSidebarStore((s) => s.liveToolMessages)
+  useEffect(() => {
+    if (liveToolMessages.length === 0) return
+    const existingIds = new Set(allBranchRef.current.map((m) => m.id))
+    const additions: UIMessage[] = []
+    for (const t of liveToolMessages) {
+      if (existingIds.has(t.id)) continue
+      const msg: UIMessage = {
+        id: t.id,
+        role: 'assistant',  // satisfy ai-sdk type; tree view reads backendRole
+        parts: [{ type: 'text' as const, text: t.content }],
+      }
+      ;(msg as any).backendRole = 'tool'
+      ;(msg as any).toolName = t.toolName
+      ;(msg as any).createdAt = new Date(t.createdAt)
+      if (t.parentId) (msg as any).parentId = t.parentId
+      additions.push(msg)
+    }
+    if (additions.length > 0) {
+      setAllBranchMessages((prev) => [...prev, ...additions])
+    }
+  }, [liveToolMessages])
+
   // Helper: given all records, build tree, compute active path, set into useChat.
   // Also restores persisted logic entries (agent process info) into the sidebar store.
   const loadMessagesIntoChat = useCallback((records: MessageRecord[], selections?: BranchSelections) => {
     const allUIMessages = toUIMessages(records)
+    // Tree view sees ALL rows (user + assistant + tool); ChatList sees
+    // only user / assistant. Tool rows live exclusively in the tree.
     setAllBranchMessages(allUIMessages)
-    // Build tree and extract active path for useChat
-    const tree = buildMessageTree(allUIMessages)
+    const linearMessages = allUIMessages.filter((m) => {
+      const backendRole = (m as any).backendRole as string | undefined
+      return backendRole !== 'tool'
+    })
+    // Build tree and extract active path for useChat (from the linear set,
+    // so the AI SDK never has to render a tool row).
+    const tree = buildMessageTree(linearMessages)
     const sel = selections ?? useBranchStore.getState().branchSelections
-    const activePath = tree.length > 0 ? getActivePath(tree, sel) : allUIMessages
+    const activePath = tree.length > 0 ? getActivePath(tree, sel) : linearMessages
     setMessages(activePath)
 
     // Restore persisted logic entries + source citations from message metadata
