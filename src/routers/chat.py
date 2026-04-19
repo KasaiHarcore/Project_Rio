@@ -99,6 +99,11 @@ async def chat_stream(
         had_error = False
         logic_entries: list[dict] = []
         accumulated_sources: list[dict] = []
+        # Pre-allocate the assistant message UUID so we can echo it on the
+        # `message-persisted` SSE event below — the frontend transport
+        # uses it to flush its in-flight source buffer onto the right
+        # UIMessage id (the persistence write is fire-and-forget async).
+        assistant_message_id = str(uuid4())
 
         yield start_message()
         yield start_step()
@@ -318,10 +323,14 @@ async def chat_stream(
 
         full_answer = "".join(answer_parts)
 
-        # Build metadata with logic entries for persistence
-        msg_metadata = None
-        if logic_entries:
-            msg_metadata = {"logic_entries": logic_entries}
+        # Build metadata with logic entries + sources for persistence
+        msg_metadata: dict | None = None
+        if logic_entries or accumulated_sources:
+            msg_metadata = {}
+            if logic_entries:
+                msg_metadata["logic_entries"] = logic_entries
+            if accumulated_sources:
+                msg_metadata["sources"] = accumulated_sources
 
         try:
             if full_answer:
@@ -333,8 +342,17 @@ async def chat_stream(
                     character_id=prep.config.character,
                     parent_id=body.parent_message_id,
                     user_message_id=prep.user_message_id,
+                    message_id=assistant_message_id,
                     metadata=msg_metadata,
                 )
+                # Echo the pre-allocated UUID + the full source set so the
+                # frontend transport can flush its in-flight buffer onto the
+                # correct UIMessage id (the async write may not have committed
+                # yet, but the id is stable).
+                yield data_event("message-persisted", {
+                    "message_id": assistant_message_id,
+                    "sources": accumulated_sources,
+                })
         except Exception as persist_err:
             log_error(f"Failed to persist assistant message: {persist_err}")
 

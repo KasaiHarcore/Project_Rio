@@ -466,6 +466,7 @@ class ChatService:
         character_id: Optional[str] = None,
         parent_id: Optional[str] = None,
         user_message_id: Optional[str] = None,
+        message_id: Optional[str] = None,
         metadata: Optional[Dict] = None,
     ) -> None:
         """Persist the assistant's response after streaming completes.
@@ -473,6 +474,10 @@ class ChatService:
         ``parent_id`` from the request body takes precedence (explicit
         branching).  Falls back to ``user_message_id`` so every assistant
         message chains to the user message that triggered it.
+
+        ``message_id`` lets the caller pre-allocate the UUID so it can be
+        echoed in the streaming ``message-persisted`` SSE event before the
+        async write finishes.
         """
         if content:
             effective_parent = parent_id or user_message_id
@@ -484,5 +489,6 @@ class ChatService:
                 run_id=run_id,
                 character_id=character_id,
                 parent_id=effective_parent,
+                message_id=message_id,
                 metadata=metadata,
             )
