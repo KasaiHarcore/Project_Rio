@@ -111,6 +111,22 @@ export interface DocSource {
 
 export type MessageSource = WebSource | DocSource
 
+/**
+ * One persisted tool-result Message row, as emitted by the streaming
+ * `tool-message-persisted` SSE event and re-hydrated from the message
+ * list on reload. Mirrors the backend persistence shape — the tree
+ * view consumes this directly to render Tool nodes between the user
+ * and assistant rows in the conversation tree.
+ */
+export interface LiveToolMessage {
+  id: string
+  parentId: string | null
+  toolName: string
+  content: string
+  createdAt: string
+  sources: MessageSource[]
+}
+
 /** A memory entry the agent writes or the user edits */
 export interface MemoryEntry {
   id: string
@@ -178,6 +194,15 @@ interface SidebarState {
    */
   liveAssistantSources: MessageSource[]
 
+  /**
+   * Tool-result messages emitted during the in-flight stream by the
+   * backend `data-tool-message-persisted` event. MissionControl merges
+   * these into ``allBranchMessages`` so the tree view shows the new
+   * Tool nodes as soon as their worker finishes — without waiting for
+   * a page reload. Cleared at the start of every new stream.
+   */
+  liveToolMessages: LiveToolMessage[]
+
   /* ── Actions ── */
   setActiveTab: (tab: SidebarTab) => void
 
@@ -230,6 +255,10 @@ interface SidebarState {
   appendLiveAssistantSource: (source: MessageSource) => void
   clearLiveAssistantSources: () => void
 
+  // Live tool messages (in-flight stream)
+  appendLiveToolMessage: (msg: LiveToolMessage) => void
+  clearLiveToolMessages: () => void
+
   resetSession: () => void
 }
 
@@ -269,6 +298,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   memoriesLoading: false,
   messageSources: {},
   liveAssistantSources: [],
+  liveToolMessages: [],
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -415,6 +445,12 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   })),
   clearLiveAssistantSources: () => set({ liveAssistantSources: [] }),
 
+  /* ── Live Tool Messages ── */
+  appendLiveToolMessage: (msg) => set((s) => ({
+    liveToolMessages: [...s.liveToolMessages, msg],
+  })),
+  clearLiveToolMessages: () => set({ liveToolMessages: [] }),
+
   /* ── Session Reset ── */
   resetSession: () => set({
     logicEntries: [],
@@ -429,6 +465,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
     memoriesLoading: false,
     messageSources: {},
     liveAssistantSources: [],
+    liveToolMessages: [],
     // Keep workspaceFiles — those are project-level, not session-level
   }),
 }))

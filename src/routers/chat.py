@@ -803,6 +803,7 @@ async def get_thread_messages(
                     character_id=getattr(m, "character_id", None),
                     parent_id=str(m.parent_id) if getattr(m, "parent_id", None) else None,
                     metadata=getattr(m, "metadata_", None),
+                    tool_name=getattr(m, "tool_name", None),
                 )
                 for m in messages
             ]

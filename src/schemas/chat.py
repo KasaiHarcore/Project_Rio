@@ -99,6 +99,7 @@ class MessageResponse(BaseModel):
     character_id: Optional[str] = None
     parent_id: Optional[str] = None
     metadata: Optional[Dict[str, Any]] = None
+    tool_name: Optional[str] = None
 
 
 class MessageListResponse(BaseModel):

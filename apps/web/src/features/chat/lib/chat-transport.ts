@@ -70,6 +70,10 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
   // is the latest assistant message whose UI id has not been
   // reconciled with the backend UUID.
   useSidebarStore.getState().clearLiveAssistantSources()
+  // Same for live tool messages — these are merged into the tree-view
+  // feed by MissionControl so newly-finished workers appear as Tool
+  // nodes immediately.
+  useSidebarStore.getState().clearLiveToolMessages()
 
   try {
     while (true) {
@@ -356,6 +360,25 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
             const { notes } = evt.data ?? {}
             if (Array.isArray(notes) && notes.length > 0) {
               useSidebarStore.getState().setContextualNotes(notes)
+            }
+          } else if (type === 'data-tool-message-persisted') {
+            const d = evt.data ?? {}
+            if (d.message_id && d.tool_name) {
+              const sources = Array.isArray(d.sources) ? (d.sources as MessageSource[]) : []
+              useSidebarStore.getState().appendLiveToolMessage({
+                id: String(d.message_id),
+                parentId: d.parent_id ? String(d.parent_id) : null,
+                toolName: String(d.tool_name),
+                content: typeof d.content === 'string' ? d.content : '',
+                createdAt: typeof d.created_at === 'string' ? d.created_at : new Date().toISOString(),
+                sources,
+              })
+              // Stash this tool's sources keyed by its message id so the
+              // DetailPanel can render a Sources section when the user
+              // clicks the Tool node directly.
+              if (sources.length > 0) {
+                useSidebarStore.getState().setMessageSources(String(d.message_id), sources)
+              }
             }
           } else if (type === 'data-message-persisted') {
             const d = evt.data ?? {}

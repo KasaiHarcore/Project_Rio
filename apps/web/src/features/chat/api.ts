@@ -22,11 +22,14 @@ export interface ThreadPatch {
 
 export interface MessageRecord {
   id: string;
+  /** 'user' | 'assistant' | 'tool' */
   role: string;
   content: string;
   created_at: string;
   character_id?: string;
   parent_id?: string | null;
+  /** Worker name when role === 'tool' (e.g. 'web', 'rag', 'sql'). */
+  tool_name?: string | null;
   metadata?: {
     logic_entries?: Array<{
       title: string;
