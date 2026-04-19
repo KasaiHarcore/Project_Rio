@@ -65,6 +65,11 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
   // when `message-persisted` arrives (after persistence). Buffer here,
   // then flush onto the right messageId in one go.
   const streamSources: MessageSource[] = []
+  // Reset the live-assistant fallback slot at the start of every new
+  // stream — the in-flight DetailPanel reads it when the click target
+  // is the latest assistant message whose UI id has not been
+  // reconciled with the backend UUID.
+  useSidebarStore.getState().clearLiveAssistantSources()
 
   try {
     while (true) {
@@ -216,7 +221,14 @@ async function dispatchCustomEvents(stream: ReadableStream<Uint8Array>, threadId
               kind: 'tool-call',
             })
             if (Array.isArray(d.sources) && d.sources.length > 0) {
-              streamSources.push(...(d.sources as MessageSource[]))
+              const incoming = d.sources as MessageSource[]
+              streamSources.push(...incoming)
+              // Also push to the live-assistant slot so the DetailPanel
+              // can show cards on the in-flight assistant message before
+              // its UI id has been reconciled with the backend UUID.
+              for (const src of incoming) {
+                useSidebarStore.getState().appendLiveAssistantSource(src)
+              }
             }
           } else if (type === 'data-planning') {
             const d = evt.data ?? {}

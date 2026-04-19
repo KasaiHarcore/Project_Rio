@@ -168,6 +168,16 @@ interface SidebarState {
    */
   messageSources: Record<string, MessageSource[]>
 
+  /**
+   * Sources for the in-flight assistant stream. The AI SDK assigns a
+   * client-generated id to the streaming assistant message, but the
+   * backend persists with its OWN UUID — those ids do not match until
+   * the next page reload re-fetches the message list. Until then, the
+   * DetailPanel falls back to this slot when the selected node is the
+   * latest assistant turn.
+   */
+  liveAssistantSources: MessageSource[]
+
   /* ── Actions ── */
   setActiveTab: (tab: SidebarTab) => void
 
@@ -215,6 +225,11 @@ interface SidebarState {
   appendMessageSource: (messageId: string, source: MessageSource) => void
   clearMessageSources: () => void
 
+  // Live assistant sources (in-flight stream)
+  setLiveAssistantSources: (sources: MessageSource[]) => void
+  appendLiveAssistantSource: (source: MessageSource) => void
+  clearLiveAssistantSources: () => void
+
   resetSession: () => void
 }
 
@@ -253,6 +268,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   persistedMemories: [],
   memoriesLoading: false,
   messageSources: {},
+  liveAssistantSources: [],
 
   setActiveTab: (tab) => set({ activeTab: tab }),
 
@@ -392,6 +408,13 @@ export const useSidebarStore = create<SidebarState>((set) => ({
   })),
   clearMessageSources: () => set({ messageSources: {} }),
 
+  /* ── Live Assistant Sources ── */
+  setLiveAssistantSources: (sources) => set({ liveAssistantSources: sources }),
+  appendLiveAssistantSource: (source) => set((s) => ({
+    liveAssistantSources: [...s.liveAssistantSources, source],
+  })),
+  clearLiveAssistantSources: () => set({ liveAssistantSources: [] }),
+
   /* ── Session Reset ── */
   resetSession: () => set({
     logicEntries: [],
@@ -405,6 +428,7 @@ export const useSidebarStore = create<SidebarState>((set) => ({
     persistedMemories: [],
     memoriesLoading: false,
     messageSources: {},
+    liveAssistantSources: [],
     // Keep workspaceFiles — those are project-level, not session-level
   }),
 }))

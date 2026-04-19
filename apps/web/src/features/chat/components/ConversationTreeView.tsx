@@ -1215,23 +1215,51 @@ export function ConversationTreeView({ allMessages, messages, status }: Conversa
 
   // Selected message for detail panel
   const selectedMsg = selectedNodeId ? allMessages.find((m) => m.id === selectedNodeId) ?? null : null
+
+  // Identify the latest assistant turn — used as a fallback for both
+  // logic entries and source cards when the in-flight UIMessage id has
+  // not yet been reconciled with the backend UUID (live-stream case).
+  const latestAssistantId = useMemo<string | null>(() => {
+    for (let i = allMessages.length - 1; i >= 0; i--) {
+      if (allMessages[i].role === 'assistant') return allMessages[i].id
+    }
+    return null
+  }, [allMessages])
+
   const selectedLogic = useMemo(() => {
     if (!selectedNodeId) return []
     const idx = allMessages.findIndex((m) => m.id === selectedNodeId)
     if (idx < 0) return []
     const msg = allMessages[idx]
     const nextMsg = idx + 1 < allMessages.length ? allMessages[idx + 1] : null
-    return getLogicForMessage(msg, nextMsg, logicEntries)
-  }, [selectedNodeId, allMessages, logicEntries])
+    const windowed = getLogicForMessage(msg, nextMsg, logicEntries)
+    if (windowed.length > 0) return windowed
+    // Fallback: when this is the latest assistant turn, the time-window
+    // filter usually misses everything because the message's createdAt
+    // is set when streaming COMPLETES — after every tool call. Show all
+    // current-session entries instead.
+    if (msg.role === 'assistant' && msg.id === latestAssistantId) {
+      return logicEntries
+    }
+    return []
+  }, [selectedNodeId, allMessages, logicEntries, latestAssistantId])
 
   // Sources for the selected assistant turn. Populated by the transport
   // (live stream) and MissionControl.loadMessagesIntoChat (reload).
   const messageSourcesMap = useSidebarStore((s) => s.messageSources)
+  const liveAssistantSources = useSidebarStore((s) => s.liveAssistantSources)
   const selectedSources = useMemo<MessageSource[]>(() => {
     if (!selectedNodeId || !selectedMsg) return []
     if (selectedMsg.role !== 'assistant') return []
-    return messageSourcesMap[selectedNodeId] ?? []
-  }, [selectedNodeId, selectedMsg, messageSourcesMap])
+    const persisted = messageSourcesMap[selectedNodeId]
+    if (persisted && persisted.length > 0) return persisted
+    // Live fallback — backend UUID hasn't been bound to the UI message
+    // id yet (only happens after the next page reload).
+    if (selectedNodeId === latestAssistantId && liveAssistantSources.length > 0) {
+      return liveAssistantSources
+    }
+    return []
+  }, [selectedNodeId, selectedMsg, messageSourcesMap, latestAssistantId, liveAssistantSources])
 
   // ── Scroll-to-HEAD ────────────────────────────────────────────────
   // HEAD = the last message on the active path. Pressing `h` (or the
