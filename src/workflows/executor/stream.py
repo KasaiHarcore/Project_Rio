@@ -4,8 +4,12 @@ Streaming workflow execution entry point.
 
 from __future__ import annotations
 
+import json
+import re
 import time
+from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
+from urllib.parse import urlparse
 from uuid import uuid4
 
 from langchain_core.messages import AIMessage, AIMessageChunk, ToolMessage
@@ -309,12 +313,22 @@ def stream_workflow(
                         if raw_name.startswith("delegate_"):
                             display_name = raw_name.replace("delegate_", "").replace("_task", "") + " agent"
                         content = getattr(chunk, "content", "") or ""
+
+                        # Source capture: prefer the contextvar accumulator
+                        # (works when tools run in the same async context),
+                        # fall back to parsing the ToolMessage content directly
+                        # (works when ToolNode dispatches via run_in_executor
+                        # without context propagation — the common case).
+                        sources = source_capture.drain()
+                        if not sources:
+                            sources = _parse_sources_from_tool_content(raw_name, content)
+
                         yield {
                             "type": "worker",
                             "worker": display_name,
                             "success": True,
                             "content_preview": content[:TOOL_PREVIEW_LENGTH] if content else "",
-                            "sources": source_capture.drain(),
+                            "sources": sources,
                         }
 
                 # Flush remaining message buffer
@@ -414,3 +428,97 @@ def stream_workflow(
     except Exception as e:
         log_error(f"Streaming workflow failed at {current_stage}: {e}")
         yield {"type": "error", "error": str(e), "run_id": run_id}
+
+
+# ── Source extraction from ToolMessage content ────────────────────────────
+# LangGraph's ToolNode dispatches sync tools via ``loop.run_in_executor`` which
+# does NOT propagate ``contextvars`` to the worker thread, so the
+# ``source_capture`` accumulator is empty by the time we drain it. This
+# fallback parses the tool's stringified JSON / markdown output directly so
+# source cards still flow without changing how tools are registered.
+
+_SOURCE_LINE = re.compile(
+    r"\*Source:\*\s+(?P<filename>[^|\n]+?)\s*(?:\|\s*\*Page:\*\s+(?P<page>\d+))?\s*(?:\||\n|$)"
+)
+
+
+def _parse_sources_from_tool_content(tool_name: str, content: str) -> List[Dict[str, Any]]:
+    """Best-effort extraction of structured sources from a ToolMessage payload.
+
+    Web tools (``web_search`` / ``web_extract``) return a JSON-serializable
+    dict with a ``results`` array carrying ``url`` / ``title`` / ``content``.
+    RAG retrieval (``search_documents``) returns a markdown string with
+    ``*Source:* filename | *Page:* N`` headers.
+    """
+    if not content:
+        return []
+    now_ms = time.time() * 1000
+
+    # 1) Try JSON — covers both web tools.
+    try:
+        parsed = json.loads(content) if isinstance(content, str) else content
+    except (json.JSONDecodeError, TypeError):
+        parsed = None
+    if isinstance(parsed, dict):
+        web_sources: List[Dict[str, Any]] = []
+        for r in parsed.get("results") or []:
+            if not isinstance(r, dict):
+                continue
+            url = r.get("url") or ""
+            if not url:
+                continue
+            try:
+                host = urlparse(url).hostname or url
+                if host.startswith("www."):
+                    host = host[4:]
+            except Exception:
+                host = url
+            snippet_raw = r.get("content") or r.get("raw_content") or ""
+            web_sources.append({
+                "kind": "web",
+                "url": url,
+                "title": r.get("title") or host,
+                "snippet": (snippet_raw or "")[:300],
+                "site_name": host,
+                "timestamp": now_ms,
+            })
+        if web_sources:
+            return web_sources
+
+    # 2) Markdown RAG fallback — split on the result-header marker.
+    if isinstance(content, str) and "*Source:*" in content:
+        doc_sources: List[Dict[str, Any]] = []
+        # Split per "### Result N" block so excerpt is per-chunk.
+        blocks = re.split(r"###\s+Result\s+\d+\s*", content)
+        for block in blocks:
+            block = block.strip()
+            if not block:
+                continue
+            m = _SOURCE_LINE.search(block)
+            if not m:
+                continue
+            filename = m.group("filename").strip()
+            if not filename or filename.lower() == "unknown":
+                continue
+            # Excerpt is everything after the meta line.
+            meta_end = m.end()
+            excerpt = block[meta_end:].strip().lstrip("|").strip()
+            payload: Dict[str, Any] = {
+                "kind": "doc",
+                "filename": filename,
+                "title": Path(filename).stem or filename,
+                "excerpt": excerpt[:400] if excerpt else "",
+                "source": "KB",
+                "timestamp": now_ms,
+            }
+            page = m.group("page")
+            if page:
+                try:
+                    payload["page"] = int(page)
+                except ValueError:
+                    pass
+            doc_sources.append(payload)
+        if doc_sources:
+            return doc_sources
+
+    return []
