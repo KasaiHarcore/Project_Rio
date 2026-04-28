@@ -11,7 +11,9 @@ from workflows.react_graph import (
 
 
 def test_input_guardrail_routes_to_planner_on_pass():
-    assert _route_after_input_guardrail({"guardrail_passed": True}) == "planner"
+    # Happy path now hops through context_inject before the static edge
+    # forwards to planner — see react_graph._build_graph_skeleton.
+    assert _route_after_input_guardrail({"guardrail_passed": True}) == "context_inject"
 
 
 def test_input_guardrail_routes_to_reject_on_fail():
@@ -19,7 +21,9 @@ def test_input_guardrail_routes_to_reject_on_fail():
 
 
 def test_input_guardrail_no_planner_routes_to_agent():
-    assert _route_after_input_guardrail_no_planner({"guardrail_passed": True}) == "agent"
+    # No-planner mode also routes through context_inject; the static edge
+    # then forwards directly to agent.
+    assert _route_after_input_guardrail_no_planner({"guardrail_passed": True}) == "context_inject"
 
 
 def test_output_guardrail_routes_to_end_on_pass():
