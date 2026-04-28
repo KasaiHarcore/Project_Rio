@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.10.4"
+  PYTHON_VERSION: "3.12"
+
+jobs:
+  lint:
+    name: Lint (ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      # NOTE: lint + format are informational at the moment — large legacy
+      # backlog (~6k findings, ~209 files unformatted). Track in
+      # SECURITY-TRIAGE.md and flip to strict per-rule once incrementally
+      # cleaned. Failing CI on day 1 would block all unrelated work.
+      - name: Ruff check
+        continue-on-error: true
+        run: uv run ruff check src tests
+      - name: Ruff format check
+        continue-on-error: true
+        run: uv run ruff format --check src tests
+
+  security:
+    name: Security (bandit + pip-audit)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Bandit (medium+ severity)
+        # -ll = report only Medium and High severity findings
+        # -ii = report only Medium and High confidence findings
+        run: uv run bandit -r src -c pyproject.toml -ll -ii
+      - name: pip-audit (vulnerabilities in installed deps)
+        # Audit the locally-resolved dependency tree.
+        # Drained 50 → 25 vulns (2026-04-28). Residual = langchain coordinated
+        # bump + pillow/pypdf majors + transformers RC — see SECURITY-TRIAGE.md.
+        # Stays informational until residual cluster bumps land.
+        continue-on-error: true
+        run: uv run pip-audit -l
+
+  tests:
+    name: Tests (unit + static + workflows)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+        with:
+          version: ${{ env.UV_VERSION }}
+      - name: Install dependencies
+        run: uv sync --group dev
+      - name: Run pytest
+        # Skip the e2e marker — those need live HTTP + DB which CI doesn't have.
+        # Integration auth_cookies is infra-free per its docstring, so it is included.
+        # --cov-fail-under=37 = current floor (2026-04-28). Raise as coverage grows;
+        # global rule is 80%. This gate exists to block regressions, not pass the bar.
+        run: uv run pytest -m "not e2e" --cov=src --cov-report=term-missing --cov-report=xml --cov-fail-under=37
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.xml
+          if-no-files-found: ignore
